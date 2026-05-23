@@ -1,0 +1,50 @@
+# ── Database ──────────────────────────────────────────────────────────────────
+lytrize.db
+*.db
+*.sqlite
+*.sqlite3
+
+# ── Environment & secrets ─────────────────────────────────────────────────────
+.lytrize_env/
+.env
+.streamlit/secrets.toml
+*.txt
+sql_db_config/
+dev_extra/
+my_venv/
+
+# ── Test & sample data ────────────────────────────────────────────────────────
+test.csv
+tests/data/
+*.zip
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Virtual environments ──────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── IDE & OS ──────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── Coverage & testing ────────────────────────────────────────────────────────
+.coverage
+.pytest_cache/
+htmlcov/
