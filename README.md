@@ -39,35 +39,44 @@ It is built for people who work with data regularly and want answers fast, witho
 
 ## System requirements
 
-- **OS:** Linux (Ubuntu 20.04 or later recommended; any modern Debian-based distro)
-- **Architecture:** amd64 (64-bit)
+- **OS:** Any modern Debian/Fedora based distro
+- **Architecture:** amd64 (64-bit) only
 - **Python:** 3.11 or later (checked at install time)
 - **Browser:** Any installed browser — Chrome, Chromium, Firefox, Brave, or Edge — to view the app and export PNGs
 - **Disk:** ~400 MB for the installed package (includes a self-contained Python environment)
 - **RAM:** 2 GB minimum; 4 GB or more recommended for large files
 
+ - **Python packages:** See `requirements.txt` for the exact Python runtime dependencies. `PySide6` is required for the desktop launcher/GUI, and `pycountry` is an optional dependency used for geographic name matching in map visualisations.
+
 ---
 
 ## Install
 
-### Option 1 — Download the .deb package *(recommended)*
+### Option 1 — Download a prebuilt package (recommended)
 
-1. Download `lytrize.deb` from the [Releases page](https://github.com/lytrize/lytrize-desktop/releases).
-2. Install it:
+Prebuilt packages for Debian (`.deb`) and RPM-based distros (`.rpm`) are provided on the [Releases page](https://github.com/lytrize/lytrize-desktop/releases). Download the package that matches your distribution.
+
+- Install a Debian package:
 
 ```bash
 sudo dpkg -i lytrize.deb
+sudo apt -f install   # fix missing dependencies if prompted
 ```
 
-3. Launch from your application menu, or run:
+- Install an RPM package (Fedora / RHEL / CentOS):
+
+```bash
+sudo rpm -Uvh lytrize.rpm
+sudo dnf install ./lytrize.rpm
+```
+
+After installation launch from your application menu or run:
 
 ```bash
 lytrize
 ```
 
-That is all. No manual Python setup, no `pip install`, no virtual environment to activate.
-
-If `dpkg` reports missing dependencies, run `sudo apt -f install` and try again.
+Both package formats are built by the repository and may be uploaded as release assets. If you plan to distribute both formats, upload them to a single GitHub Release so users on either family of distributions can download the right artifact.
 
 ### Option 2 — Build from source
 
@@ -97,7 +106,11 @@ Your session saves automatically. Use **Export HTML** to download a standalone f
 ## Uninstall
 
 ```bash
-sudo dpkg -r lytrize
+# For debian
+sudo apt purge lytrize 
+# For fedora
+sudo dnf remove lytrize
+
 ```
 
 Your saved sessions and preferences are kept at `~/.local/share/lytrize/` by default. The uninstaller will ask if you want to remove them.

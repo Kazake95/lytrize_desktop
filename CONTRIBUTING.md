@@ -136,11 +136,14 @@ source .venv/bin/activate
 
 # 3. Install Python dependencies
 pip install -r requirements.txt
-pip install PySide6
 
 # 4. Launch the full desktop app (PySide6 window + Streamlit backend)
 python desktop/gui.py
 ```
+
+Notes:
+- The `requirements.txt` file contains the core dependencies used by the Streamlit backend and analysis modules. If you're working on the desktop launcher or the system tray UI, ensure `PySide6` is installed (it's listed in `requirements.txt`).
+- The `pycountry` package is optional and used only for geographic name/country-code matching in map visualisations — the code imports it conditionally.
 
 The first launch creates `~/.local/share/lytrize/lytrize.db` automatically.
 
@@ -379,6 +382,23 @@ lytrize
 - `desktop/gui.py` checks `BASE / "venv" / "bin" / "python"` at runtime as the primary interpreter path.
 - `postinst` calls `python3 -m venv --upgrade` to re-link the venv to the target machine's Python after install. This is fast (symlink-only) and requires no network access.
 - If `build.sh` succeeds but `dpkg -i` fails with dependency errors, run `sudo apt -f install` to resolve them, then re-install.
+
+Additional RPM packaging notes
+
+- The repository also includes an RPM spec and a helper script for producing an RPM package: see `packaging/rpm/lytrize.spec` and `build_rpm.sh`.
+- `build_rpm.sh` follows the same high-level steps as `build.sh`: create a venv inside the package, install runtime dependencies into it, fix shebangs, and produce a distributable RPM file.
+- Ensure the packaged venv ends up at `/opt/lytrize/venv` inside the RPM as well so runtime paths are consistent across formats.
+
+Releases and distribution
+
+- When publishing a release, upload both `lytrize.deb` and `lytrize.rpm` as assets on the same GitHub Release so users on Debian/Ubuntu and RPM-based distributions can download the correct package.
+- Example using the `gh` CLI to create a release and upload assets:
+
+```bash
+gh release create vX.Y.Z build/lytrize.deb build/lytrize.rpm --title "vX.Y.Z" --notes "Release notes"
+```
+
+- Verify the installed package on both distro families before publishing. Document any distro-specific dependency notes in the release description.
 
 ---
 
