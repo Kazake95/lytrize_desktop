@@ -39,7 +39,7 @@ It is built for people who work with data regularly and want answers fast, witho
 
 ## System requirements
 
-- **OS:** Linux (Any modern Debian-based or fedora-based distro)
+- **OS:** Linux (Ubuntu 20.04 or later recommended; any modern Debian-based distro)
 - **Architecture:** amd64 (64-bit)
 - **Python:** 3.11 or later (checked at install time)
 - **Browser:** Any installed browser — Chrome, Chromium, Firefox, Brave, or Edge — to view the app and export PNGs
@@ -56,7 +56,7 @@ It is built for people who work with data regularly and want answers fast, witho
 2. Install it:
 
 ```bash
-sudo dpkg -i lytrize_1.0_amd64.deb
+sudo dpkg -i lytrize_1.2_amd64.deb
 ```
 
 3. Launch from your application menu, or run:
