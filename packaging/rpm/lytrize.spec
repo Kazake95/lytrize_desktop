@@ -7,6 +7,21 @@ BuildArch:      x86_64
 License:        See /opt/lytrize/LICENSE
 URL:            https://github.com/lytrize/lytrize-desktop
 
+# ── QA overrides ─────────────────────────────────────────────────────────────
+# The bundled Python venv contains manylinux wheels (scipy, numpy, pandas) whose
+# .so files carry hardcoded RPATHs from their build environment.  These are
+# intentional and self-contained; disabling the RPATH checker prevents a false
+# positive build failure.
+%global __brp_check_rpaths %{nil}
+
+# Stop RPM auto-scanning the venv for Requires/Provides.  The venv is
+# self-contained — all its inter-library dependencies are satisfied internally.
+# Letting RPM auto-detect them generates broken Requires against system libs
+# that may not exist under the same name on every distro.
+%global __requires_exclude_from ^/opt/lytrize/venv/.*$
+%global __provides_exclude_from ^/opt/lytrize/venv/.*$
+
+# ── Runtime dependencies ──────────────────────────────────────────────────────
 Requires:       python3 >= 3.11
 Requires:       mesa-libGL
 Requires:       mesa-libEGL

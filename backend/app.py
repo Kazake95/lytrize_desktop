@@ -130,23 +130,37 @@ def _restore_draft(user_id: int) -> None:
         pass
 
     # ── Restore the dataframe from disk snapshot ──────────────────────────
-    # The df is not stored in the DB (too large); it lives in a per-user
-    # parquet file. If the snapshot exists and charts were restored,
-    # re-inject df so the analysis page can immediately add more charts.
-    if st.session_state.get("charts"):
-        df = load_df_snapshot(user_id)
-        if df is not None:
-            st.session_state.df = df
+    # Always attempt to load the parquet — regardless of whether charts exist.
+    # The snapshot survives an app restart on most systems; it is only lost
+    # on reboot when XDG_RUNTIME_DIR points to a tmpfs (graceful no-op then).
+    df = load_df_snapshot(user_id)
+    if df is not None:
+        st.session_state.df = df
+        # Restore column descriptions so analysis page shows correct types
+        try:
+            col_descs = json.loads(draft.get("col_descriptions_json", "{}") or "{}")
+            if col_descs:
+                st.session_state.col_descriptions = col_descs
+        except Exception:
+            pass
 
     # ── Restore the last active page ─────────────────────────────────────
-    # Restore analysis/dashboard only if BOTH charts AND df are available.
-    # df lives in a /tmp parquet snapshot which is wiped on reboot — if it's
-    # gone, sending the user to dashboard/analysis would show a broken page.
-    # Go to home instead and let them re-upload.
-    saved_page = draft.get("page", "")
+    # • df + charts available → restore to analysis or dashboard
+    # • df available but no charts → restore to upload page so the user
+    #   can continue the analysis pipeline without re-uploading
+    # • df not available (parquet gone after reboot) → home; let user re-upload
+    saved_page   = draft.get("page", "")
     df_available = st.session_state.get("df") is not None
-    if saved_page in ("analysis", "dashboard") and st.session_state.get("charts") and df_available:
-        st.session_state._restore_to_page = saved_page
+    has_charts   = bool(st.session_state.get("charts"))
+    if df_available:
+        if has_charts and saved_page in ("analysis", "dashboard"):
+            st.session_state._restore_to_page = saved_page
+        elif has_charts:
+            st.session_state._restore_to_page = "analysis"
+        else:
+            # Data loaded, no charts yet — resume on upload page so the
+            # pipeline (column cleanup, preview) is available immediately.
+            st.session_state._restore_to_page = "upload"
 
 
 def main() -> None:

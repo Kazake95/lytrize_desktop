@@ -195,7 +195,10 @@ def _persist_draft(page="analysis"):
             k: v for k, v in st.session_state.items()
             if k.startswith("chart_meta_")
         }),
-        layout_mode          = st.session_state.get("layout_mode", "portrait"),
+        layout_mode           = st.session_state.get("layout_mode", "portrait"),
+        col_descriptions_json = json.dumps(
+            st.session_state.get("col_descriptions", {})
+        ),
     )
 
 
@@ -205,6 +208,14 @@ def _add_charts(new_charts, active):
         st.session_state[f"chart_type_{uid}"]    = active
         st.session_state[f"auto_insights_{uid}"] = generate_chart_insights(
             active, title, fig, col_descs)
+        # Pre-seed scoped edit keys from the main config panel keys so that
+        # "Edit Chart" reopens with the exact values used to generate this chart,
+        # not the widget defaults.
+        _cfg_prefix = f"_cfg_{active}_"
+        for _k, _v in list(st.session_state.items()):
+            if _k.startswith(_cfg_prefix):
+                _suffix = _k[len(_cfg_prefix):]
+                st.session_state[f"_edit_{uid}_{active}_{_suffix}"] = _v
     st.session_state.charts.extend(new_charts)
     st.session_state._last_analysis_type = active
     if active not in st.session_state.selected_analyses:
@@ -576,9 +587,9 @@ def _render_chart_list(charts, edit_mode=False):
                                  help="Re-run this chart with new columns / settings"):
                         st.session_state._regen_uid  = uid
                         st.session_state._regen_type = chart_type
-                        for k in list(st.session_state.keys()):
-                            if k.startswith(f"_edit_{uid}_"):
-                                del st.session_state[k]
+                        # Do NOT clear _edit_{uid}_* keys — they hold the values
+                        # seeded at generation time (or from the last edit) so
+                        # the panel reopens showing the correct previous selections.
                         _shadow_notes_sync()
                         st.rerun()
                 else:
@@ -594,14 +605,9 @@ def _render_chart_list(charts, edit_mode=False):
                 _autosave()
                 st.rerun()
 
-        # ── CACHE: capture what was cached BEFORE this render's settings run ────
-        # _set_chart_meta mutates meta in-place, so meta always differs after settings.
-        # Store the pre-settings snapshot so we can compare it against the cached
-        # state to decide whether a rebuild is needed.
-        _pre_meta_key    = f"_pre_meta_{uid}"
-        _pre_snapshot    = json.dumps(meta, sort_keys=True, default=str)
-        st.session_state[_pre_meta_key] = _pre_snapshot
-
+        # ── CACHE setup ───────────────────────────────────────────────────────────
+        # Snapshot is captured AFTER the settings column runs (below) so that
+        # any change the user makes is reflected in the SAME rerun, not the next.
         _cache_key       = f"_fig_cache_{uid}"
         _cache_meta_key  = f"_fig_cache_meta_{uid}"
         _cached_fig      = st.session_state.get(_cache_key)
@@ -643,12 +649,16 @@ def _render_chart_list(charts, edit_mode=False):
                 )
                 _set_chart_meta(uid, text_style=text_style)
 
-        # ── LEFT COLUMN: Chart plot (declared AFTER settings so meta is current) ─
-        # Cache check: compare cached state vs pre-settings state.
-        # First render:     cached_state is "" → rebuild (correct).
-        # Settings changed: cached_state = "{...old...}" != "{...new...}" → rebuild.
-        # No change:        cached_state == pre_snapshot → reuse cached figure.
-        _need_rebuild = (_cached_fig is None or _cached_snapshot != _pre_snapshot)
+        # Capture snapshot AFTER settings panel has written new meta into session_state.
+        # Comparing this against _cached_snapshot detects changes in the CURRENT rerun,
+        # eliminating the one-rerun lag that the pre-settings snapshot caused.
+        _post_snapshot = json.dumps(_chart_meta(uid), sort_keys=True, default=str)
+
+        # ── LEFT COLUMN: Chart plot ────────────────────────────────────────────
+        # First render:     _cached_fig is None          → rebuild
+        # Settings changed: _cached_snapshot != _post_snapshot → rebuild
+        # No change:        snapshots equal              → reuse cached figure
+        _need_rebuild = (_cached_fig is None or _cached_snapshot != _post_snapshot)
 
         with _chart_col:
             if _need_rebuild:
@@ -694,20 +704,25 @@ def _render_chart_list(charts, edit_mode=False):
                 fig_show = apply_chart_display_options(fig_show, meta, _ctype_apply, _inplace=True)
 
                 st.session_state[_cache_key]     = fig_show
-                st.session_state[_cache_meta_key] = _pre_snapshot
+                st.session_state[_cache_meta_key] = _post_snapshot
             else:
                 fig_show = _cached_fig
 
             is_horiz = any(getattr(t, "orientation", "v") == "h"
                            for t in fig_show.data if hasattr(t, "orientation"))
-            if is_horiz:
-                fig_show.update_yaxes(tickfont=dict(size=10), automargin=True)
-                fig_show.update_xaxes(tickfont=dict(size=10))
-                fig_show.update_layout(margin=dict(l=120, r=20, t=28, b=20))
-            else:
-                fig_show.update_xaxes(tickangle=-35, tickfont=dict(size=10), automargin=True)
-                fig_show.update_yaxes(tickfont=dict(size=10), automargin=True)
-                fig_show.update_layout(margin=dict(l=20, r=20, t=28, b=80))
+            # Matrix tables use go.Table (no x/y axes) and set their own
+            # margins inside matrix_table.py / apply_chart_display_options.
+            # Applying axis post-processing corrupts the footer trace layout.
+            _skip_axis_post = (_ctype_apply == "matrix_table")
+            if not _skip_axis_post:
+                if is_horiz:
+                    fig_show.update_yaxes(tickfont=dict(size=10), automargin=True)
+                    fig_show.update_xaxes(tickfont=dict(size=10))
+                    fig_show.update_layout(margin=dict(l=120, r=20, t=28, b=20))
+                else:
+                    fig_show.update_xaxes(tickangle=-35, tickfont=dict(size=10), automargin=True)
+                    fig_show.update_yaxes(tickfont=dict(size=10), automargin=True)
+                    fig_show.update_layout(margin=dict(l=20, r=20, t=28, b=80))
 
             apply_hover_format(fig_show)
 

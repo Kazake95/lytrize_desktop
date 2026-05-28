@@ -248,13 +248,18 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
 
         # ── Column widths (character-length-based) ──────────────────────────
         _idx_w  = min(max(max((len(str(r)) for r in y_labels), default=6), len(str(idx)), 8), 30)
-        _data_w = min(max(max((len(str(v)) for row in z_values for v in row), default=6),
-                          max((len(str(h)) for h in x_labels), default=4), 6), 16)
+        # Column width: use the MAXIMUM of header-name length and formatted value
+        # length so column headers always fit without truncation.
+        _hdr_len  = max((len(str(h)) for h in x_labels), default=4)
+        _val_len  = max((len(str(v)) for row in z_values for v in row
+                         if v is not None and not (isinstance(v, float) and np.isnan(v))),
+                        default=4)
+        _data_w = min(max(_hdr_len, _val_len, 6), 24)  # cap at 24 (was 16)
         _tot_w  = max(len("Total"), _data_w)
         _col_widths = [_idx_w] + [_data_w] * n_cols_p + [_tot_w]
 
-        _px_per_unit = 9
-        _fig_width   = min((sum(_col_widths)) * _px_per_unit + 24, 1100)
+        _px_per_unit = 8   # slightly tighter per-char multiplier with wider cap
+        _fig_width   = min((sum(_col_widths)) * _px_per_unit + 24, 1400)  # allow up to 1400
 
         # ── Build cell colour arrays (conditional gradient per column) ───────
         hdr_color = pal[0] if pal else "#4f46e5"

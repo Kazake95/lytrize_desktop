@@ -8,7 +8,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-SPEC=packaging/rpm/lytrize.spec
+PKG_DIR=packaging/rpm
+SPEC=$PKG_DIR/lytrize.spec
+
 APP=$(      awk '/^Name:/      { print $2 }' "$SPEC")
 VERSION=$(  awk '/^Version:/   { print $2 }' "$SPEC")
 RELEASE=$(  awk '/^Release:/   { print $2 }' "$SPEC" | sed 's/%{?dist}//')
@@ -40,6 +42,7 @@ for tool in python3 rpmbuild; do
     fi
 done
 
+# ── [1/7] Clean ───────────────────────────────────────────────────────────────
 echo "[1/7] Cleaning old build..."
 rm -rf build
 mkdir -p "$STAGING/opt/$APP" \
@@ -47,13 +50,16 @@ mkdir -p "$STAGING/opt/$APP" \
          "$STAGING/usr/share/applications" \
          "$RPMBUILD_ROOT/"{BUILD,RPMS,SOURCES,SPECS,SRPMS,BUILDROOT}
 
+# ── [2/7] Copy app files ──────────────────────────────────────────────────────
 echo "[2/7] Copying app files..."
 cp -r backend  "$STAGING/opt/$APP/"
 cp -r desktop  "$STAGING/opt/$APP/"
 cp service/lytrize.service "$STAGING/opt/$APP/"
-cp packaging/usr/local/bin/lytrize             "$STAGING/usr/local/bin/lytrize"
-cp packaging/usr/share/applications/lytrize.desktop \
-                                               "$STAGING/usr/share/applications/lytrize.desktop"
+
+# Copy RPM-specific launcher stub and desktop entry
+cp "$PKG_DIR/usr/local/bin/lytrize"             "$STAGING/usr/local/bin/lytrize"
+cp "$PKG_DIR/usr/share/applications/lytrize.desktop" \
+                                                "$STAGING/usr/share/applications/lytrize.desktop"
 
 find "$STAGING/opt/$APP" -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
 find "$STAGING/opt/$APP" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete 2>/dev/null || true
@@ -78,11 +84,15 @@ if [ -f "$ICON_SRC" ]; then
              "$STAGING/usr/share/pixmaps"
     cp "$ICON_SRC" "$STAGING/usr/share/icons/hicolor/scalable/apps/lytrize.png"
     cp "$ICON_SRC" "$STAGING/usr/share/pixmaps/lytrize.png"
+else
+    echo "      WARNING: backend/assets/lytrize.png not found — package will have no icon."
 fi
 
+# ── [3/7] Create virtual environment ─────────────────────────────────────────
 echo "[3/7] Creating virtual environment..."
 python3 -m venv "$VENV"
 
+# ── [4/7] Install Python dependencies ────────────────────────────────────────
 echo "[4/7] Installing Python dependencies..."
 "$VENV/bin/pip" install --upgrade pip --quiet
 "$VENV/bin/pip" install \
@@ -96,6 +106,7 @@ echo "[4/7] Installing Python dependencies..."
 echo "      Installing PySide6 (may take 2-3 minutes)..."
 "$VENV/bin/pip" install PySide6 --quiet
 
+# ── [5/7] Patch venv shebangs for portability ─────────────────────────────────
 echo "[5/7] Patching venv shebangs for portability..."
 VENV_ABS="$(realpath "$VENV")"
 find "$VENV/bin" -maxdepth 1 -type f | while read -r f; do
@@ -106,12 +117,13 @@ done
 PYDIR="$(dirname "$(readlink -f "$(which python3)")")"
 sed -i "s|^home = .*|home = $PYDIR|" "$VENV/pyvenv.cfg" 2>/dev/null || true
 
+# ── [6/7] Slim venv ────────────────────────────────────────────────────────────
 echo "[6/7] Slimming venv..."
 find "$VENV" -type d \( -name '__pycache__' -o -name 'tests' -o -name 'test' -o -name 'docs' \) \
     -exec rm -rf {} + 2>/dev/null || true
 find "$VENV" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete 2>/dev/null || true
 
-# Set permissions before rpmbuild picks them up
+# Set permissions
 find "$STAGING" -type d -exec chmod 755 {} \;
 find "$STAGING" -type f -exec chmod 644 {} \;
 chmod 755 "$STAGING/usr/local/bin/lytrize"
@@ -119,13 +131,20 @@ chmod 755 "$STAGING/opt/$APP/desktop/gui.py"
 chmod 755 "$STAGING/opt/$APP/desktop/launcher.py"
 find "$VENV/bin" -type f -exec chmod 755 {} \;
 
+# ── [7/7] Build RPM ────────────────────────────────────────────────────────────
 echo "[7/7] Building .rpm package..."
 cp "$SPEC" "$RPMBUILD_ROOT/SPECS/lytrize.spec"
 
+# QA_RPATHS bitmask: 0x0001 (standard) | 0x0002 (invalid) | 0x0010 (empty)
+# Suppresses the check-rpaths failure caused by manylinux .so files in the
+# bundled venv (scipy/numpy OpenBLAS RPATHs from the manylinux build env).
+export QA_RPATHS=$(( 0x0001|0x0002|0x0010 ))
+
 rpmbuild -bb \
-    --define "_topdir   $RPMBUILD_ROOT" \
-    --define "_rpmdir   $RPMBUILD_ROOT/RPMS" \
-    --define "staging_dir $STAGING" \
+    --define "_topdir        $RPMBUILD_ROOT" \
+    --define "_rpmdir        $RPMBUILD_ROOT/RPMS" \
+    --define "staging_dir    $STAGING" \
+    --define "__brp_check_rpaths %{nil}" \
     --define "_build_name_fmt %%{NAME}-%%{VERSION}-%%{RELEASE}.%%{ARCH}.rpm" \
     "$RPMBUILD_ROOT/SPECS/lytrize.spec"
 

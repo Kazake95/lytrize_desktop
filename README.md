@@ -39,7 +39,7 @@ It is built for people who work with data regularly and want answers fast, witho
 
 ## System requirements
 
-- **OS:** Linux (Any modern Debian or fedora based distro)
+- **OS:** Linux (Ubuntu 20.04 or later recommended; any modern Debian-based distro)
 - **Architecture:** amd64 (64-bit)
 - **Python:** 3.11 or later (checked at install time)
 - **Browser:** Any installed browser — Chrome, Chromium, Firefox, Brave, or Edge — to view the app and export PNGs
@@ -52,11 +52,11 @@ It is built for people who work with data regularly and want answers fast, witho
 
 ### Option 1 — Download the .deb package *(recommended)*
 
-1. Download `lytrize_1.0_amd64.deb` from the [Releases page](https://github.com/lytrize/lytrize-desktop/releases).
+1. Download `lytrize_1.2_amd64.deb` from the [Releases page](https://github.com/lytrize/lytrize-desktop/releases).
 2. Install it:
 
 ```bash
-sudo dpkg -i lytrize_1.0_amd64.deb
+sudo dpkg -i lytrize_1.2_amd64.deb
 ```
 
 3. Launch from your application menu, or run:
@@ -72,9 +72,9 @@ If `dpkg` reports dependency errors, run `sudo apt-get install -f` and re-run th
 ### Option 2 — Install the .rpm package (Fedora / RHEL / openSUSE)
 
 ```bash
-sudo rpm -i lytrize-1.0.x86_64.rpm
+sudo rpm -i lytrize-1.2-1.x86_64.rpm
 # or with dnf:
-sudo dnf install lytrize-1.0.x86_64.rpm
+sudo dnf install lytrize-1.2-1.x86_64.rpm
 ```
 
 ### Option 3 — Build from source

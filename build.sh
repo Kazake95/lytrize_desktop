@@ -6,9 +6,10 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
+PKG_DIR=packaging/deb
 APP=lytrize
-VERSION=$(grep '^Version:'      packaging/DEBIAN/control | awk '{print $2}')
-ARCH=$(grep    '^Architecture:' packaging/DEBIAN/control | awk '{print $2}')
+VERSION=$(grep '^Version:'      "$PKG_DIR/DEBIAN/control" | awk '{print $2}')
+ARCH=$(grep    '^Architecture:' "$PKG_DIR/DEBIAN/control" | awk '{print $2}')
 BUILD=build/${APP}_${VERSION}_${ARCH}
 VENV_TARGET=/opt/$APP/venv
 VENV_BUILD=$BUILD$VENV_TARGET
@@ -38,7 +39,6 @@ cp -r backend  "$BUILD/opt/$APP/"
 cp -r desktop  "$BUILD/opt/$APP/"
 cp service/lytrize.service "$BUILD/opt/$APP/"
 
-# Strip caches and stray editor copy files
 find "$BUILD/opt/$APP" -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
 find "$BUILD/opt/$APP" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete 2>/dev/null || true
 find "$BUILD/opt/$APP" -name "* (copy*).py" -delete 2>/dev/null || true
@@ -82,11 +82,11 @@ find "$VENV_BUILD" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete 2>/dev/n
 # ── [7/7] Assemble and build .deb ─────────────────────────────────────────────
 echo "[7/7] Building .deb package..."
 
-cp -r packaging/DEBIAN "$BUILD/"
-cp -r packaging/usr    "$BUILD/"
+# Copy deb-specific packaging files
+cp -r "$PKG_DIR/DEBIAN" "$BUILD/"
+cp -r "$PKG_DIR/usr"    "$BUILD/"
 
-# Bake icon into the package at multiple sizes so the app icon shows
-# on any desktop environment without relying on postinst succeeding.
+# Bake icon into the package at all standard sizes
 ICON_SRC="backend/assets/lytrize.png"
 if [ -f "$ICON_SRC" ]; then
     echo "      Packaging icons..."
@@ -109,14 +109,14 @@ else
 fi
 
 # Set permissions
-find "$BUILD" -type d                          -exec chmod 755 {} \;
-find "$BUILD" -type f                          -exec chmod 644 {} \;
+find "$BUILD" -type d                -exec chmod 755 {} \;
+find "$BUILD" -type f                -exec chmod 644 {} \;
 chmod 755 "$BUILD/usr/local/bin/lytrize"
 chmod 755 "$BUILD/DEBIAN/postinst"
 chmod 755 "$BUILD/DEBIAN/postrm"
 chmod 755 "$BUILD/opt/$APP/desktop/gui.py"
 chmod 755 "$BUILD/opt/$APP/desktop/launcher.py"
-find "$VENV_BUILD/bin" -type f                 -exec chmod 755 {} \;
+find "$VENV_BUILD/bin" -type f       -exec chmod 755 {} \;
 
 dpkg-deb --build --root-owner-group "$BUILD"
 

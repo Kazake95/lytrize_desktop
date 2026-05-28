@@ -272,47 +272,66 @@ def apply_chart_display_options(
                     tr.textfont = existing_font
 
             if ttype == "table":
+                # The matrix table uses TWO go.Table traces: trace[0] is the
+                # main data table, trace[1] is the footer (column totals).
+                # The footer trace has an all-empty header (height=0 to hide it).
+                # Applying data styling to the footer trace makes its invisible
+                # header visible and corrupts alignment — skip it here.
+                # Footer visibility is handled separately below.
+                _hdr_vals = getattr(tr.header, "values", None) or []
+                _is_footer_trace = all(
+                    str(v).strip() in ("", "[]", "None")
+                    for v in _hdr_vals
+                ) and len(_hdr_vals) > 0
+                if _is_footer_trace:
+                    continue  # leave footer trace untouched; handled in footer block
+
                 cell_size    = int(opts.get("table_font_size", 11))
                 header_size  = int(opts.get("table_header_font_size", max(cell_size, 12)))
                 row_h        = int(opts.get("table_row_height", 26))
                 hdr_h        = int(opts.get("table_header_height", 34))
                 idx_align    = opts.get("table_index_align", "left")
                 data_align   = opts.get("table_data_align", "right")
-                # Merge into existing font dict so colour is preserved.
-                # Previously `dict(size=cell_size)` replaced the whole dict,
-                # wiping the colour set in matrix_table.py and making text invisible.
                 _cell_font = dict(getattr(tr.cells, "font", None) or {})
                 _cell_font["size"]  = cell_size
                 _cell_font["color"] = str(opts.get("table_font_color") or _cell_font.get("color") or "#f1f5f9")
                 tr.cells.font   = _cell_font
-                tr.header.font  = dict(size=header_size, color="white")
+                tr.header.font  = dict(size=header_size, color="white",
+                                       family="Inter, system-ui, sans-serif")
                 tr.cells.height  = row_h
                 tr.header.height = hdr_h
-                # Re-apply alignment if there's more than one column (index + data)
                 if hasattr(tr.cells, "align") and hasattr(tr.header, "values"):
                     n_hdr_cols = len(tr.header.values) if tr.header.values else 0
                     if n_hdr_cols > 1:
-                        # First col = index, rest = data/total cols
-                        tr.cells.align = [idx_align] + [data_align] * (n_hdr_cols - 1)
+                        tr.cells.align  = [idx_align] + [data_align] * (n_hdr_cols - 1)
                         tr.header.align = [idx_align] + ["center"] * (n_hdr_cols - 1)
-                # Toggle gradient cells: if disabled, reset fill_color to flat alternating
+                # Toggle gradient cells
                 if opts.get("table_gradient_cells") is False:
                     n_rows = len(tr.cells.values[0]) if tr.cells.values else 0
                     flat_fills = ["#1e293b" if i % 2 == 0 else "#0f172a" for i in range(n_rows)]
                     tr.cells.fill_color = [flat_fills] * max(len(tr.cells.values), 1)
-                # Toggle row totals column (last column in first trace)
-                if opts.get("table_show_row_totals") is False and hasattr(tr.cells, "values"):
+                # Toggle row totals column — remove from both main and footer trace
+                if opts.get("table_show_row_totals") is False:
                     try:
-                        if len(tr.cells.values) > 1:
-                            vals_list = list(tr.cells.values)
-                            hdr_list  = list(tr.header.values)
-                            # Remove last column if it looks like totals
-                            if "Total" in str(hdr_list[-1]):
-                                tr.cells.values  = vals_list[:-1]
-                                tr.header.values = hdr_list[:-1]
-                                cw = list(tr.columnwidth or [])
-                                if cw:
-                                    tr.columnwidth = cw[:-1]
+                        vals_list = list(tr.cells.values)
+                        hdr_list  = list(tr.header.values)
+                        if len(vals_list) > 1 and "Total" in str(hdr_list[-1]):
+                            tr.cells.values  = vals_list[:-1]
+                            tr.header.values = hdr_list[:-1]
+                            cw = list(tr.columnwidth or [])
+                            if cw:
+                                tr.columnwidth = cw[:-1]
+                            # Also remove from footer trace so column widths match
+                            _all_tables = [t for t in f2.data
+                                           if str(getattr(t,"type","")).lower()=="table"]
+                            if len(_all_tables) >= 2:
+                                _ft = _all_tables[1]
+                                _fv = list(_ft.cells.values)
+                                if _fv:
+                                    _ft.cells.values = _fv[:-1]
+                                _fcw = list(_ft.columnwidth or [])
+                                if _fcw:
+                                    _ft.columnwidth = _fcw[:-1]
                     except Exception:
                         pass
 

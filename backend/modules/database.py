@@ -268,8 +268,9 @@ def init_db() -> None:
         dashboard_title      TEXT DEFAULT '',
         kpis_json            TEXT DEFAULT '[]',
         chart_meta_json      TEXT DEFAULT '{}',
-        layout_mode          TEXT DEFAULT 'portrait',
-        updated_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        layout_mode           TEXT DEFAULT 'portrait',
+        col_descriptions_json TEXT DEFAULT '{}',
+        updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id)
     )""")
 
@@ -296,6 +297,7 @@ def init_db() -> None:
         "ALTER TABLE sessions ADD COLUMN grid_order_json TEXT DEFAULT '[]'",
         "ALTER TABLE sessions ADD COLUMN grid_fullwidth_json TEXT DEFAULT '{}'",
         "ALTER TABLE sessions ADD COLUMN updated_at      TIMESTAMP",
+        "ALTER TABLE draft_sessions ADD COLUMN col_descriptions_json TEXT DEFAULT '{}'",
     ]:
         try:
             c.execute(ddl)
@@ -765,6 +767,7 @@ def save_draft(
     kpis_json: str = "[]",
     chart_meta_json: str = "{}",
     layout_mode: str = "portrait",
+    col_descriptions_json: str = "{}",
 ) -> None:
     """
     Upsert the user's current in-progress state to draft_sessions.
@@ -776,11 +779,13 @@ def save_draft(
                     INSERT OR REPLACE INTO draft_sessions
                         (user_id, page, charts_json, file_name, editing_session_id,
                          editing_session_name, dashboard_title, kpis_json,
-                         chart_meta_json, layout_mode, updated_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)""",
+                         chart_meta_json, layout_mode, col_descriptions_json,
+                         updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)""",
                     (user_id, page, charts_json, file_name,
                      editing_session_id, editing_session_name,
-                     dashboard_title, kpis_json, chart_meta_json, layout_mode),
+                     dashboard_title, kpis_json, chart_meta_json, layout_mode,
+                     col_descriptions_json),
                 )
     except Exception:
         pass

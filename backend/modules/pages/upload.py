@@ -201,7 +201,39 @@ def page_upload():
             _show_analysis_pipeline(st.session_state.df, uploaded.name)
 
 
+def _save_upload_snapshot(df, file_name: str) -> None:
+    """Persist df parquet + minimal draft immediately after upload.
+
+    Called from _show_analysis_pipeline so the dataset survives an app
+    restart even before the user reaches the analysis page.
+    """
+    uid = st.session_state.get("user_id")
+    if not uid:
+        return
+    try:
+        from modules.utils.session_cache import save_df_snapshot
+        from modules.database import save_draft
+        import json as _json
+        save_df_snapshot(uid)
+        save_draft(
+            user_id               = uid,
+            page                  = "upload",
+            charts_json           = "[]",
+            file_name             = file_name,
+            col_descriptions_json = _json.dumps(
+                st.session_state.get("col_descriptions", {})
+            ),
+        )
+    except Exception:
+        pass  # Never block the upload flow on a snapshot failure
+
+
 def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
+    # Persist the df snapshot and a minimal draft immediately on upload so
+    # the dataset can be restored if the app is restarted before any charts
+    # are generated (analysis.py also calls _persist_draft but only once
+    # the user has navigated there).
+    _save_upload_snapshot(df, file_name)
     st.markdown("---")
     _n_rows = df.shape[0]
     _n_cols = df.shape[1]
