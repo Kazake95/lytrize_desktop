@@ -54,7 +54,7 @@ Built for people who work with data regularly and want answers fast, without ope
 ### Option 1 — Debian / Ubuntu (.deb) *(recommended)*
 
 ```bash
-sudo dpkg -i lytrize_1.2_amd64.deb
+sudo dpkg -i lytrize_1.0_amd64.deb
 ```
 
 If `dpkg` reports missing dependencies:
@@ -74,9 +74,9 @@ No manual Python setup, no `pip install`, no virtual environment to activate.
 ### Option 2 — Fedora / RHEL / openSUSE (.rpm)
 
 ```bash
-sudo dnf install lytrize-1.2-1.x86_64.rpm
+sudo dnf install lytrize-1.0-1.x86_64.rpm
 # or on older systems:
-sudo rpm -i lytrize-1.2-1.x86_64.rpm
+sudo rpm -i lytrize-1.0-1.x86_64.rpm
 ```
 
 ### Option 3 — Build from source

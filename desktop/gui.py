@@ -157,6 +157,7 @@ _BROWSER_CANDIDATES: list[tuple[str, str, bool]] = [
     ("Zen Browser",    "zen",                   False),
     ("LibreWolf",      "librewolf",             False),
     ("Brave-Origin",   "Brave-Origin-Nightly",  False),
+    ("Brave-Origin",   "Brave-Origin-Beta",     False),
     ("Default",        "xdg-open",              False),
 ]
 
