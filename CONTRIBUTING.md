@@ -130,15 +130,19 @@ lytrize_desktop/
 │   │                            subprocess management, system tray
 │   └── launcher.py              CLI entry point called by /usr/local/bin/lytrize
 ├── packaging/
-│   ├── DEBIAN/
-│   │   ├── control              Package metadata and runtime dependencies
-│   │   ├── postinst             Post-install hook (venv re-link, icon cache)
-│   │   └── postrm               Post-removal cleanup
-│   ├── rpm/
-│   │   └── lytrize.spec         RPM spec (mirrors DEBIAN/control + postinst/postrm)
-│   └── usr/
-│       ├── local/bin/lytrize    Shell stub (sets Qt env vars, writes launch log)
-│       └── share/applications/lytrize.desktop  Desktop entry file
+│   ├── deb/
+│   │   ├── DEBIAN/
+│   │   │   ├── control          Package metadata and runtime dependencies
+│   │   │   ├── postinst         Post-install hook (venv re-link, icon cache)
+│   │   │   └── postrm           Post-removal cleanup
+│   │   └── usr/
+│   │       ├── local/bin/lytrize          Shell stub (Qt env vars, launch log)
+│   │       └── share/applications/lytrize.desktop
+│   └── rpm/
+│       ├── lytrize.spec         RPM spec (mirrors deb/DEBIAN/ files)
+│       └── usr/
+│           ├── local/bin/lytrize
+│           └── share/applications/lytrize.desktop
 ├── service/
 │   └── lytrize.service          Optional systemd user service
 ├── requirements.txt             Python runtime dependencies
@@ -428,7 +432,7 @@ lytrize
 - `postinst` re-links the bundled venv by updating symlinks and `pyvenv.cfg` — no `ensurepip`, no network access required at install time. It handles Python minor-version mismatches by symlinking `lib/python<target>` → `lib/python<build>`.
 - `postinst` does **not** use `set -e`. Each optional step (icon cache, symlinks) fails gracefully so one broken step cannot abort the entire install.
 - The shell stub exports `QT_PLUGIN_PATH`, `QT_QPA_PLATFORM_PLUGIN_PATH`, and `LD_LIBRARY_PATH` so PySide6 finds its bundled Qt platform plugins without requiring system Qt packages. It writes launch errors to `/tmp/lytrize-launch.log`.
-- Runtime system dependencies: `python3 (>= 3.11)`, `libgl1`, `libegl1`, `libglib2.0-0`, `libxcb-cursor0`, `libdbus-1-3`. If you add PySide6 features requiring additional Qt modules, add the corresponding system library to `Depends` in `packaging/DEBIAN/control`.
+- Runtime system dependencies: `python3 (>= 3.11)`, `libgl1`, `libegl1`, `libglib2.0-0`, `libxcb-cursor0`, `libdbus-1-3`. If you add PySide6 features requiring additional Qt modules, add the corresponding system library to `Depends` in `packaging/deb/DEBIAN/control`.
 
 ### RPM (Fedora / RHEL / openSUSE)
 
@@ -438,7 +442,7 @@ bash build_rpm.sh
 sudo dnf install build/lytrize-1.2-1.x86_64.rpm
 ```
 
-The spec file is at `packaging/rpm/lytrize.spec`. It mirrors `DEBIAN/control` for metadata, `postinst` for `%post`, and `postrm` for `%postun`. When changing either Debian or RPM packaging files, update both.
+The spec file is at `packaging/rpm/lytrize.spec`. It mirrors `deb/DEBIAN/control` for metadata, `postinst` for `%post`, and `postrm` for `%postun`. When changing either Debian or RPM packaging files, update both.
 
 ---
 
@@ -457,5 +461,5 @@ The spec file is at `packaging/rpm/lytrize.spec`. It mirrors `DEBIAN/control` fo
 - [ ] No outbound network calls added to backend code
 - [ ] `python -c "import sys; sys.path.insert(0, 'backend'); import app"` exits cleanly
 - [ ] `bash build.sh` completes without errors
-- [ ] If new PySide6/Qt features added, required system library added to `Depends` in `DEBIAN/control` **and** `Requires` in `packaging/rpm/lytrize.spec`
+- [ ] If new PySide6/Qt features added, required system library added to `Depends` in `packaging/deb/DEBIAN/control` **and** `Requires` in `packaging/rpm/lytrize.spec`
 - [ ] This document updated if the workflow, architecture, or file layout changed

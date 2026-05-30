@@ -76,7 +76,7 @@ No manual Python setup, no `pip install`, no virtual environment to activate.
 ```bash
 sudo dnf install lytrize-1.0-1.x86_64.rpm
 # or on older systems:
-sudo rpm -i lytrize-1.0-1.x86_64.rpm
+sudo rpm -i lytrize-1.2-1.x86_64.rpm
 ```
 
 ### Option 3 — Build from source
