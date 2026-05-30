@@ -47,6 +47,7 @@ from modules.charts import (
 from modules.ui.css import inject_footer, render_logo
 from modules.ui.chart_settings import (
     apply_chart_display_options,
+    compute_meta_hash,
     render_chart_settings_controls,
 )
 
@@ -611,7 +612,7 @@ def _render_chart_list(charts, edit_mode=False):
         _cache_key       = f"_fig_cache_{uid}"
         _cache_meta_key  = f"_fig_cache_meta_{uid}"
         _cached_fig      = st.session_state.get(_cache_key)
-        _cached_snapshot = st.session_state.get(_cache_meta_key, "")
+        _cached_hash = st.session_state.get(_cache_meta_key, "")
 
         chart_type    = st.session_state.get(f"chart_type_{uid}", "")
         auto_insights = st.session_state.get(f"auto_insights_{uid}")
@@ -652,13 +653,13 @@ def _render_chart_list(charts, edit_mode=False):
         # Capture snapshot AFTER settings panel has written new meta into session_state.
         # Comparing this against _cached_snapshot detects changes in the CURRENT rerun,
         # eliminating the one-rerun lag that the pre-settings snapshot caused.
-        _post_snapshot = json.dumps(_chart_meta(uid), sort_keys=True, default=str)
+        _post_hash = compute_meta_hash(_chart_meta(uid))
 
         # ── LEFT COLUMN: Chart plot ────────────────────────────────────────────
         # First render:     _cached_fig is None          → rebuild
         # Settings changed: _cached_snapshot != _post_snapshot → rebuild
         # No change:        snapshots equal              → reuse cached figure
-        _need_rebuild = (_cached_fig is None or _cached_snapshot != _post_snapshot)
+        _need_rebuild = (_cached_fig is None or _cached_hash != _post_hash)
 
         with _chart_col:
             if _need_rebuild:
@@ -704,7 +705,7 @@ def _render_chart_list(charts, edit_mode=False):
                 fig_show = apply_chart_display_options(fig_show, meta, _ctype_apply, _inplace=True)
 
                 st.session_state[_cache_key]     = fig_show
-                st.session_state[_cache_meta_key] = _post_snapshot
+                st.session_state[_cache_meta_key] = _post_hash
             else:
                 fig_show = _cached_fig
 

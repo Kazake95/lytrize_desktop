@@ -26,6 +26,144 @@ COLORSCALES_SEQUENTIAL = ["Blues", "Viridis", "Plasma", "Magma", "Cividis",
 COLORSCALES_ALL        = COLORSCALES_DIVERGING + COLORSCALES_SEQUENTIAL
 
 
+# ── Chart-type settings schema ────────────────────────────────────────────────
+# Each analysis type has a dedicated set of capabilities and allowed controls.
+# This replaces the unreliable trace_capabilities() runtime detection for UI.
+#
+# To add controls for a new analysis type, simply add an entry here.
+#
+# Fields:
+#   has_axes:    Does this chart type have cartesian X/Y axes?
+#   has_legend:  Does it show a per-trace legend?
+#   controls:    List of UI control names to show in the chart settings panel.
+#   typography:  List of typography option categories to show.
+
+CHART_TYPE_SETTINGS: dict[str, dict[str, Any]] = {
+    "categorical": {
+        "has_axes": True, "has_legend": True,
+        "controls": ["title", "subtitle", "axes_labels", "legend_labels",
+                    "show_value_labels", "label_position", "bar_gap", "bar_mode"],
+        "typography": ["family", "font_style", "header", "subtitle",
+                      "axis_title", "axis_tick", "legend_title", "legend_item"],
+    },
+    "descriptive": {
+        "has_axes": False, "has_legend": False,
+        "controls": ["title"],
+        "typography": ["family", "font_style", "header"],
+    },
+    "statistical": {
+        "has_axes": True, "has_legend": True,
+        "controls": ["title", "subtitle", "axes_labels", "legend_labels",
+                    "show_value_labels", "label_position", "bar_gap", "bar_mode"],
+        "typography": ["family", "font_style", "header", "subtitle",
+                      "axis_title", "axis_tick", "legend_title", "legend_item"],
+    },
+    "distribution": {
+        "has_axes": True, "has_legend": True,
+        "controls": ["title", "subtitle", "axes_labels", "legend_labels",
+                    "histogram_bins", "histogram_opacity", "bar_mode"],
+        "typography": ["family", "font_style", "header", "subtitle",
+                      "axis_title", "axis_tick", "legend_title", "legend_item"],
+    },
+    "correlation": {
+        "has_axes": False, "has_legend": False,
+        "controls": ["title", "subtitle",
+                    "heatmap_colorscale", "colorbar_range", "colorbar_title",
+                    "heatmap_show_text", "heatmap_annotation_precision",
+                    "heatmap_annotation_size", "heatmap_annotation_color"],
+        "typography": ["family", "font_style", "header", "subtitle"],
+    },
+    "time_series": {
+        "has_axes": True, "has_legend": True,
+        "controls": ["title", "subtitle", "axes_labels", "legend_labels",
+                    "line_width", "line_shape", "show_markers", "line_fill",
+                    "show_value_labels"],
+        "typography": ["family", "font_style", "header", "subtitle",
+                      "axis_title", "axis_tick", "legend_title", "legend_item"],
+    },
+    "scatter_plot": {
+        "has_axes": True, "has_legend": True,
+        "controls": ["title", "subtitle", "axes_labels", "legend_labels",
+                    "marker_opacity", "marker_size", "show_value_labels",
+                    "line_width", "line_shape", "show_markers", "line_fill"],
+        "typography": ["family", "font_style", "header", "subtitle",
+                      "axis_title", "axis_tick", "legend_title", "legend_item"],
+    },
+    "matrix_table": {
+        "has_axes": False, "has_legend": False,
+        "controls": ["title", "subtitle",
+                    "table_font_size", "table_font_color",
+                    "table_header_font_size", "table_row_height", "table_header_height",
+                    "table_index_align", "table_data_align", "table_show_footer",
+                    "table_gradient_cells", "table_show_row_totals",
+                    "row_index_header", "column_dimension_header"],
+        "typography": ["family", "font_style", "header", "subtitle"],
+    },
+    "map_plot": {
+        "has_axes": False, "has_legend": False,
+        "controls": ["title", "subtitle",
+                    "show_colorbar", "colorbar_title",
+                    "marker_opacity", "marker_size"],
+        "typography": ["family", "font_style", "header", "subtitle"],
+    },
+    "pie_chart": {
+        "has_axes": False, "has_legend": True,
+        "controls": ["title", "subtitle", "legend_labels",
+                    "donut_hole", "pie_textinfo", "pull_slices",
+                    "pie_rotation", "pie_direction"],
+        "typography": ["family", "font_style", "header", "subtitle",
+                      "legend_title", "legend_item"],
+    },
+}
+
+
+# ── Helper functions for chart-type-based capability detection ─────────────────
+
+def get_chart_type_capabilities(chart_type: str) -> dict[str, Any]:
+    \"\"\"
+    Return capabilities dict for a given chart type.
+
+    This is the REPLACEMENT for trace_capabilities() when chart_type is known.
+    It uses the declarative CHART_TYPE_SETTINGS schema instead of runtime
+    trace inspection, making it deterministic and correct for every chart type.
+    Keys returned: has_axes, has_legend, controls, typography
+    \"\"\"
+    return CHART_TYPE_SETTINGS.get(chart_type, {
+        "has_axes": False, "has_legend": False,
+        "controls": ["title", "subtitle"],
+        "typography": ["family", "font_style", "header", "subtitle"],
+    })
+
+
+def has_control(chart_type: str, control: str) -> bool:
+    \"\"\"Check if a control is valid for this chart type.\"\"\"
+    return control in get_chart_type_capabilities(chart_type).get("controls", [])
+
+
+def has_typography(chart_type: str, typo_category: str) -> bool:
+    \"\"\"Check if a typography category is valid for this chart type.\"\"\"
+    return typo_category in get_chart_type_capabilities(chart_type).get("typography", [])
+
+
+def compute_meta_hash(meta: dict | None) -> str:
+    \"\"\"
+    Compute a deterministic hash of chart display metadata.
+
+    Used for cache invalidation — when the hash changes, the chart figure
+    needs to be rebuilt.  Only fields that affect the rendered figure are included.
+    \"\"\"
+    if not meta:
+        return ""
+    relevant = {}
+    for key in ("custom_title", "subtitle", "x_label", "y_label",
+                "legend_title", "legend_names", "text_style",
+                "display_options", "colorbar_zmin", "colorbar_zmax",
+                "show_auto_insights", "hidden_insights"):
+        if key in meta:
+            relevant[key] = meta[key]
+    return json.dumps(relevant, sort_keys=True, default=str)
+
+
 def default_text_style() -> dict:
     return {
         "family":             "Inter, system-ui, sans-serif",

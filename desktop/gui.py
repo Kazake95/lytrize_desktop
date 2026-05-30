@@ -65,8 +65,8 @@ from PySide6.QtWidgets import (
     QFrame, QComboBox, QProgressBar, QSizePolicy,
     QGraphicsDropShadowEffect,
 )
-from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QFont, QLinearGradient, QBrush
-from PySide6.QtCore import Qt, QThread, Signal, QPropertyAnimation, QEasingCurve, QTimer, QRect, Property
+from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QFont
+from PySide6.QtCore import Qt, QThread, Signal, QPropertyAnimation, QEasingCurve, QTimer, Property
 
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
@@ -936,6 +936,17 @@ class Launcher(QWidget):
             _existing = env.get("PYTHONPATH", "")
             env["PYTHONPATH"] = _sp[0] + (":" + _existing if _existing else "")
 
+        # Open a log file for the Streamlit backend so stdout/stderr are never
+        # inherited from the launcher (which would flood the terminal) and the
+        # OS pipe buffer can never fill and block the subprocess.
+        # The log is written to DATA_DIR/streamlit.log and truncated on each launch.
+        _log_path = DATA_DIR / "streamlit.log"
+        try:
+            _log_fh = open(_log_path, "w", buffering=1)  # line-buffered
+        except Exception:
+            import io
+            _log_fh = open(os.devnull, "w")
+
         self._proc = subprocess.Popen(
             [
                 python, "-m", "streamlit", "run", str(APP_PY),
@@ -954,6 +965,8 @@ class Launcher(QWidget):
             ],
             cwd=str(APP_PY.parent),
             env=env,
+            stdout=_log_fh,
+            stderr=_log_fh,
         )
         self.tray.show()
 
@@ -1008,6 +1021,7 @@ class Launcher(QWidget):
         """Open the Lytrize web UI in the selected browser."""
         browser = self._selected_browser()
         url     = self._build_url()
+        _devnull = open(os.devnull, "w")
 
         if browser["chromium"]:
             _CHROMIUM_PROFILE.mkdir(parents=True, exist_ok=True)
@@ -1015,30 +1029,42 @@ class Launcher(QWidget):
                 _CHROMIUM_PROFILE.chmod(0o700)
             except Exception:
                 pass
-            subprocess.Popen([
-                browser["binary"],
-                f"--app={url}",
-                f"--user-data-dir={_CHROMIUM_PROFILE}",
-                "--start-maximized",
-                "--disable-extensions",
-                "--no-first-run",
-                "--no-default-browser-check",
-                "--disable-sync",
-            ])
+            subprocess.Popen(
+                [
+                    browser["binary"],
+                    f"--app={url}",
+                    f"--user-data-dir={_CHROMIUM_PROFILE}",
+                    "--start-maximized",
+                    "--disable-extensions",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    "--disable-sync",
+                ],
+                stdout=_devnull,
+                stderr=_devnull,
+            )
         elif browser["binary"] == "xdg-open":
-            subprocess.Popen(["xdg-open", url])
+            subprocess.Popen(
+                ["xdg-open", url],
+                stdout=_devnull,
+                stderr=_devnull,
+            )
         else:
             # Firefox / Gecko-based
             _ensure_firefox_profile(_FIREFOX_PROFILE)
-            subprocess.Popen([
-                browser["binary"],
-                "--new-instance",
-                "--profile", str(_FIREFOX_PROFILE),
-                "--width", "1280",
-                "--height", "900",
-                "--new-window",
-                url,
-            ])
+            subprocess.Popen(
+                [
+                    browser["binary"],
+                    "--new-instance",
+                    "--profile", str(_FIREFOX_PROFILE),
+                    "--width", "1280",
+                    "--height", "900",
+                    "--new-window",
+                    url,
+                ],
+                stdout=_devnull,
+                stderr=_devnull,
+            )
 
     # ── Stop ──────────────────────────────────────────────────────────────
 

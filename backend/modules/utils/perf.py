@@ -252,6 +252,25 @@ def read_excel_sheet(file, sheet_name: Union[str, int] = 0) -> pd.DataFrame:
 # level, to keep the rest of this module usable as a pure data layer (e.g. from
 # tests or CLI scripts that run without a Streamlit server).
 
+def _pivot_impl(df: pd.DataFrame, index: str, columns: str,
+                values: str, aggfunc: str) -> pd.DataFrame:
+    """Inner implementation kept at module level so the cache is shared across calls."""
+    return pd.pivot_table(
+        df, index=index, columns=columns, values=values,
+        aggfunc=aggfunc, observed=True,
+    )
+
+
+# Decorate once at import time.  Previously the decorator was applied inside
+# cached_pivot() on every call, which created a new cache bucket each time and
+# made the cache completely ineffective.
+try:
+    import streamlit as _st
+    _pivot_impl = _st.cache_data(show_spinner=False, ttl=300)(_pivot_impl)
+except Exception:
+    pass  # Not running under Streamlit (tests/CLI) — use the raw function.
+
+
 def cached_pivot(
     df: pd.DataFrame,
     index: str,
@@ -265,21 +284,8 @@ def cached_pivot(
     Using @st.cache_data means Streamlit hashes df by content; for large
     datasets this is still faster than recomputing the full pivot on every rerun.
     TTL=300s ensures stale data doesn't linger after a dataset reload.
-
-    The @st.cache_data decorator is applied at call-time so that the
-    streamlit import stays local to this function.
     """
-    import streamlit as st  # Local import — keeps module importable without Streamlit.
-
-    @st.cache_data(show_spinner=False, ttl=300)
-    def _pivot(df: pd.DataFrame, index: str, columns: str,
-               values: str, aggfunc: str) -> pd.DataFrame:
-        return pd.pivot_table(
-            df, index=index, columns=columns, values=values,
-            aggfunc=aggfunc, observed=True,
-        )
-
-    return _pivot(df, index, columns, values, aggfunc)
+    return _pivot_impl(df, index, columns, values, aggfunc)
 
 
 # ── Distribution sampling ─────────────────────────────────────────────────────

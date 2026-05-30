@@ -209,146 +209,148 @@ def init_db() -> None:
     versions so existing databases are upgraded automatically.
     """
     conn = _connect()
-    c    = conn.cursor()
+    try:
+        c = conn.cursor()
 
-    c.execute("""CREATE TABLE IF NOT EXISTS users (
-        id            INTEGER PRIMARY KEY AUTOINCREMENT,
-        username      TEXT UNIQUE NOT NULL,
-        email         TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        is_guest      INTEGER DEFAULT 0,
-        uuid          TEXT UNIQUE
-    )""")
+        c.execute("""CREATE TABLE IF NOT EXISTS users (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            username      TEXT UNIQUE NOT NULL,
+            email         TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            is_guest      INTEGER DEFAULT 0,
+            uuid          TEXT UNIQUE
+        )""")
 
-    c.execute("""CREATE TABLE IF NOT EXISTS sessions (
-        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id             INTEGER NOT NULL,
-        session_uuid        TEXT UNIQUE,
-        session_name        TEXT NOT NULL,
-        file_name           TEXT,
-        rows_count          INTEGER,
-        cols_count          INTEGER,
-        analysis_types      TEXT,
-        charts_json         TEXT,
-        dashboard_title     TEXT DEFAULT '',
-        kpis_json           TEXT DEFAULT '[]',
-        layout_mode         TEXT DEFAULT 'portrait',
-        grid_order_json     TEXT DEFAULT '[]',
-        grid_fullwidth_json TEXT DEFAULT '{}',
-        source              TEXT DEFAULT 'local',
-        created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id)
-    )""")
+        c.execute("""CREATE TABLE IF NOT EXISTS sessions (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id             INTEGER NOT NULL,
+            session_uuid        TEXT UNIQUE,
+            session_name        TEXT NOT NULL,
+            file_name           TEXT,
+            rows_count          INTEGER,
+            cols_count          INTEGER,
+            analysis_types      TEXT,
+            charts_json         TEXT,
+            dashboard_title     TEXT DEFAULT '',
+            kpis_json           TEXT DEFAULT '[]',
+            layout_mode         TEXT DEFAULT 'portrait',
+            grid_order_json     TEXT DEFAULT '[]',
+            grid_fullwidth_json TEXT DEFAULT '{}',
+            source              TEXT DEFAULT 'local',
+            created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )""")
 
-    c.execute("""CREATE TABLE IF NOT EXISTS user_activity (
-        id            INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id       INTEGER NOT NULL,
-        session_id    INTEGER,
-        action_type   TEXT NOT NULL,
-        action_detail TEXT,
-        ts            TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )""")
+        c.execute("""CREATE TABLE IF NOT EXISTS user_activity (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id       INTEGER NOT NULL,
+            session_id    INTEGER,
+            action_type   TEXT NOT NULL,
+            action_detail TEXT,
+            ts            TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )""")
 
-    c.execute("""CREATE TABLE IF NOT EXISTS login_tokens (
-        token      TEXT PRIMARY KEY,
-        user_id    INTEGER NOT NULL,
-        username   TEXT NOT NULL,
-        expires_at TIMESTAMP NOT NULL
-    )""")
+        c.execute("""CREATE TABLE IF NOT EXISTS login_tokens (
+            token      TEXT PRIMARY KEY,
+            user_id    INTEGER NOT NULL,
+            username   TEXT NOT NULL,
+            expires_at TIMESTAMP NOT NULL
+        )""")
 
-    c.execute("""CREATE TABLE IF NOT EXISTS draft_sessions (
-        user_id              INTEGER PRIMARY KEY,
-        page                 TEXT DEFAULT 'home',
-        charts_json          TEXT DEFAULT '[]',
-        file_name            TEXT DEFAULT '',
-        editing_session_id   INTEGER,
-        editing_session_name TEXT,
-        dashboard_title      TEXT DEFAULT '',
-        kpis_json            TEXT DEFAULT '[]',
-        chart_meta_json      TEXT DEFAULT '{}',
-        layout_mode           TEXT DEFAULT 'portrait',
-        col_descriptions_json TEXT DEFAULT '{}',
-        updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id)
-    )""")
+        c.execute("""CREATE TABLE IF NOT EXISTS draft_sessions (
+            user_id              INTEGER PRIMARY KEY,
+            page                 TEXT DEFAULT 'home',
+            charts_json          TEXT DEFAULT '[]',
+            file_name            TEXT DEFAULT '',
+            editing_session_id   INTEGER,
+            editing_session_name TEXT,
+            dashboard_title      TEXT DEFAULT '',
+            kpis_json            TEXT DEFAULT '[]',
+            chart_meta_json      TEXT DEFAULT '{}',
+            layout_mode           TEXT DEFAULT 'portrait',
+            col_descriptions_json TEXT DEFAULT '{}',
+            updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )""")
 
-    # Migrations: add columns introduced in later schema versions.
-    # Each ALTER TABLE is wrapped in try/except so it silently no-ops when the
-    # column already exists (SQLite raises OperationalError in that case).
-    # IMPORTANT: grid_order_json and grid_fullwidth_json are now also in the
-    # base CREATE TABLE above, but we keep them here so pre-existing databases
-    # (created before those columns were added) are upgraded automatically.
-    for ddl in [
-        "ALTER TABLE users    ADD COLUMN is_guest     INTEGER DEFAULT 0",
-        "ALTER TABLE users    ADD COLUMN uuid         TEXT",
-        "ALTER TABLE sessions ADD COLUMN session_name    TEXT NOT NULL DEFAULT ''",
-        "ALTER TABLE sessions ADD COLUMN file_name       TEXT",
-        "ALTER TABLE sessions ADD COLUMN rows_count      INTEGER",
-        "ALTER TABLE sessions ADD COLUMN cols_count      INTEGER",
-        "ALTER TABLE sessions ADD COLUMN analysis_types  TEXT",
-        "ALTER TABLE sessions ADD COLUMN charts_json     TEXT",
-        "ALTER TABLE sessions ADD COLUMN session_uuid    TEXT",
-        "ALTER TABLE sessions ADD COLUMN source          TEXT DEFAULT 'local'",
-        "ALTER TABLE sessions ADD COLUMN dashboard_title TEXT DEFAULT ''",
-        "ALTER TABLE sessions ADD COLUMN kpis_json       TEXT DEFAULT '[]'",
-        "ALTER TABLE sessions ADD COLUMN layout_mode     TEXT DEFAULT 'portrait'",
-        "ALTER TABLE sessions ADD COLUMN grid_order_json TEXT DEFAULT '[]'",
-        "ALTER TABLE sessions ADD COLUMN grid_fullwidth_json TEXT DEFAULT '{}'",
-        "ALTER TABLE sessions ADD COLUMN updated_at      TIMESTAMP",
-        "ALTER TABLE draft_sessions ADD COLUMN col_descriptions_json TEXT DEFAULT '{}'",
-    ]:
+        # Migrations: add columns introduced in later schema versions.
+        # Each ALTER TABLE is wrapped in try/except so it silently no-ops when the
+        # column already exists (SQLite raises OperationalError in that case).
+        # IMPORTANT: grid_order_json and grid_fullwidth_json are now also in the
+        # base CREATE TABLE above, but we keep them here so pre-existing databases
+        # (created before those columns were added) are upgraded automatically.
+        for ddl in [
+            "ALTER TABLE users    ADD COLUMN is_guest     INTEGER DEFAULT 0",
+            "ALTER TABLE users    ADD COLUMN uuid         TEXT",
+            "ALTER TABLE sessions ADD COLUMN session_name    TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE sessions ADD COLUMN file_name       TEXT",
+            "ALTER TABLE sessions ADD COLUMN rows_count      INTEGER",
+            "ALTER TABLE sessions ADD COLUMN cols_count      INTEGER",
+            "ALTER TABLE sessions ADD COLUMN analysis_types  TEXT",
+            "ALTER TABLE sessions ADD COLUMN charts_json     TEXT",
+            "ALTER TABLE sessions ADD COLUMN session_uuid    TEXT",
+            "ALTER TABLE sessions ADD COLUMN source          TEXT DEFAULT 'local'",
+            "ALTER TABLE sessions ADD COLUMN dashboard_title TEXT DEFAULT ''",
+            "ALTER TABLE sessions ADD COLUMN kpis_json       TEXT DEFAULT '[]'",
+            "ALTER TABLE sessions ADD COLUMN layout_mode     TEXT DEFAULT 'portrait'",
+            "ALTER TABLE sessions ADD COLUMN grid_order_json TEXT DEFAULT '[]'",
+            "ALTER TABLE sessions ADD COLUMN grid_fullwidth_json TEXT DEFAULT '{}'",
+            "ALTER TABLE sessions ADD COLUMN updated_at      TIMESTAMP",
+            "ALTER TABLE draft_sessions ADD COLUMN col_descriptions_json TEXT DEFAULT '{}'",
+        ]:
+            try:
+                c.execute(ddl)
+            except Exception:
+                pass
+
+        # Safety net: verify the two columns that caused the OperationalError exist.
+        # Handles edge cases where both CREATE TABLE and ALTER TABLE above could not
+        # add them (e.g. ancient schema lock, mid-migration crash, or a stale
+        # @st.cache_resource preventing init_db from re-running after a code update).
         try:
-            c.execute(ddl)
+            existing = {row[1] for row in c.execute("PRAGMA table_info(sessions)")}
+            for col, typedef in [
+                ("grid_order_json",     "TEXT DEFAULT '[]'"),
+                ("grid_fullwidth_json", "TEXT DEFAULT '{}'"),
+            ]:
+                if col not in existing:
+                    c.execute(f"ALTER TABLE sessions ADD COLUMN {col} {typedef}")
         except Exception:
             pass
 
-    # Safety net: verify the two columns that caused the OperationalError exist.
-    # Handles edge cases where both CREATE TABLE and ALTER TABLE above could not
-    # add them (e.g. ancient schema lock, mid-migration crash, or a stale
-    # @st.cache_resource preventing init_db from re-running after a code update).
-    try:
-        existing = {row[1] for row in c.execute("PRAGMA table_info(sessions)")}
-        for col, typedef in [
-            ("grid_order_json",     "TEXT DEFAULT '[]'"),
-            ("grid_fullwidth_json", "TEXT DEFAULT '{}'"),
-        ]:
-            if col not in existing:
-                c.execute(f"ALTER TABLE sessions ADD COLUMN {col} {typedef}")
-    except Exception:
-        pass
+        # Seed permanent guest account if missing.
+        try:
+            c.execute("SELECT COUNT(*) FROM users WHERE username=?", (_GUEST_USERNAME,))
+            if c.fetchone()[0] == 0:
+                c.execute(
+                    "INSERT INTO users "
+                    "(username, email, password_hash, is_guest, uuid) "
+                    "VALUES (?,?,?,?,?)",
+                    (_GUEST_USERNAME, _GUEST_EMAIL, _hash(uuid.uuid4().hex), 1, uuid.uuid4().hex),
+                )
+        except Exception:
+            pass
 
-    # Seed permanent guest account if missing.
-    try:
-        c.execute("SELECT COUNT(*) FROM users WHERE username=?", (_GUEST_USERNAME,))
-        if c.fetchone()[0] == 0:
+        # Backfill session UUIDs for legacy rows that have none.
+        try:
             c.execute(
-                "INSERT INTO users "
-                "(username, email, password_hash, is_guest, uuid) "
-                "VALUES (?,?,?,?,?)",
-                (_GUEST_USERNAME, _GUEST_EMAIL, _hash(uuid.uuid4().hex), 1, uuid.uuid4().hex),
+                "SELECT id, session_name, created_at FROM sessions "
+                "WHERE session_uuid IS NULL OR session_uuid='' ORDER BY id"
             )
-    except Exception:
-        pass
+            for sid, sname, created_at in c.fetchall():
+                seed = f"{sid}:{sname}:{created_at}"
+                c.execute(
+                    "UPDATE sessions SET session_uuid=? WHERE id=?",
+                    (uuid.uuid5(uuid.NAMESPACE_URL, seed).hex, sid),
+                )
+        except Exception:
+            pass
 
-    # Backfill session UUIDs for legacy rows that have none.
-    try:
-        c.execute(
-            "SELECT id, session_name, created_at FROM sessions "
-            "WHERE session_uuid IS NULL OR session_uuid='' ORDER BY id"
-        )
-        for sid, sname, created_at in c.fetchall():
-            seed = f"{sid}:{sname}:{created_at}"
-            c.execute(
-                "UPDATE sessions SET session_uuid=? WHERE id=?",
-                (uuid.uuid5(uuid.NAMESPACE_URL, seed).hex, sid),
-            )
-    except Exception:
-        pass
-
-    conn.commit()
-    conn.close()
+        conn.commit()
+    finally:
+        conn.close()
 
 
 # ── Password hashing ──────────────────────────────────────────────────────────
@@ -439,30 +441,25 @@ def register_user(username: str, email: str, password: str) -> tuple:
 
     Validates all inputs before writing to the database.
     Raw DB errors are never returned to the caller.
+
+    The uniqueness check and INSERT are performed in a single transaction to
+    avoid a TOCTOU race between the pre-check SELECT and the INSERT.
     """
     err = _validate_registration_inputs(username, email, password)
     if err:
         return False, err
 
-    # Pre-check uniqueness before INSERT to give accurate error messages.
-    # SQLite's constraint error messages can vary across versions.
     try:
         with _db() as conn:
             c = conn.cursor()
+            # Check uniqueness and insert in one transaction — no TOCTOU gap.
             c.execute(_ph("SELECT 1 FROM users WHERE username=? LIMIT 1"), (username,))
             if c.fetchone():
                 return False, "Username already taken."
             c.execute(_ph("SELECT 1 FROM users WHERE email=? LIMIT 1"), (email,))
             if c.fetchone():
                 return False, "Email already registered."
-    except Exception as e:
-        log.error("register_user: pre-check error: %s", e)
-        return False, "Registration failed — please try again."
-
-    try:
-        with _db() as conn:
-            _execute(
-                conn,
+            c.execute(
                 "INSERT INTO users (username, email, password_hash) VALUES (?,?,?)",
                 (username, email, _hash(password)),
             )
@@ -1305,6 +1302,35 @@ def import_sessions_from_dict(
         raw = {k: v for k, v in raw.items() if k != "_origin"}
         return sanitize_restored_session(raw, user_id, preserve_uuid=True)
 
+    def _insert_row(conn, payload: dict) -> None:
+        """Insert one session row. Defined once outside the loop for efficiency."""
+        _execute(
+            conn,
+            _ph("""INSERT INTO sessions
+                   (user_id, session_uuid, session_name, file_name, rows_count,
+                    cols_count, analysis_types, charts_json, dashboard_title,
+                    kpis_json, layout_mode, grid_order_json, grid_fullwidth_json,
+                    source, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)"""),
+            (
+                user_id,
+                payload.get("session_uuid") or None,
+                payload.get("session_name", "Restored Session"),
+                payload.get("file_name"),
+                payload.get("rows_count"),
+                payload.get("cols_count"),
+                payload.get("analysis_types"),
+                payload.get("charts_json"),
+                payload.get("dashboard_title", ""),
+                payload.get("kpis_json", "[]"),
+                payload.get("layout_mode", "portrait"),
+                payload.get("grid_order_json", "[]"),
+                payload.get("grid_fullwidth_json", "{}"),
+                payload.get("source") or "local",
+                payload.get("created_at"),
+            ),
+        )
+
     try:
         with _db() as conn:
             c = conn.cursor()
@@ -1359,36 +1385,8 @@ def import_sessions_from_dict(
                         skipped.append(sname)
                     continue
 
-                def _insert_row(payload: dict) -> None:
-                    _execute(
-                        conn,
-                        _ph("""INSERT INTO sessions
-                               (user_id, session_uuid, session_name, file_name, rows_count,
-                                cols_count, analysis_types, charts_json, dashboard_title,
-                                kpis_json, layout_mode, grid_order_json, grid_fullwidth_json,
-                                source, created_at, updated_at)
-                               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)"""),
-                        (
-                            user_id,
-                            payload.get("session_uuid") or None,
-                            payload.get("session_name", "Restored Session"),
-                            payload.get("file_name"),
-                            payload.get("rows_count"),
-                            payload.get("cols_count"),
-                            payload.get("analysis_types"),
-                            payload.get("charts_json"),
-                            payload.get("dashboard_title", ""),
-                            payload.get("kpis_json", "[]"),
-                            payload.get("layout_mode", "portrait"),
-                            payload.get("grid_order_json", "[]"),
-                            payload.get("grid_fullwidth_json", "{}"),
-                            payload.get("source") or "local",
-                            payload.get("created_at"),
-                        ),
-                    )
-
                 try:
-                    _insert_row(s)
+                    _insert_row(conn, s)
                     imported += 1
                 except Exception as exc:
                     # UNIQUE collision on session_uuid or a stale restore row.
@@ -1396,7 +1394,7 @@ def import_sessions_from_dict(
                     try:
                         s2 = dict(s)
                         s2["session_uuid"] = uuid.uuid4().hex
-                        _insert_row(s2)
+                        _insert_row(conn, s2)
                         imported += 1
                     except Exception as exc2:
                         log.warning(

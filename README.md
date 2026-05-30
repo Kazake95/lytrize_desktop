@@ -16,9 +16,9 @@ Upload a CSV or Excel file and get interactive charts, dashboards, and insights 
 
 ## What is Lytrize?
 
-Lytrize is a desktop analytics app that runs entirely on your computer. You drag in a spreadsheet, and it gives you charts, statistics, and a shareable dashboard — no internet connection required, no sign-up, no data ever leaving your machine.
+Lytrize is a desktop analytics app that runs entirely on your computer. Drop in a spreadsheet and get charts, statistics, and a shareable dashboard — no internet connection required, no sign-up, no data ever leaving your machine.
 
-It is built for people who work with data regularly and want answers fast, without opening a browser, logging into a service, or waiting for a cloud query to run.
+Built for people who work with data regularly and want answers fast, without opening a browser tab, logging into a service, or waiting for a cloud query to finish.
 
 ---
 
@@ -27,54 +27,56 @@ It is built for people who work with data regularly and want answers fast, witho
 | | |
 |---|---|
 | **📂 CSV & Excel support** | Upload `.csv`, `.xlsx`, or `.xls` files up to 500 MB |
-| **📊 10+ chart types** | Bar, pie/donut, scatter, histogram, box plot, time series, correlation matrix, heatmap, and geographic map |
-| **🔍 Auto insights** | Automated plain-language observations generated for each chart |
-| **🗂️ Dashboard builder** | Arrange charts into a dashboard, add KPI cards, pick a layout, and save it |
-| **📤 Export** | Download your dashboard as a self-contained HTML file or render it to PNG using your installed browser |
-| **🧹 Data tools** | Column renaming, type casting, outlier flagging, and missing-value handling before analysis |
-| **💾 Session saving** | Analyses and dashboards are saved locally so you can pick up exactly where you left off |
-| **🔒 Fully offline** | No telemetry, no analytics, no network requests — confirmed by Streamlit's `gatherUsageStats = false` |
+| **📊 10 chart types** | Bar, pie/donut, scatter, histogram, time series, correlation heatmap, matrix/pivot, geographic map, outlier, and data quality |
+| **🔍 Auto insights** | Automated plain-language observations generated for every chart |
+| **🗂️ Dashboard builder** | Arrange charts in a portrait or landscape grid, add KPI summary cards, set a title, and save |
+| **📤 Export** | Download as a self-contained HTML file (no server dependency) or render to PNG using your installed browser |
+| **🧹 Data tools** | Column rename, type cast, outlier flagging, and missing-value handling before analysis |
+| **💾 Session saving** | Analyses and dashboards persist locally — pick up exactly where you left off after a restart |
+| **🔄 Auto-save** | Every meaningful action writes an in-progress draft so nothing is lost to an accidental close |
+| **🔒 Fully offline** | No telemetry, no analytics, no outbound network requests |
 
 ---
 
 ## System requirements
 
-- **OS:** Linux (Ubuntu 20.04 or later recommended; any modern Debian-based distro)
+- **OS:** Linux (Ubuntu 20.04 LTS or later; any modern Debian-based or RPM-based distro)
 - **Architecture:** amd64 (64-bit)
-- **Python:** 3.11 or later (checked at install time)
+- **Python:** 3.11 or later (bundled in the installed package — no separate install needed)
 - **Browser:** Any installed browser — Chrome, Chromium, Firefox, Brave, or Edge — to view the app and export PNGs
-- **Disk:** ~400 MB for the installed package (includes a self-contained Python environment)
-- **RAM:** 2 GB minimum; 4 GB or more recommended for large files
+- **Disk:** ~400 MB installed (includes a self-contained Python virtual environment)
+- **RAM:** 2 GB minimum; 4 GB or more recommended for files over 100 MB
 
 ---
 
 ## Install
 
-### Option 1 — Download the .deb package *(recommended)*
-
-1. Download `lytrize_1.2_amd64.deb` from the [Releases page](https://github.com/lytrize/lytrize-desktop/releases).
-2. Install it:
+### Option 1 — Debian / Ubuntu (.deb) *(recommended)*
 
 ```bash
 sudo dpkg -i lytrize_1.2_amd64.deb
 ```
 
-3. Launch from your application menu, or run:
+If `dpkg` reports missing dependencies:
+
+```bash
+sudo apt-get install -f
+```
+
+Launch from your application menu, or run:
 
 ```bash
 lytrize
 ```
 
-That is all. No manual Python setup, no `pip install`, no virtual environment to activate.
+No manual Python setup, no `pip install`, no virtual environment to activate.
 
-If `dpkg` reports dependency errors, run `sudo apt-get install -f` and re-run the install command.
-
-### Option 2 — Install the .rpm package (Fedora / RHEL / openSUSE)
+### Option 2 — Fedora / RHEL / openSUSE (.rpm)
 
 ```bash
-sudo rpm -i lytrize-1.2-1.x86_64.rpm
-# or with dnf:
 sudo dnf install lytrize-1.2-1.x86_64.rpm
+# or on older systems:
+sudo rpm -i lytrize-1.2-1.x86_64.rpm
 ```
 
 ### Option 3 — Build from source
@@ -86,48 +88,71 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md#quick-start-for-developers) for the full
 ## How to use Lytrize
 
 **1. Open the app**
-Launch Lytrize from your application menu or by running `lytrize` in a terminal. A launcher window appears while the app starts, then your browser opens automatically.
+Launch Lytrize from your application menu or run `lytrize` in a terminal. A launcher window appears while the Streamlit backend starts, then your browser opens automatically.
 
 **2. Upload a file**
-Click **Upload** on the home screen and choose a CSV or Excel file. Lytrize shows a preview and lets you rename columns, fix data types, and flag outliers before proceeding.
+Click **Start New Analysis** on the home screen and choose a CSV or Excel file. Lytrize shows a data preview and lets you rename columns, fix data types, and flag outliers before proceeding.
 
 **3. Run an analysis**
-Go to the **Analysis** page. Click any chart type card — bar chart, time series, scatter plot, and so on — configure the columns, and click **Generate**. The chart appears instantly with auto-generated insights below it.
+On the Analysis page, click any chart-type card — bar chart, time series, scatter plot, correlation heatmap, and so on — configure the columns and options, then click **Generate**. Charts appear immediately with auto-generated insights.
 
 **4. Build a dashboard**
-Charts you generate are added to your session. Switch to the **Dashboard** page to arrange them, add KPI summary cards, set a title, and choose a layout.
+Generated charts collect in your session. Click **Proceed to Dashboard** to arrange them, add KPI summary cards, set a title, and choose a portrait (2-column) or landscape (3-column) layout.
 
 **5. Save and export**
-Your session saves automatically. Use **Export HTML** to download a standalone file you can open in any browser or share with a colleague. Use **Render PNG** (upload the HTML back) to get a flat image.
+Your session saves automatically as you work. Use **Save Session** to lock in a named checkpoint visible on the home screen. Use **Export HTML** to download a standalone file you can open in any browser or share with a colleague. Use **Render PNG** to produce a flat image for presentations or reports.
+
+---
+
+## Where is my data stored?
+
+Everything lives on your machine:
+
+| What | Where |
+|------|-------|
+| Sessions, charts, KPIs | `~/.local/share/lytrize/lytrize.db` (SQLite) |
+| Active DataFrame (in-session) | `$XDG_RUNTIME_DIR/lytrize/df_<id>.parquet` (RAM-backed tmpfs; cleared on reboot) |
+| Launcher preferences | `~/.local/share/lytrize/launcher_prefs.json` |
+| Backend log | `~/.local/share/lytrize/streamlit.log` (overwritten on each launch) |
+
+The parquet snapshot is used to restore your loaded dataset after a browser tab refresh. It is not persisted across reboots — if the app restarts after a reboot and your file is gone, you will be prompted to re-upload.
 
 ---
 
 ## Uninstall
 
 ```bash
-sudo dpkg -r lytrize
+sudo dpkg -r lytrize          # Debian / Ubuntu
+sudo dnf remove lytrize       # Fedora / RHEL
 ```
 
-Your saved sessions and preferences are kept at `~/.local/share/lytrize/` by default. The uninstaller will ask if you want to remove them.
+User data at `~/.local/share/lytrize/` is not removed by the package uninstaller. Delete it manually if you want a complete clean:
+
+```bash
+rm -rf ~/.local/share/lytrize
+```
 
 ---
 
-## Frequently asked questions
+## Troubleshooting
 
-**Does Lytrize need an internet connection?**
-No. After installation everything runs locally. The only time a network is used is if you install from the internet — the app itself makes no outbound connections.
+**The app does not start**
+Run `lytrize` from a terminal to see live output. A launch log is also written to `~/.local/share/lytrize/streamlit.log` on every start — check that first.
 
-**What file formats are supported?**
-`.csv`, `.xlsx`, and `.xls`. Column types are detected automatically. You can correct any misdetections on the upload screen before analysing.
+**Missing dependencies after install**
+Run `sudo apt-get install -f` (Debian/Ubuntu) or `sudo dnf install -f` (Fedora/RHEL) then try again.
 
-**Where is my data stored?**
-All data, saved sessions, and dashboards are stored in `~/.local/share/lytrize/lytrize.db` — a standard SQLite database file on your own machine.
+**PNG export produces no output**
+Render PNG uses your installed browser in headless mode. Install Chromium or Firefox if neither is present:
+```bash
+sudo apt install chromium-browser   # or: sudo apt install firefox
+```
 
-**Can I run Lytrize without a desktop environment?**
-The launcher window requires a display. If you only want the Streamlit backend (no GUI), see the [developer docs](./CONTRIBUTING.md#running-without-the-desktop-launcher).
+**The browser does not open automatically**
+If no supported browser is detected, copy `http://127.0.0.1:8501` into any browser while the launcher window shows "Running".
 
-**Something looks broken. What do I do?**
-Run `lytrize` from a terminal to see live output. A launch log is also written to `/tmp/lytrize-launch.log` every time the app starts — check that first. If the issue is reproducible, please [open an issue](https://github.com/lytrize/lytrize-desktop/issues) and attach the log.
+**Something looks broken**
+Check `~/.local/share/lytrize/streamlit.log` for Python tracebacks. If the issue is reproducible, open an issue and attach the log.
 
 ---
 
@@ -135,7 +160,7 @@ Run `lytrize` from a terminal to see live output. A launch log is also written t
 
 Lytrize is open source. Bug reports, feature requests, and pull requests are welcome.
 
-Before opening a PR, please read [CONTRIBUTING.md](./CONTRIBUTING.md) for the project architecture, development setup, and contribution guidelines.
+Before opening a PR, please read [CONTRIBUTING.md](./CONTRIBUTING.md) for the architecture, development setup, and contribution guidelines.
 
 ---
 

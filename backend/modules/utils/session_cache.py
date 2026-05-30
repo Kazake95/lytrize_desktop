@@ -25,6 +25,7 @@ PUBLIC API
 import logging
 import os
 from pathlib import Path
+from typing import Optional
 
 import pandas as pd
 import streamlit as st
@@ -101,7 +102,7 @@ def save_df_snapshot(user_id: int) -> None:
         )
 
 
-def load_df_snapshot(user_id: int) -> pd.DataFrame | None:
+def load_df_snapshot(user_id: int) -> Optional[pd.DataFrame]:
     """
     Restore the DataFrame from the parquet snapshot written by save_df_snapshot.
 
