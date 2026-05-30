@@ -120,14 +120,14 @@ CHART_TYPE_SETTINGS: dict[str, dict[str, Any]] = {
 # ── Helper functions for chart-type-based capability detection ─────────────────
 
 def get_chart_type_capabilities(chart_type: str) -> dict[str, Any]:
-    \"\"\"
+    '''
     Return capabilities dict for a given chart type.
 
     This is the REPLACEMENT for trace_capabilities() when chart_type is known.
     It uses the declarative CHART_TYPE_SETTINGS schema instead of runtime
     trace inspection, making it deterministic and correct for every chart type.
     Keys returned: has_axes, has_legend, controls, typography
-    \"\"\"
+    '''
     return CHART_TYPE_SETTINGS.get(chart_type, {
         "has_axes": False, "has_legend": False,
         "controls": ["title", "subtitle"],
@@ -136,22 +136,22 @@ def get_chart_type_capabilities(chart_type: str) -> dict[str, Any]:
 
 
 def has_control(chart_type: str, control: str) -> bool:
-    \"\"\"Check if a control is valid for this chart type.\"\"\"
+    '''Check if a control is valid for this chart type.'''
     return control in get_chart_type_capabilities(chart_type).get("controls", [])
 
 
 def has_typography(chart_type: str, typo_category: str) -> bool:
-    \"\"\"Check if a typography category is valid for this chart type.\"\"\"
+    '''Check if a typography category is valid for this chart type.'''
     return typo_category in get_chart_type_capabilities(chart_type).get("typography", [])
 
 
 def compute_meta_hash(meta: dict | None) -> str:
-    \"\"\"
+    '''
     Compute a deterministic hash of chart display metadata.
 
     Used for cache invalidation — when the hash changes, the chart figure
     needs to be rebuilt.  Only fields that affect the rendered figure are included.
-    \"\"\"
+    '''
     if not meta:
         return ""
     relevant = {}
