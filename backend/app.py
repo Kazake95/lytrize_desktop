@@ -2,8 +2,9 @@
 app.py -- Lytrize Desktop application entry point.
 
 PAGE ROUTING
-  On every launch the app starts at Home (or restores a mid-analysis session
-  from the local draft if one exists). The Profile page is accessible via
+  On every launch the app starts at Home.  When a mid-analysis session exists
+  in the local draft (charts were saved) the user is returned to the last
+  active page (analysis or dashboard).  The Profile page is accessible via
   the Profile button in the navbar (sign-in / account management).
 
 TOKEN VALIDATION (desktop mode)
@@ -161,8 +162,7 @@ def _restore_draft(user_id: int) -> None:
 
     # ── Restore the last active page ─────────────────────────────────────
     # • df + charts available → restore to analysis or dashboard
-    # • df available but no charts → restore to upload page so the user
-    #   can continue the analysis pipeline without re-uploading
+    # • df available but no charts → home (user can re-enter the pipeline)
     # • df not available (parquet gone after reboot) → home; let user re-upload
     saved_page   = draft.get("page", "")
     df_available = st.session_state.get("df") is not None
@@ -172,10 +172,7 @@ def _restore_draft(user_id: int) -> None:
             st.session_state._restore_to_page = saved_page
         elif has_charts:
             st.session_state._restore_to_page = "analysis"
-        else:
-            # Data loaded, no charts yet — resume on upload page so the
-            # pipeline (column cleanup, preview) is available immediately.
-            st.session_state._restore_to_page = "upload"
+        # Removed fallback to "upload" — every restart should land on home.
 
 
 def main() -> None:
