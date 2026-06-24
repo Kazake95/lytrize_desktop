@@ -280,12 +280,6 @@ commands. Automated test suite TBD.
 
 ---
 
-## Known issues
-
-See `current lytrize issues.txt` for the current bug backlog.
-
----
-
 ## License
 
 See [LICENSE](./LICENSE).
