@@ -16,6 +16,7 @@ from typing import Any
 import streamlit as st
 
 # ── Font catalogue ──────────────────────────────────────────────────────────
+# Linux-friendly, open-source first selections with metric-compatible fallbacks.
 FONT_ENTRIES: list[dict[str, str]] = [
     {
         "name": "Inter",
@@ -23,43 +24,23 @@ FONT_ENTRIES: list[dict[str, str]] = [
         "category": "Sans-serif",
     },
     {
-        "name": "Arial",
-        "stack": "'Arial', 'Liberation Sans', Arimo, 'Helvetica Neue', Helvetica, sans-serif",
+        "name": "Source Sans 3",
+        "stack": "'Source Sans 3', 'Liberation Sans', Arimo, Arial, sans-serif",
         "category": "Sans-serif",
     },
     {
-        "name": "Liberation Sans",
-        "stack": "'Liberation Sans', Arial, Arimo, sans-serif",
+        "name": "Noto Sans",
+        "stack": "'Noto Sans', 'DejaVu Sans', 'Liberation Sans', Arial, sans-serif",
         "category": "Sans-serif",
     },
     {
-        "name": "Calibri",
-        "stack": "'Calibri', Carlito, 'Liberation Sans', Arial, sans-serif",
+        "name": "DejaVu Sans",
+        "stack": "'DejaVu Sans', 'Liberation Sans', Arial, sans-serif",
         "category": "Sans-serif",
     },
     {
-        "name": "Carlito",
-        "stack": "Carlito, Calibri, 'Liberation Sans', Arial, sans-serif",
-        "category": "Sans-serif",
-    },
-    {
-        "name": "Verdana",
-        "stack": "'Verdana', Geneva, DejaVu Sans, sans-serif",
-        "category": "Sans-serif",
-    },
-    {
-        "name": "Tahoma",
-        "stack": "'Tahoma', Geneva, DejaVu Sans, sans-serif",
-        "category": "Sans-serif",
-    },
-    {
-        "name": "Cambria",
-        "stack": "'Cambria', Georgia, 'DejaVu Serif', 'Liberation Serif', serif",
-        "category": "Serif",
-    },
-    {
-        "name": "Trebuchet MS",
-        "stack": "'Trebuchet MS', 'Liberation Sans', Ubuntu, sans-serif",
+        "name": "Lato",
+        "stack": "Lato, 'DejaVu Sans', 'Liberation Sans', Arial, sans-serif",
         "category": "Sans-serif",
     },
     {
@@ -68,24 +49,99 @@ FONT_ENTRIES: list[dict[str, str]] = [
         "category": "Sans-serif",
     },
     {
-        "name": "Helvetica",
-        "stack": "'Helvetica Neue', Helvetica, Arial, 'Liberation Sans', sans-serif",
+        "name": "Arial",
+        "stack": "Arial, 'Liberation Sans', Arimo, 'DejaVu Sans', sans-serif",
         "category": "Sans-serif",
     },
     {
-        "name": "Times New Roman",
-        "stack": "'Times New Roman', 'Liberation Serif', Tinos, Times, serif",
+        "name": "Calibri",
+        "stack": "Calibri, Carlito, 'Liberation Sans', 'DejaVu Sans', sans-serif",
+        "category": "Sans-serif",
+    },
+    {
+        "name": "Verdana",
+        "stack": "Verdana, 'DejaVu Sans', Geneva, sans-serif",
+        "category": "Sans-serif",
+    },
+    {
+        "name": "Oswald",
+        "stack": "Oswald, 'DejaVu Sans', Arial, sans-serif",
+        "category": "Display",
+    },
+    {
+        "name": "Barlow Condensed",
+        "stack": "'Barlow Condensed', 'DejaVu Sans', Arial, sans-serif",
+        "category": "Display",
+    },
+    {
+        "name": "Noto Serif",
+        "stack": "'Noto Serif', 'DejaVu Serif', 'Liberation Serif', Times, serif",
         "category": "Serif",
     },
     {
-        "name": "Liberation Serif",
-        "stack": "'Liberation Serif', 'Times New Roman', Tinos, Times, serif",
+        "name": "DejaVu Serif",
+        "stack": "'DejaVu Serif', 'Liberation Serif', Times, serif",
+        "category": "Serif",
+    },
+    {
+        "name": "EB Garamond",
+        "stack": "'EB Garamond', 'DejaVu Serif', 'Liberation Serif', Georgia, serif",
         "category": "Serif",
     },
     {
         "name": "Georgia",
-        "stack": "'Georgia', 'DejaVu Serif', 'Liberation Serif', serif",
+        "stack": "Georgia, 'DejaVu Serif', 'Liberation Serif', serif",
         "category": "Serif",
+    },
+    {
+        "name": "Times New Roman",
+        "stack": "'Times New Roman', 'Liberation Serif', Tinos, 'DejaVu Serif', serif",
+        "category": "Serif",
+    },
+    {
+        "name": "Fira Code",
+        "stack": "'Fira Code', 'DejaVu Sans Mono', 'Liberation Mono', Consolas, monospace",
+        "category": "Monospace",
+    },
+    {
+        "name": "DejaVu Sans Mono",
+        "stack": "'DejaVu Sans Mono', 'Liberation Mono', Consolas, monospace",
+        "category": "Monospace",
+    },
+    {
+        "name": "JetBrains Mono",
+        "stack": "'JetBrains Mono', 'DejaVu Sans Mono', 'Liberation Mono', Consolas, monospace",
+        "category": "Monospace",
+    },
+    {
+        "name": "Liberation Mono",
+        "stack": "'Liberation Mono', 'DejaVu Sans Mono', Consolas, monospace",
+        "category": "Monospace",
+    },
+    {
+        "name": "Courier New",
+        "stack": "'Courier New', 'Liberation Mono', 'DejaVu Sans Mono', monospace",
+        "category": "Monospace",
+    },
+    {
+        "name": "Comic Sans MS",
+        "stack": "'Comic Sans MS', 'Comic Sans', cursive, sans-serif",
+        "category": "Display",
+    },
+    {
+        "name": "Impact",
+        "stack": "Impact, 'Arial Narrow', 'DejaVu Sans', sans-serif",
+        "category": "Display",
+    },
+    {
+        "name": "Trebuchet MS",
+        "stack": "'Trebuchet MS', 'Liberation Sans', Ubuntu, sans-serif",
+        "category": "Sans-serif",
+    },
+    {
+        "name": "Helvetica",
+        "stack": "'Helvetica Neue', Helvetica, Arial, 'Liberation Sans', sans-serif",
+        "category": "Sans-serif",
     },
     {
         "name": "Palatino Linotype",
@@ -108,21 +164,6 @@ FONT_ENTRIES: list[dict[str, str]] = [
         "category": "Serif",
     },
     {
-        "name": "JetBrains Mono",
-        "stack": "'JetBrains Mono', 'Liberation Mono', 'Courier New', Consolas, monospace",
-        "category": "Monospace",
-    },
-    {
-        "name": "Courier New",
-        "stack": "'Courier New', 'Liberation Mono', Cousine, 'Lucida Console', monospace",
-        "category": "Monospace",
-    },
-    {
-        "name": "Liberation Mono",
-        "stack": "'Liberation Mono', 'Courier New', Cousine, Consolas, monospace",
-        "category": "Monospace",
-    },
-    {
         "name": "Lucida Console",
         "stack": "'Lucida Console', 'Lucida Sans Typewriter', 'Liberation Mono', monospace",
         "category": "Monospace",
@@ -133,14 +174,14 @@ FONT_ENTRIES: list[dict[str, str]] = [
         "category": "Monospace",
     },
     {
-        "name": "Impact",
-        "stack": "'Impact', Haettenschweiler, 'Arial Narrow Bold', sans-serif",
-        "category": "Display",
+        "name": "Sora",
+        "stack": "Sora, 'Sora Medium', 'Sora SemiBold', sans-serif",
+        "category": "Sans-serif",
     },
     {
-        "name": "Comic Sans MS",
-        "stack": "'Comic Sans MS', 'Comic Sans', 'Chalkboard SE', cursive, sans-serif",
-        "category": "Display",
+        "name": "Cambria",
+        "stack": "'Cambria', Georgia, 'DejaVu Serif', 'Liberation Serif', serif",
+        "category": "Serif",
     },
 ]
 

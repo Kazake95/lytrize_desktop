@@ -28,25 +28,41 @@ COLORSCALES_ALL        = COLORSCALES_DIVERGING + COLORSCALES_SEQUENTIAL
 
 
 # ── Metric-Compatible CSS Font Stacks ─────────────────────────────────────────
-# Linux distributions do not package proprietary Microsoft fonts by default. 
-# Using exact CSS font stacks maps standard choices (Arial, Calibri, Times)
-# directly to the metrics-compatible, open-source equivalents (Liberation, Carlito, Tinos)
-# that ship natively with both Fedora (.rpm) and Ubuntu/Debian (.deb) builds.
+# Linux-friendly, open-source first selections with metric-compatible fallbacks.
 FONT_STACK_MAP: dict[str, str] = {
-    "Inter": "Inter, 'Helvetica Neue', Arial, sans-serif",
+    "Inter": "Inter, 'Inter-Variable', 'Helvetica Neue', Arial, sans-serif",
+    "Source Sans 3": "'Source Sans 3', 'Liberation Sans', Arimo, Arial, sans-serif",
+    "Noto Sans": "'Noto Sans', 'DejaVu Sans', 'Liberation Sans', Arial, sans-serif",
+    "DejaVu Sans": "'DejaVu Sans', 'Liberation Sans', Arial, sans-serif",
+    "Lato": "Lato, 'DejaVu Sans', 'Liberation Sans', Arial, sans-serif",
+    "Ubuntu": "Ubuntu, 'DejaVu Sans', 'Liberation Sans', sans-serif",
+    "Arial": "Arial, 'Liberation Sans', Arimo, 'DejaVu Sans', sans-serif",
+    "Calibri": "Calibri, Carlito, 'Liberation Sans', 'DejaVu Sans', sans-serif",
+    "Verdana": "Verdana, 'DejaVu Sans', Geneva, sans-serif",
+    "Oswald": "Oswald, 'DejaVu Sans', Arial, sans-serif",
+    "Barlow Condensed": "'Barlow Condensed', 'DejaVu Sans', Arial, sans-serif",
+    "Noto Serif": "'Noto Serif', 'DejaVu Serif', 'Liberation Serif', Times, serif",
+    "DejaVu Serif": "'DejaVu Serif', 'Liberation Serif', Times, serif",
+    "EB Garamond": "'EB Garamond', 'DejaVu Serif', 'Liberation Serif', Georgia, serif",
+    "Georgia": "Georgia, 'DejaVu Serif', 'Liberation Serif', serif",
+    "Times New Roman": "'Times New Roman', 'Liberation Serif', Tinos, 'DejaVu Serif', serif",
+    "Fira Code": "'Fira Code', 'DejaVu Sans Mono', 'Liberation Mono', Consolas, monospace",
+    "DejaVu Sans Mono": "'DejaVu Sans Mono', 'Liberation Mono', Consolas, monospace",
+    "JetBrains Mono": "'JetBrains Mono', 'DejaVu Sans Mono', 'Liberation Mono', Consolas, monospace",
+    "Liberation Mono": "'Liberation Mono', 'DejaVu Sans Mono', Consolas, monospace",
+    "Courier New": "'Courier New', 'Liberation Mono', 'DejaVu Sans Mono', monospace",
+    "Comic Sans MS": "'Comic Sans MS', 'Comic Sans', cursive, sans-serif",
+    "Impact": "Impact, 'Arial Narrow', 'DejaVu Sans', sans-serif",
+    "Trebuchet MS": "'Trebuchet MS', 'Liberation Sans', Ubuntu, sans-serif",
+    "Helvetica": "'Helvetica Neue', Helvetica, Arial, 'Liberation Sans', sans-serif",
+    "Palatino Linotype": "'Palatino Linotype', 'Book Antiqua', Palatino, 'Liberation Serif', serif",
+    "Candara": "'Candara', 'Segoe UI', 'Liberation Sans', Arial, sans-serif",
+    "Corbel": "'Corbel', 'Segoe UI', 'Liberation Sans', Arial, sans-serif",
+    "Constantia": "'Constantia', Georgia, 'DejaVu Serif', 'Liberation Serif', serif",
+    "Lucida Console": "'Lucida Console', 'Lucida Sans Typewriter', 'Liberation Mono', monospace",
+    "Consolas": "'Consolas', 'Liberation Mono', 'Courier New', monospace",
     "Sora": "Sora, 'Sora Medium', 'Sora SemiBold', sans-serif",
-    "Arial": "Arial, 'Liberation Sans', Arimo, 'Helvetica Neue', Helvetica, sans-serif",
-    "Liberation Sans": "'Liberation Sans', Arial, Arimo, sans-serif",
-    "Calibri": "Calibri, Carlito, 'Liberation Sans', Arial, sans-serif",
-    "Carlito": "Carlito, Calibri, 'Liberation Sans', Arial, sans-serif",
-    "Verdana": "Verdana, Geneva, sans-serif",
-    "Ubuntu": "Ubuntu, 'DejaVu Sans', sans-serif",
-    "Times New Roman": "'Times New Roman', 'Liberation Serif', Tinos, Times, serif",
-    "Liberation Serif": "'Liberation Serif', 'Times New Roman', Tinos, Times, serif",
-    "Georgia": "Georgia, 'DejaVu Serif', serif",
-    "JetBrains Mono": "'JetBrains Mono', 'Liberation Mono', monospace",
-    "Courier New": "'Courier New', 'Liberation Mono', Cousine, monospace",
-    "Liberation Mono": "'Liberation Mono', 'Courier New', Cousine, monospace"
+    "Cambria": "'Cambria', Georgia, 'DejaVu Serif', 'Liberation Serif', serif",
 }
 
 
@@ -105,7 +121,7 @@ CHART_TYPE_SETTINGS: dict[str, dict[str, Any]] = {
         "has_axes": True, "has_legend": True,
         "controls": ["title", "subtitle", "axes_labels", "legend_labels",
                     "marker_opacity", "marker_size", "show_value_labels",
-                    "line_width", "line_shape", "show_markers", "line_fill"],
+                    "line_width", "show_markers", "line_fill"],
         "typography": ["family", "font_style", "header", "subtitle",
                       "axis_title", "axis_tick", "legend_title", "legend_item"],
     },
@@ -214,11 +230,41 @@ def default_text_style() -> dict:
 
 
 def available_font_families() -> list[str]:
-    """Return system font families from a clean, curated list of standard MS/LibreOffice fonts."""
+    """Return system font families from a clean, curated list of Linux-friendly open-source fonts."""
     return [
-        "Inter", "Sora", "Arial", "Liberation Sans", "Calibri", "Carlito", 
-        "Verdana", "Ubuntu", "Times New Roman", "Liberation Serif", 
-        "Georgia", "JetBrains Mono", "Courier New", "Liberation Mono"
+        "Inter",
+        "Sora",
+        "Source Sans 3",
+        "Noto Sans",
+        "DejaVu Sans",
+        "Lato",
+        "Ubuntu",
+        "Arial",
+        "Calibri",
+        "Verdana",
+        "Oswald",
+        "Barlow Condensed",
+        "Noto Serif",
+        "DejaVu Serif",
+        "EB Garamond",
+        "Georgia",
+        "Times New Roman",
+        "Fira Code",
+        "DejaVu Sans Mono",
+        "JetBrains Mono",
+        "Liberation Mono",
+        "Courier New",
+        "Comic Sans MS",
+        "Impact",
+        "Trebuchet MS",
+        "Helvetica",
+        "Palatino Linotype",
+        "Candara",
+        "Corbel",
+        "Constantia",
+        "Lucida Console",
+        "Consolas",
+        "Cambria",
     ]
 
 
@@ -1145,12 +1191,13 @@ def render_chart_settings_controls(
                 "Line width", 1, 8, int(opts.get("line_width", 2)),
                 key=f"{key_prefix}_line_width_{uid}",
             )
-            line_shapes = ["linear", "spline", "hv", "vh"]
-            opts["line_shape"] = st.selectbox(
-                "Line shape", line_shapes,
-                index=_option_index(line_shapes, opts.get("line_shape", "linear"), "linear"),
-                key=f"{key_prefix}_line_shape_{uid}",
-            )
+            if chart_type != "scatter_plot":
+                line_shapes = ["linear", "spline", "hv", "vh"]
+                opts["line_shape"] = st.selectbox(
+                    "Line shape", line_shapes,
+                    index=_option_index(line_shapes, opts.get("line_shape", "linear"), "linear"),
+                    key=f"{key_prefix}_line_shape_{uid}",
+                )
             opts["show_markers"] = st.checkbox(
                 "Show markers",
                 value=bool(opts.get("show_markers", True)),

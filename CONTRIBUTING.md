@@ -108,7 +108,7 @@ lytrize_desktop/
 │   ├── config.py              # APP_HOST, APP_PORT, APP_NAME
 │   ├── assets/                # Icons, fonts, welcome banner
 │   │   ├── lytrize.png / .ico
-│   │   └── fonts/             # Inter, Andale Mono, Arial, Calibri, …
+│   │   └── fonts/             # Inter (embedded) + 50+ system font families
 │   ├── modules/
 │   │   ├── __init__.py
 │   │   ├── charts.py          # PALETTES, chart_layout(), insights

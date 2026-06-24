@@ -11,6 +11,8 @@ Upload a CSV or Excel file and get interactive charts, dashboards, and insights 
 
 </div>
 
+**[⬇ Download Desktop App](https://github.com/Kazake95/lytrize_desktop/releases)**
+
 ---
 
 ## What is Lytrize?

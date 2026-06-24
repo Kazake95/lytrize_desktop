@@ -442,7 +442,7 @@ def generate_html_report(
     html, body {{ height: 100%; }}
     body {{
       font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont,
-                   'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+                   'Inter', 'DejaVu Sans', 'Liberation Sans', Arial, sans-serif;
       /* Vertical padding for top/bottom breathing room;
          horizontal padding acts as the outermost page margin. */
       padding: {padding_px}px;
@@ -458,7 +458,7 @@ def generate_html_report(
     }}
 
     .report-header {{ text-align: center; margin-bottom: 2rem; }}
-    .report-header h1 {{ font-size: {t['title_size'] / 16:.2f}rem; font-weight: 800; color: {t['title_color']}; font-family: {t['title_font']}, 'Helvetica Neue', Arial, sans-serif; }}
+    .report-header h1 {{ font-size: {t['title_size'] / 16:.2f}rem; font-weight: 800; color: {t['title_color']}; font-family: {t['title_font']}, 'DejaVu Sans', Arial, sans-serif; }}
     .report-header .meta {{ font-size: 0.8rem; color: #64748b; margin-top: 0.4rem; }}
 
     .print-hint {{
@@ -533,7 +533,7 @@ def generate_html_report(
       margin-top: 0.7rem;
       font-size: {t['insights_size'] / 16:.2f}rem;
       color: {t['insights_color']};
-      font-family: {t['insights_font']}, 'Helvetica Neue', Arial, sans-serif;
+      font-family: {t['insights_font']}, 'DejaVu Sans', Arial, sans-serif;
     }}
     .insights strong {{ display: block; margin-bottom: 0.25rem; }}
     .insights ul {{ margin-left: 1rem; }}
@@ -548,7 +548,7 @@ def generate_html_report(
       border-radius: 4px;
       font-size: {t['notes_size'] / 16:.2f}rem;
       color: {t['notes_color']};
-      font-family: {t['notes_font']}, 'Helvetica Neue', Arial, sans-serif;
+      font-family: {t['notes_font']}, 'DejaVu Sans', Arial, sans-serif;
       font-style: italic;
     }}
 
