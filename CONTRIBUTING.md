@@ -280,6 +280,14 @@ commands. Automated test suite TBD.
 
 ---
 
+## Known issues
+
+1. App UI is not as per modern industry standard desing. 
+2. Few UI elements might missing for advace customisations on Data Cleaning, Charts editing and Dashboard building. 
+3. Need more optimisation based different pc specs because of running python backend libraries and venv in background
+
+---
+
 ## License
 
 See [LICENSE](./LICENSE).
