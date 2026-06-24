@@ -2,7 +2,7 @@ Name:           lytrize
 Version:        1.0
 Release:        1%{?dist}
 Summary:        Offline desktop analytics — CSV and Excel to interactive dashboards
-BuildArch:      x86_64
+BuildArch:      amd64
 
 License:        See /opt/lytrize/LICENSE
 URL:            https://github.com/lytrize/lytrize-desktop

@@ -19,7 +19,7 @@ ARCH=$(     awk '/^BuildArch:/ { print $2 }' "$SPEC")
 STAGING="$SCRIPT_DIR/build/rpm_staging"
 RPMBUILD_ROOT="$SCRIPT_DIR/build/rpmbuild"
 VENV="$STAGING/opt/$APP/venv"
-FINAL_RPM="build/${APP}-${VERSION}-${RELEASE}.${ARCH}.rpm"
+FINAL_RPM="build/${APP}-${VERSION}-${RELEASE}_${ARCH}.rpm"
 
 echo "======================================"
 echo "  Lytrize .rpm builder  v${VERSION}"
