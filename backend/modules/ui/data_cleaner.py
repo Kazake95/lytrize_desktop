@@ -1,30 +1,5 @@
 """
 modules/ui/data_cleaner.py -- Advanced data cleaning and text normalisation panel.
-===================================================================================
-
-Provides show_data_cleaner(df) — a multi-tab Streamlit panel rendered on the
-upload page after the existing Column Manager.
-
-Tabs:
-  🔤 Text Clean      Text normalisation, special-char removal, case conversion,
-                     strip whitespace, alphanumeric-only filter.
-  🔄 Find & Replace  Exact string or regex bulk find/replace across a column.
-  ✅ Validate        Check a column against a pattern (email, phone, postcode,
-                     integer, decimal, custom regex).  Shows pass/fail counts
-                     and highlights failing rows.
-  ✂️ String Ops      Trim, pad, extract substring, split into new column,
-                     concatenate two columns.
-  🔢 Numeric Clean   Clamp to min/max range, fill outliers with median/mean,
-                     round to N decimal places, scale to 0-1 / z-score.
-
-Every tab shows a LIVE PREVIEW (first 8 rows before / after) before the
-user commits the change. Changes are applied to st.session_state.df in-place
-and trigger st.rerun().
-
-Design rules:
-  - No auto-apply on widget change — always requires an explicit "Apply" button.
-  - Never mutates the original DataFrame passed in; previews work on copies.
-  - Fully offline — no network calls.
 """
 
 from __future__ import annotations
@@ -35,22 +10,16 @@ import pandas as pd
 import numpy as np
 
 
-# ── Performance constants ─────────────────────────────────────────────────────
-# Live previews sample at most this many rows so that checkbox/widget changes
-# never block the render on large datasets (e.g. 1 M+ rows).  The full data
-# is only processed when the user clicks an explicit Apply button.
 _PREVIEW_SAMPLE = 2_000
 
 
 def _sample(series: pd.Series) -> tuple[pd.Series, bool]:
-    """Return (sample, was_sampled).  Samples without replacement when large."""
     if len(series) > _PREVIEW_SAMPLE:
         return series.sample(_PREVIEW_SAMPLE, random_state=42), True
     return series, False
 
 
 def _count_label(n_changed: int, total_sample: int, full_len: int, was_sampled: bool) -> str:
-    """Human-readable change-count caption, noting estimated % when sampled."""
     if was_sampled:
         pct = n_changed / total_sample * 100 if total_sample else 0
         est = int(pct / 100 * full_len)
@@ -61,16 +30,7 @@ def _count_label(n_changed: int, total_sample: int, full_len: int, was_sampled: 
     return f"**Live preview** — {n_changed:,} of {full_len:,} values will change:"
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
 def _preview_table(before: pd.Series, after: pd.Series, n: int = 20) -> pd.DataFrame:
-    """Build a Before / After DataFrame showing ONLY rows that match / will change.
-
-    The preview is strictly limited to rows where Before != After so users see
-    exactly what will be affected — random unrelated rows are never shown.
-    If no rows match, an empty DataFrame is returned and the caller shows a
-    'no matches found' message instead.
-    """
     changed_mask = before.astype(str) != after.astype(str)
     changed_idx  = [i for i, v in enumerate(changed_mask) if v]
     if not changed_idx:
@@ -83,7 +43,6 @@ def _preview_table(before: pd.Series, after: pd.Series, n: int = 20) -> pd.DataF
 
 
 def _apply_df(df: pd.DataFrame, col: str, new_series: pd.Series) -> None:
-    """Commit a transformed series back to session_state.df."""
     df[col] = new_series
     st.session_state.df = df
 
@@ -91,8 +50,6 @@ def _apply_df(df: pd.DataFrame, col: str, new_series: pd.Series) -> None:
 def _changed_count(before: pd.Series, after: pd.Series) -> int:
     return int((before.astype(str) != after.astype(str)).sum())
 
-
-# ── Tab: Text Clean ───────────────────────────────────────────────────────────
 
 def _tab_text_clean(df: pd.DataFrame) -> None:
     str_cols = df.select_dtypes(include=["object", "string", "category"]).columns.tolist()
@@ -140,7 +97,6 @@ def _tab_text_clean(df: pd.DataFrame) -> None:
         if do_empty_na: s = s.replace({"": np.nan, "nan": np.nan, "None": np.nan})
         return s
 
-    # ── Sampled live preview — never runs on the full dataset during render ──
     sample, was_sampled = _sample(series)
     preview_sample = _apply_ops(sample)
     n_changed = _changed_count(sample, preview_sample)
@@ -158,13 +114,10 @@ def _tab_text_clean(df: pd.DataFrame) -> None:
 
     if st.button("✅ Apply Text Clean", key="dc_tc_apply", type="primary",
                  disabled=n_changed == 0):
-        # Apply to the full dataset only on explicit button click
         _apply_df(df, col, _apply_ops(df[col].astype(str)))
         st.success(f"✅ Cleaned `{col}`.")
         st.rerun()
 
-
-# ── Tab: Find & Replace ───────────────────────────────────────────────────────
 
 def _tab_find_replace(df: pd.DataFrame) -> None:
     str_cols = df.select_dtypes(include=["object", "string", "category"]).columns.tolist()
@@ -187,7 +140,6 @@ def _tab_find_replace(df: pd.DataFrame) -> None:
     if find_val:
         try:
             flags  = re.IGNORECASE if case_insens else 0
-            # Use a sample for the live preview to keep the UI responsive.
             sample, was_sampled = _sample(series)
             if use_regex:
                 preview_sample = sample.str.replace(find_val, repl_val, regex=True,  flags=flags)
@@ -206,7 +158,6 @@ def _tab_find_replace(df: pd.DataFrame) -> None:
                 st.dataframe(preview_df, use_container_width=True, hide_index=True)
 
                 if st.button("✅ Apply Find & Replace", key="dc_fr_apply", type="primary"):
-                    # Full-data apply only on button click
                     if use_regex:
                         full_result = series.str.replace(find_val, repl_val, regex=True,  flags=flags)
                     else:
@@ -219,8 +170,6 @@ def _tab_find_replace(df: pd.DataFrame) -> None:
     else:
         st.info("Enter a search term above to preview changes.")
 
-
-# ── Tab: Validate ─────────────────────────────────────────────────────────────
 
 _PATTERNS = {
     "Email address":       r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$",
@@ -239,6 +188,8 @@ _PATTERNS = {
 def _tab_validate(df: pd.DataFrame) -> None:
     str_cols = df.columns.tolist()
     col = st.selectbox("Column to validate", str_cols, key="dc_val_col")
+    
+    # Validation runs exclusively inside this active tab on a non-null astype(str) series
     series = df[col].dropna().astype(str)
 
     pattern_name = st.selectbox("Validation rule", list(_PATTERNS.keys()), key="dc_val_pat")
@@ -253,8 +204,6 @@ def _tab_validate(df: pd.DataFrame) -> None:
         return
 
     try:
-        # Run match on the full (non-null) series for accurate counts —
-        # validation is lightweight (regex match, no data copy) so this is safe.
         mask_pass  = series.str.match(pattern, case=True, na=False)
         mask_fail  = ~mask_pass
         n_pass = int(mask_pass.sum())
@@ -299,8 +248,6 @@ def _tab_validate(df: pd.DataFrame) -> None:
     except re.error as e:
         st.error(f"Invalid regex: {e}")
 
-
-# ── Tab: String Ops ───────────────────────────────────────────────────────────
 
 def _tab_string_ops(df: pd.DataFrame) -> None:
     str_cols = df.select_dtypes(include=["object", "string", "category"]).columns.tolist()
@@ -370,7 +317,6 @@ def _tab_string_ops(df: pd.DataFrame) -> None:
         n_changed = _changed_count(series, new_series)
         target_col = new_col_name if new_col_name else col
         label = f"new column `{target_col}`" if new_col_name else f"`{col}`"
-        # Show preview on a sample only — avoids blocking large datasets
         sample, was_sampled = _sample(series)
         ns_sample = new_series.iloc[:len(sample)] if not was_sampled else new_series.loc[sample.index]
         st.caption(_count_label(n_changed, len(sample), len(series), was_sampled) +
@@ -391,8 +337,6 @@ def _tab_string_ops(df: pd.DataFrame) -> None:
     except Exception as e:
         st.error(f"Error: {e}")
 
-
-# ── Tab: Numeric Clean ────────────────────────────────────────────────────────
 
 def _tab_numeric_clean(df: pd.DataFrame) -> None:
     num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
@@ -459,7 +403,6 @@ def _tab_numeric_clean(df: pd.DataFrame) -> None:
             new_series = series.fillna(fill_val)
 
         n_changed = int((series.round(8) != new_series.round(8)).sum())
-        # Show a sampled preview so large datasets don't stall the render
         sample, was_sampled = _sample(series)
         ns_sample = new_series.loc[sample.index] if was_sampled else new_series
         before_str = sample.astype(str)
@@ -478,17 +421,7 @@ def _tab_numeric_clean(df: pd.DataFrame) -> None:
         st.error(f"Error: {e}")
 
 
-# ── Public entry point ────────────────────────────────────────────────────────
-
 def show_data_cleaner(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Render the full Data Cleaning panel.
-
-    Call this from the upload page after show_column_manager() and
-    show_dtype_transformer().  Returns the (possibly updated) DataFrame,
-    but the canonical source of truth is st.session_state.df — this
-    function calls st.rerun() after every mutation.
-    """
     st.markdown("---")
     st.markdown("## 🧹 Data Cleaning & Validation")
     st.caption(
@@ -496,18 +429,22 @@ def show_data_cleaner(df: pd.DataFrame) -> pd.DataFrame:
         "Every tab shows a live preview of changes before you apply them."
     )
 
-    tabs = st.tabs([
-        "🔤 Text Clean",
-        "🔄 Find & Replace",
-        "✅ Validate",
-        "✂️ String Ops",
-        "🔢 Numeric Clean",
-    ])
+    # Master activation gate to completely bypass regex processing and tab renders unless active
+    if st.checkbox("⚙️ Open Data Cleaner Tools Panel", key="_enable_data_cleaner_panel"):
+        tabs = st.tabs([
+            "🔤 Text Clean",
+            "🔄 Find & Replace",
+            "✅ Validate",
+            "✂️ String Ops",
+            "🔢 Numeric Clean",
+        ])
 
-    with tabs[0]: _tab_text_clean(df)
-    with tabs[1]: _tab_find_replace(df)
-    with tabs[2]: _tab_validate(df)
-    with tabs[3]: _tab_string_ops(df)
-    with tabs[4]: _tab_numeric_clean(df)
+        with tabs[0]: _tab_text_clean(df)
+        with tabs[1]: _tab_find_replace(df)
+        with tabs[2]: _tab_validate(df)
+        with tabs[3]: _tab_string_ops(df)
+        with tabs[4]: _tab_numeric_clean(df)
+    else:
+        st.info("Check the box above to open the data cleaning tabs (Text, Find & Replace, Validate, etc.).")
 
     return st.session_state.get("df", df)

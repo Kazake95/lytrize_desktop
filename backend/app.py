@@ -123,8 +123,23 @@ def _restore_draft(user_id: int) -> None:
 
     try:
         meta_map = json.loads(draft.get("chart_meta_json", "{}"))
+        # Merge chart metadata: only apply for charts that actually exist
+        # in the restored charts list. This prevents stale metadata from
+        # persisting after a chart is regenerated with new settings.
+        current_chart_uids = {c[0] for c in st.session_state.get("charts", [])}
         for k, v in meta_map.items():
-            if k not in st.session_state:
+            if k.startswith("chart_meta_"):
+                # Extract uid from key: "chart_meta_{uid}"
+                uid = k[11:]  # len("chart_meta_") = 11
+                if uid in current_chart_uids:
+                    # Always merge meta for existing charts (updates old values)
+                    existing = st.session_state.get(k, {})
+                    if isinstance(existing, dict) and isinstance(v, dict):
+                        existing.update(v)
+                        st.session_state[k] = existing
+                    elif k not in st.session_state:
+                        st.session_state[k] = v
+            elif k not in st.session_state:
                 st.session_state[k] = v
     except Exception:
         pass
@@ -208,8 +223,17 @@ def main() -> None:
     else:
         st.query_params.pop("sid", None)
 
+    # ── Track page navigation ─────────────────────────────────────────────────
+    if "_current_rendered_page" not in st.session_state:
+        st.session_state["_current_rendered_page"] = st.session_state.page
+        st.session_state["_last_page_navigated_from"] = None
+    elif st.session_state["_current_rendered_page"] != st.session_state.page:
+        st.session_state["_last_page_navigated_from"] = st.session_state["_current_rendered_page"]
+        st.session_state["_current_rendered_page"] = st.session_state.page
+
     # ── Route ─────────────────────────────────────────────────────────────────
-    p = st.session_state.page
+    current_page = st.session_state.page
+    p = current_page
     if   p == "home":      page_home()
     elif p == "upload":    page_upload()
     elif p == "analysis":  page_analysis()

@@ -41,14 +41,15 @@ from modules.database import (
 )
 from modules.charts import charts_to_json, clean_insight_text, _fmt_num, apply_hover_format
 from modules.export import generate_html_report
-from modules.playwright_renderer import render_html_to_png
 from modules.ui.css import inject_footer, render_logo
 from modules.ui.chart_settings import (
     apply_chart_display_options,
+    compute_meta_hash,
     default_text_style as _shared_default_text_style,
     merge_text_style as _shared_merge_text_style,
     render_chart_settings_controls,
 )
+from modules.ui.font_manager import inject_font_preview_css, font_select
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -75,6 +76,30 @@ def _persist():
     uid = st.session_state.get("user_id")
     if not uid:
         return
+    # Safely build chart_meta_json — ensure all values are JSON-serializable
+    _chart_meta_raw = {}
+    for _k in list(st.session_state.keys()):
+        if _k.startswith("chart_meta_"):
+            _v = st.session_state[_k]
+            if isinstance(_v, dict):
+                _safe_v = {}
+                for _mk, _mv in _v.items():
+                    try:
+                        json.dumps(_mv, ensure_ascii=False)
+                        _safe_v[_mk] = _mv
+                    except (TypeError, ValueError, OverflowError):
+                        _safe_v[_mk] = str(_mv)
+                _chart_meta_raw[_k] = _safe_v
+            elif isinstance(_v, (str, int, float, bool, list, tuple)):
+                try:
+                    json.dumps(_v, ensure_ascii=False)
+                    _chart_meta_raw[_k] = _v
+                except (TypeError, ValueError, OverflowError):
+                    _chart_meta_raw[_k] = str(_v)
+            else:
+                _chart_meta_raw[_k] = str(_v)
+    chart_meta_json = json.dumps(_chart_meta_raw, ensure_ascii=False)
+
     save_draft(
         user_id              = uid,
         page                 = "dashboard",
@@ -84,8 +109,7 @@ def _persist():
         editing_session_name = st.session_state.get("editing_session_name"),
         dashboard_title      = st.session_state.get("dashboard_title", ""),
         kpis_json            = json.dumps(st.session_state.get("kpis", [])),
-        chart_meta_json      = json.dumps(
-            {k: v for k, v in st.session_state.items() if k.startswith("chart_meta_")}),
+        chart_meta_json      = chart_meta_json,
         layout_mode          = st.session_state.get("layout_mode", "portrait"),
     )
 
@@ -139,7 +163,9 @@ def _apply_axes(fig, x_lbl, y_lbl, text_style: dict | None = None, *, _inplace: 
         f2.update_xaxes(tickfont=axis_tick_font)
         f2.update_yaxes(tickfont=axis_tick_font)
         return f2
-    except Exception:
+    except Exception as e:
+        import logging as _logging
+        _logging.getLogger(__name__).warning("_apply_axes: %s", e)
         return fig
 
 
@@ -180,7 +206,9 @@ def _apply_legend_names(fig, legend_names: dict, legend_title: str = "", text_st
         elif legend_title == "":
             f2.update_layout(legend=dict(font=legend_font, title=dict(font=legend_title_font)))
         return f2
-    except Exception:
+    except Exception as e:
+        import logging as _logging
+        _logging.getLogger(__name__).warning("_apply_legend_names: %s", e)
         return fig
 
 
@@ -354,7 +382,7 @@ def _render_kpi_section(df, readonly):
                             _dash_sync_notes()
                             _persist()
                             st.rerun()
-        st.markdown("<br>", unsafe_allow_html=True)
+        st.write("")
 
     # ── Add new KPI ───────────────────────────────────────────────────────────
     if not readonly and df is not None:
@@ -611,43 +639,56 @@ def _render_chart(item, idx, total, viewing_saved):
     yl         = meta.get("y_label", "")
     text_style = _merge_text_style(meta.get("text_style", {}))
 
-    fig_show = _apply_axes(fig, xl, yl, text_style)          # deepcopy (only copy)
-    fig_show = _apply_legend_names(fig_show, meta.get("legend_names", {}), meta.get("legend_title", ""), text_style, _inplace=True)
-    fig_show = apply_chart_display_options(fig_show, meta, ctype, _inplace=True)
-    # fig_show is already a private copy from _apply_axes; no deepcopy needed here.
-    try:
-        apply_hover_format(fig_show)
+    # Cache the fully-built figure to avoid expensive deepcopy + apply on every rerun
+    _cache_key      = f"_dash_fig_cache_{uid}"
+    _cache_meta_key = f"_dash_fig_cache_meta_{uid}"
+    _cached_fig     = st.session_state.get(_cache_key)
+    _cached_hash    = st.session_state.get(_cache_meta_key, "")
+    _current_hash   = compute_meta_hash(meta)
 
-        if sub:
-            safe_sub = escape(str(sub))
-            fig_show.update_layout(title=dict(
-                text=(
-                    f'<sup style="font-size:{text_style["subtitle_size"]}px;'
-                    f'color:{text_style["subtitle_color"]};font-family:{text_style["family"]}">'
-                    f'{safe_sub}</sup>'
-                ),
-                font=dict(size=int(text_style["subtitle_size"])),
-            ))
-        else:
-            fig_show.update_layout(title_text="")
+    if _cached_fig is not None and _cached_hash == _current_hash:
+        fig_show = _cached_fig
+    else:
+        fig_show = _apply_axes(fig, xl, yl, text_style)          # deepcopy (only copy)
+        fig_show = _apply_legend_names(fig_show, meta.get("legend_names", {}), meta.get("legend_title", ""), text_style, _inplace=True)
+        fig_show = apply_chart_display_options(fig_show, meta, ctype, _inplace=True)
+        # fig_show is already a private copy from _apply_axes; no deepcopy needed here.
+        try:
+            apply_hover_format(fig_show)
 
-        is_horiz = any(getattr(t, "orientation", "v") == "h"
-                       for t in fig_show.data if hasattr(t, "orientation"))
-        tick_font = dict(
-            size=int(text_style["axis_tick_size"]),
-            color=str(text_style["axis_tick_color"]),
-            family=str(text_style["family"]),
-        )
-        if is_horiz:
-            fig_show.update_yaxes(tickfont=tick_font, automargin=True)
-            fig_show.update_xaxes(tickfont=tick_font)
-            fig_show.update_layout(margin=dict(l=120, r=20, t=28, b=20))
-        else:
-            fig_show.update_xaxes(tickangle=-35, tickfont=tick_font, automargin=True)
-            fig_show.update_yaxes(tickfont=tick_font, automargin=True)
-            fig_show.update_layout(margin=dict(l=20, r=20, t=28, b=80))
-    except Exception:
-        pass
+            if sub:
+                safe_sub = escape(str(sub))
+                fig_show.update_layout(title=dict(
+                    text=(
+                        f'<sup style="font-size:{text_style["subtitle_size"]}px;'
+                        f'color:{text_style["subtitle_color"]};font-family:{text_style["family"]}">'
+                        f'{safe_sub}</sup>'
+                    ),
+                    font=dict(size=int(text_style["subtitle_size"])),
+                ))
+            else:
+                fig_show.update_layout(title_text="")
+
+            is_horiz = any(getattr(t, "orientation", "v") == "h"
+                           for t in fig_show.data if hasattr(t, "orientation"))
+            tick_font = dict(
+                size=int(text_style["axis_tick_size"]),
+                color=str(text_style["axis_tick_color"]),
+                family=str(text_style["family"]),
+            )
+            if is_horiz:
+                fig_show.update_yaxes(tickfont=tick_font, automargin=True)
+                fig_show.update_xaxes(tickfont=tick_font)
+                fig_show.update_layout(margin=dict(l=120, r=20, t=28, b=20))
+            else:
+                fig_show.update_xaxes(tickangle=-35, tickfont=tick_font, automargin=True)
+                fig_show.update_yaxes(tickfont=tick_font, automargin=True)
+                fig_show.update_layout(margin=dict(l=20, r=20, t=28, b=80))
+        except Exception:
+            pass
+
+        st.session_state[_cache_key]      = fig_show
+        st.session_state[_cache_meta_key] = _current_hash
 
     # ── Control buttons (edit mode only) ─────────────────────────────────────
     if not viewing_saved:
@@ -723,16 +764,41 @@ def _render_chart(item, idx, total, viewing_saved):
         visible = [ins for i,ins in enumerate(autos) if i not in hidden]
         if visible:
             with st.expander("💡 Insights", expanded=False):
-                for ins in visible: st.markdown(f"- {clean_insight_text(ins)}")
+                _ins_font = st.session_state.get("ex_insights_font", "Inter")
+                _ins_style = st.session_state.get("ex_insights_style", "Normal")
+                _ins_size = st.session_state.get("ex_insights_size", 14)
+                _ins_color = st.session_state.get("ex_insights_color", "#f5f7ff")
+                _style_parts_ins = [f"font-family:{_ins_font};", f"font-size:{_ins_size}px;", f"color:{_ins_color};"]
+                if "Bold" in _ins_style:
+                    _style_parts_ins.append("font-weight:bold;")
+                if "Italic" in _ins_style:
+                    _style_parts_ins.append("font-style:italic;")
+                if "Underline" in _ins_style:
+                    _style_parts_ins.append("text-decoration:underline;")
+                _ins_style_str = " ".join(_style_parts_ins)
+                for ins in visible:
+                    st.markdown(f'<div style="{_ins_style_str}">{clean_insight_text(ins)}</div>', unsafe_allow_html=True)
 
     # Analysis notes are independent of auto-insights and always export/save.
     live_desc = st.session_state.get(note_key, "") if not viewing_saved else (desc or "")
     if viewing_saved:
         if live_desc:
             safe_desc = escape(str(live_desc))
+            _notes_font = st.session_state.get("ex_notes_font", "Inter")
+            _notes_style = st.session_state.get("ex_notes_style", "Normal")
+            _notes_size = st.session_state.get("ex_notes_size", 14)
+            _notes_color = st.session_state.get("ex_notes_color", "#f5f7ff")
+            _notes_style_parts = [f"font-family:{_notes_font};", f"font-size:{_notes_size}px;", f"color:{_notes_color};"]
+            if "Bold" in _notes_style:
+                _notes_style_parts.append("font-weight:bold;")
+            if "Italic" in _notes_style:
+                _notes_style_parts.append("font-style:italic;")
+            if "Underline" in _notes_style:
+                _notes_style_parts.append("text-decoration:underline;")
+            _notes_style_str = " ".join(_notes_style_parts)
             st.markdown(
                 f'<div style="background:rgba(133,102,252,0.07);border-left:3px solid #8566fc;'
-                f'border-radius:6px;padding:.6rem .9rem;font-size:.87rem;margin-top:.3rem;">'
+                f'border-radius:6px;padding:.6rem .9rem;font-size:.87rem;margin-top:.3rem;{_notes_style_str}">'
                 f'<strong>Analysis Notes:</strong> {safe_desc}</div>', unsafe_allow_html=True)
     else:
         def _sync_note(u=uid):   # default-arg captures uid by value
@@ -771,7 +837,7 @@ def _render_grid(ordered_charts, viewing_saved):
             # Full-width or lone last chart
             with st.container():
                 _render_chart(item, i, total, viewing_saved)
-            st.markdown("<br>", unsafe_allow_html=True)
+            st.write("")
             i += 1
         else:
             # Try to fill a full row of n_cols
@@ -794,12 +860,12 @@ def _render_grid(ordered_charts, viewing_saved):
                 for ci, (ri, rc) in enumerate(zip(row_items, row_cols)):
                     with rc:
                         _render_chart(ri, i + ci, total, viewing_saved)
-                st.markdown("<br>", unsafe_allow_html=True)
+                st.write("")
                 i += len(row_items)
             else:
                 with st.container():
                     _render_chart(item, i, total, viewing_saved)
-                st.markdown("<br>", unsafe_allow_html=True)
+                st.write("")
                 i += 1
 
 
@@ -935,14 +1001,25 @@ def page_dashboard():
             header_meta = _merge_text_style(first_meta.get("text_style", {}))
     except Exception:
         pass
+    # Global dashboard title font settings
+    _title_font = st.session_state.get("ex_title_font", "Inter")
+    _title_style = st.session_state.get("ex_title_style", "Normal")
+    _title_size = st.session_state.get("ex_title_size", 28)
+    _title_color = st.session_state.get("ex_title_color", "#6163df")
+    _title_style_parts = [f"font-family:{_title_font};", f"font-size:{_title_size}px;", f"color:{_title_color};"]
+    if "Bold" in _title_style:
+        _title_style_parts.append("font-weight:bold;")
+    if "Italic" in _title_style:
+        _title_style_parts.append("font-style:italic;")
+    if "Underline" in _title_style:
+        _title_style_parts.append("text-decoration:underline;")
+    _title_style_str = " ".join(_title_style_parts)
     st.markdown(
         f'<div style="text-align:center;margin-bottom:0.3rem;">'
-        f'<span style="font-size:{header_meta["header_size"] / 16:.2f}rem;'
-        f'font-weight:800;color:{header_meta["header_color"]};'
-        f'font-family:{header_meta["family"]};">📊 {escape(display_title)}</span><br>'
+        f'<span style="{_title_style_str}">📊 {escape(display_title)}</span><br>'
         f'<span style="font-size:{header_meta["subtitle_size"] / 16:.2f}rem;'
         f'color:{header_meta["subtitle_color"]};font-family:{header_meta["family"]};">'
-        f'Generated by Lytrize &middot; {now_str}</span>'
+        f'Created by Lytrize &middot; {now_str}</span>'
         f'</div>',
         unsafe_allow_html=True)
 
@@ -960,12 +1037,12 @@ def page_dashboard():
             def_name = st.session_state.get("editing_session_name", sname) if is_editing else sname
             sname_in = st.text_input("Session name", value=def_name, key="sname_in")
         with sc2:
-            st.markdown("<br>", unsafe_allow_html=True)
+            st.write("")
             if st.button("💾 Save", use_container_width=True):
                 _do_save(sname_in, charts, df)
         with sc3:
             if is_editing:
-                st.markdown("<br>", unsafe_allow_html=True)
+                st.write("")
                 if st.button("🔄 Update", use_container_width=True):
                     _do_update(sname_in, charts, clear_editing=False)
 
@@ -1058,32 +1135,21 @@ def _export_row(charts, sname, viewing_saved):
         "ex_not_bg": "#1a1732", "ex_not_bd": "#8566fc",
         "ex_density": "Comfortable", "ex_radius": 12, "ex_chart_h": 400,
         "ex_width": "Auto", "ex_meta": True, "ex_print_hint": True,
+        "ex_kpi_text_color": "#f5f7ff", "ex_kpi_val_size": 14,
     }
     _PRESETS = {
-        # Modern dark BI themes
-        "🌙 Dark Modern": {
-            "ex_bg": "#0b1220",
-            "ex_card": "#111a2e",
-            "ex_kpi": "#111a2e",
+        # High-contrast dark BI themes
+        "🌙 Dark Moon": {
+            "ex_bg": "#0b1020",
+            "ex_card": "#11182b",
+            "ex_kpi": "#11182b",
             "ex_accent": "#7c8cff",
-            "ex_border": "#22304f",
-            "ex_text": "#f3f7ff",
-            "ex_ins_bg": "#0f1a33",
-            "ex_ins_bd": "#4f7cff",
-            "ex_not_bg": "#12172a",
-            "ex_not_bd": "#9b87ff",
-        },
-        "🩶 Slate Pro": {
-            "ex_bg": "#0f172a",
-            "ex_card": "#172036",
-            "ex_kpi": "#172036",
-            "ex_accent": "#38bdf8",
-            "ex_border": "#2b3a57",
-            "ex_text": "#eaf2ff",
-            "ex_ins_bg": "#10243a",
-            "ex_ins_bd": "#38bdf8",
-            "ex_not_bg": "#18122b",
-            "ex_not_bd": "#8b5cf6",
+            "ex_border": "#24304a",
+            "ex_text": "#f4f7ff",
+            "ex_ins_bg": "#0f1a30",
+            "ex_ins_bd": "#5b7cfa",
+            "ex_not_bg": "#12162b",
+            "ex_not_bd": "#a78bfa",
         },
         "🌌 Midnight Navy": {
             "ex_bg": "#08111f",
@@ -1098,45 +1164,92 @@ def _export_row(charts, sname, viewing_saved):
             "ex_not_bd": "#c084fc",
         },
 
-        # Vibrant / colorful modern BI themes
-        "✨ Aurora": {
-            "ex_bg": "#101423",
-            "ex_card": "#161d33",
-            "ex_kpi": "#161d33",
-            "ex_accent": "#22c55e",
-            "ex_border": "#2a3558",
-            "ex_text": "#f7fbff",
-            "ex_ins_bg": "#10283a",
-            "ex_ins_bd": "#06b6d4",
-            "ex_not_bg": "#22143a",
-            "ex_not_bd": "#a855f7",
+        # Bright, clear dashboard themes
+        "🤍 Slate Clear": {
+            "ex_bg": "#f7faff",
+            "ex_card": "#ffffff",
+            "ex_kpi": "#f4f7ff",
+            "ex_accent": "#4f8cff",
+            "ex_border": "#d6def0",
+            "ex_text": "#162033",
+            "ex_ins_bg": "#eef4ff",
+            "ex_ins_bd": "#4f8cff",
+            "ex_not_bg": "#f7f3ff",
+            "ex_not_bd": "#8b5cf6",
         },
-        "🌅 Sunset Pulse": {
-            "ex_bg": "#1a1020",
-            "ex_card": "#25162f",
-            "ex_kpi": "#25162f",
+        "✨ Aurora Bright": {
+            "ex_bg": "#f7fffb",
+            "ex_card": "#ffffff",
+            "ex_kpi": "#effaf4",
+            "ex_accent": "#22c55e",
+            "ex_border": "#cfe8d6",
+            "ex_text": "#123022",
+            "ex_ins_bg": "#e9fbf1",
+            "ex_ins_bd": "#14b8a6",
+            "ex_not_bg": "#fff4e8",
+            "ex_not_bd": "#fb923c",
+        },
+        "🌅 Sunset Bloom": {
+            "ex_bg": "#fff9f5",
+            "ex_card": "#ffffff",
+            "ex_kpi": "#fff0ea",
             "ex_accent": "#fb7185",
-            "ex_border": "#42304c",
-            "ex_text": "#fff7fb",
-            "ex_ins_bg": "#2b1831",
+            "ex_border": "#f0d5c6",
+            "ex_text": "#31201b",
+            "ex_ins_bg": "#fff1ea",
             "ex_ins_bd": "#f97316",
-            "ex_not_bg": "#2a163f",
+            "ex_not_bg": "#fff0f7",
             "ex_not_bd": "#ec4899",
         },
-        "🌊 Ocean Pop": {
-            "ex_bg": "#07131f",
-            "ex_card": "#0f1f33",
-            "ex_kpi": "#0f1f33",
-            "ex_accent": "#14b8a6",
-            "ex_border": "#21374f",
-            "ex_text": "#eff9ff",
-            "ex_ins_bg": "#0b2a3a",
-            "ex_ins_bd": "#22d3ee",
-            "ex_not_bg": "#13223a",
+        "🌊 Ocean Breeze": {
+            "ex_bg": "#f5fbff",
+            "ex_card": "#ffffff",
+            "ex_kpi": "#eef8ff",
+            "ex_accent": "#06b6d4",
+            "ex_border": "#cce6f5",
+            "ex_text": "#102133",
+            "ex_ins_bg": "#e8f6ff",
+            "ex_ins_bd": "#0ea5e9",
+            "ex_not_bg": "#eff6ff",
             "ex_not_bd": "#3b82f6",
         },
-    }
-    # Apply any pending preset BEFORE widgets are rendered this rerun.
+        "🍋 Citrus Glow": {
+            "ex_bg": "#fffcf2",
+            "ex_card": "#ffffff",
+            "ex_kpi": "#fff8df",
+            "ex_accent": "#f59e0b",
+            "ex_border": "#f0dfaf",
+            "ex_text": "#2b2112",
+            "ex_ins_bg": "#fff8e1",
+            "ex_ins_bd": "#eab308",
+            "ex_not_bg": "#fff3db",
+            "ex_not_bd": "#fb923c",
+        },
+        "🌸 Blossom Pop": {
+            "ex_bg": "#fff7fb",
+            "ex_card": "#ffffff",
+            "ex_kpi": "#fff0f7",
+            "ex_accent": "#ec4899",
+            "ex_border": "#f1d0e2",
+            "ex_text": "#31152a",
+            "ex_ins_bg": "#fff0f8",
+            "ex_ins_bd": "#f43f5e",
+            "ex_not_bg": "#f7f0ff",
+            "ex_not_bd": "#a855f7",
+        },
+        "🌿 Mint Fresh": {
+            "ex_bg": "#f7fffe",
+            "ex_card": "#ffffff",
+            "ex_kpi": "#ecfffb",
+            "ex_accent": "#14b8a6",
+            "ex_border": "#cae7e1",
+            "ex_text": "#123431",
+            "ex_ins_bg": "#e9fffb",
+            "ex_ins_bd": "#06b6d4",
+            "ex_not_bg": "#f0fdf4",
+            "ex_not_bd": "#22c55e",
+        },
+    }    # Apply any pending preset BEFORE widgets are rendered this rerun.
     if "_ex_pending" in st.session_state:
         for k, v in st.session_state["_ex_pending"].items():
             st.session_state[k] = v          # safe — widgets not yet created
@@ -1150,18 +1263,26 @@ def _export_row(charts, sname, viewing_saved):
         # ── Quick preset row (rendered BEFORE pickers so clicks queue _ex_pending) ──
         st.markdown("**Quick presets:**")
         pr_cols = st.columns(len(_PRESETS))
-        for col, (label, vals) in zip(pr_cols, _PRESETS.items()):
-            if col.button(label, key=f"preset_{label[:3]}"):
+        for i, (col, (label, vals)) in enumerate(zip(pr_cols, _PRESETS.items())):
+            if col.button(label, key=f"preset_{i}"):
                 st.session_state["_ex_pending"] = vals   # queued; applied next rerun
                 st.rerun()
 
-        tab_colours, tab_layout = st.tabs(["Colours", "Layout"])
+        tab_colours, tab_text, tab_layout = st.tabs(["Colours", "Text", "Layout"])
         with tab_colours:
             ec1, ec2, ec3 = st.columns(3)
             with ec1:
                 ex_bg     = st.color_picker("Page background",     st.session_state.get("ex_bg",     _EX_DEFAULTS["ex_bg"]),     key="ex_bg")
                 ex_card   = st.color_picker("Chart card fill",     st.session_state.get("ex_card",   _EX_DEFAULTS["ex_card"]),   key="ex_card")
                 ex_kpi    = st.color_picker("KPI card fill",       st.session_state.get("ex_kpi",    _EX_DEFAULTS["ex_kpi"]),    key="ex_kpi")
+                ex_kpi_text_color = st.color_picker("KPI text colour",
+                    st.session_state.get("ex_kpi_text_color", _EX_DEFAULTS["ex_kpi_text_color"]),
+                    key="ex_kpi_text_color",
+                    help="Colour of the KPI value number and label text in the export.")
+                ex_kpi_val_size   = st.slider("KPI value font size", 10, 28,
+                    int(st.session_state.get("ex_kpi_val_size", _EX_DEFAULTS["ex_kpi_val_size"])),
+                    key="ex_kpi_val_size",
+                    help="Font size of the KPI value number in the export.")
             with ec2:
                 ex_accent = st.color_picker("Accent / headings",   st.session_state.get("ex_accent", _EX_DEFAULTS["ex_accent"]), key="ex_accent")
                 ex_border = st.color_picker("Card border",         st.session_state.get("ex_border", _EX_DEFAULTS["ex_border"]), key="ex_border")
@@ -1171,6 +1292,81 @@ def _export_row(charts, sname, viewing_saved):
                 ex_ins_bd = st.color_picker("Insights border",     st.session_state.get("ex_ins_bd", _EX_DEFAULTS["ex_ins_bd"]), key="ex_ins_bd")
                 ex_not_bg = st.color_picker("Notes background",    st.session_state.get("ex_not_bg", _EX_DEFAULTS["ex_not_bg"]), key="ex_not_bg")
                 ex_not_bd = st.color_picker("Notes border",        st.session_state.get("ex_not_bd", _EX_DEFAULTS["ex_not_bd"]), key="ex_not_bd")
+        with tab_text:
+            inject_font_preview_css()
+            font_styles_list = [
+                "Normal", "Bold", "Italic", "Underline",
+                "Bold Italic", "Bold Underline", "Italic Underline",
+                "Bold Italic Underline",
+            ]
+            st.markdown("**Dashboard Title**")
+            ex_title_font = font_select("Font", default=st.session_state.get("ex_title_font", "Inter"), key="ex_title_font")
+            ex_title_style = st.selectbox("Style", font_styles_list, index=0, key="ex_title_style")
+            ex_title_size = st.slider("Size", 10, 50, int(st.session_state.get("ex_title_size", 28)), key="ex_title_size")
+            ex_title_color = st.color_picker("Colour", st.session_state.get("ex_title_color", "#6163df"), key="ex_title_color")
+            st.markdown("**Insights**")
+            ex_insights_font = font_select("Font", default=st.session_state.get("ex_insights_font", "Inter"), key="ex_insights_font")
+            ex_insights_style = st.selectbox("Style", font_styles_list, key="ex_insights_style")
+            ex_insights_size = st.slider("Size", 10, 50, int(st.session_state.get("ex_insights_size", 14)), key="ex_insights_size")
+            ex_insights_color = st.color_picker("Colour", st.session_state.get("ex_insights_color", "#f5f7ff"), key="ex_insights_color")
+            st.markdown("**Notes**")
+            ex_notes_font = font_select("Font", default=st.session_state.get("ex_notes_font", "Inter"), key="ex_notes_font")
+            ex_notes = st.selectbox("Style", font_styles_list, key="ex_notes_style")
+            ex_notes_size = st.slider("Size", 10, 50, int(st.session_state.get("ex_notes_size", 14)), key="ex_notes_size")
+            ex_notes_color = st.color_picker("Colour", st.session_state.get("ex_notes_color", "#f5f7ff"), key="ex_notes_color")
+            # Live preview
+            st.markdown("---")
+            st.markdown("**Live Preview**")
+            _ex_title_font = st.session_state.get("ex_title_font", "Inter")
+            _ex_title_style = st.session_state.get("ex_title_style", "Normal")
+            _ex_title_size = int(st.session_state.get("ex_title_size", 28))
+            _ex_title_color = st.session_state.get("ex_title_color", "#6163df")
+            _ex_ins_font = st.session_state.get("ex_insights_font", "Inter")
+            _ex_ins_style = st.session_state.get("ex_insights_style", "Normal")
+            _ex_ins_size = int(st.session_state.get("ex_insights_size", 14))
+            _ex_ins_color = st.session_state.get("ex_insights_color", "#f5f7ff")
+            _ex_notes_font = st.session_state.get("ex_notes_font", "Inter")
+            _ex_notes_style = st.session_state.get("ex_notes_style", "Normal")
+            _ex_notes_size = int(st.session_state.get("ex_notes_size", 14))
+            _ex_notes_color = st.session_state.get("ex_notes_color", "#f5f7ff")
+            _title_styles = [
+                f"font-family:'{_ex_title_font}', 'Helvetica Neue', Arial, sans-serif",
+                f"font-size:{_ex_title_size}px",
+                f"color:{_ex_title_color}",
+                "font-weight:800",
+            ]
+            if "Bold" in _ex_title_style: _title_styles.append("font-weight:900")
+            if "Italic" in _ex_title_style: _title_styles.append("font-style:italic")
+            if "Underline" in _ex_title_style: _title_styles.append("text-decoration:underline")
+            _ins_styles = [
+                f"font-family:'{_ex_ins_font}', 'Helvetica Neue', Arial, sans-serif",
+                f"font-size:{_ex_ins_size}px",
+                f"color:{_ex_ins_color}",
+            ]
+            if "Bold" in _ex_ins_style: _ins_styles.append("font-weight:bold")
+            if "Italic" in _ex_ins_style: _ins_styles.append("font-style:italic")
+            if "Underline" in _ex_ins_style: _ins_styles.append("text-decoration:underline")
+            _notes_styles = [
+                f"font-family:'{_ex_notes_font}', 'Helvetica Neue', Arial, sans-serif",
+                f"font-size:{_ex_notes_size}px",
+                f"color:{_ex_notes_color}",
+                "font-style:italic",
+            ]
+            if "Bold" in _ex_notes_style: _notes_styles.append("font-weight:bold")
+            if "Italic" in _ex_notes_style: _notes_styles.append("font-style:italic")
+            if "Underline" in _ex_notes_style: _notes_styles.append("text-decoration:underline")
+            st.markdown(
+                f'<div style="background:#1b2245;border:1px solid #2c3564;border-radius:12px;padding:1.2rem;">'
+                f'<h3 style="{";".join(_title_styles)};">📊 Sample Dashboard Title</h3>'
+                f'<p style="font-size:0.78rem;color:#64748b;margin-bottom:0.6rem;">Chart Subtitle Example</p>'
+                f'<div class="insights" style="background:#1a2441;border-left:3px solid #6163df;border-radius:6px;padding:0.6rem 0.9rem;margin-top:0.7rem;{";".join(_ins_styles)}">'
+                f'<strong>Insights</strong>'
+                f'<ul style="margin-left:1rem;margin-bottom:0;"><li>Sample insight showing current text styling</li></ul></div>'
+                f'<div class="notes" style="background:#1a1732;padding:0.6rem 0.9rem;border-left:4px solid #8566fc;margin-top:0.7rem;border-radius:4px;{";".join(_notes_styles)}">'
+                f'<strong>Analysis Notes:</strong> Sample notes text with your chosen formatting</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
         with tab_layout:
             density_options = ["Compact", "Comfortable", "Spacious"]
             _density_value = st.session_state.get("ex_density", _EX_DEFAULTS["ex_density"])
@@ -1226,6 +1422,20 @@ def _export_row(charts, sname, viewing_saved):
         "max_width":      _width,
         "show_meta":      st.session_state.get("ex_meta", _EX_DEFAULTS["ex_meta"]),
         "show_print_hint": st.session_state.get("ex_print_hint", _EX_DEFAULTS["ex_print_hint"]),
+        "kpi_text_color": st.session_state.get("ex_kpi_text_color", _EX_DEFAULTS["ex_kpi_text_color"]),
+        "kpi_val_size":   st.session_state.get("ex_kpi_val_size",   _EX_DEFAULTS["ex_kpi_val_size"]),
+        "title_font":    st.session_state.get("ex_title_font", "Inter"),
+        "title_style":  st.session_state.get("ex_title_style", "Normal"),
+        "title_size":   st.session_state.get("ex_title_size", 28),
+        "title_color":  st.session_state.get("ex_title_color", "#6163df"),
+        "insights_font": st.session_state.get("ex_insights_font", "Inter"),
+        "insights_style": st.session_state.get("ex_insights_style", "Normal"),
+        "insights_size": st.session_state.get("ex_insights_size", 14),
+        "insights_color": st.session_state.get("ex_insights_color", "#f5f7ff"),
+        "notes_font":    st.session_state.get("ex_notes_font", "Inter"),
+        "notes_style":  st.session_state.get("ex_notes_style", "Normal"),
+        "notes_size":   st.session_state.get("ex_notes_size", 14),
+        "notes_color":  st.session_state.get("ex_notes_color", "#f5f7ff"),
     }
 
     html = generate_html_report(
@@ -1242,42 +1452,13 @@ def _export_row(charts, sname, viewing_saved):
                            mime="text/html", use_container_width=True)
 
     with c2:
-        with st.form(key="html_to_png_form"):
-            uploaded_html = st.file_uploader(
-                "Upload HTML to Convert to PNG Photo",
-                type=["html"],
-                key="export_png_upload",
-                help=(
-                    "Upload the HTML exported by Lytrize. "
-                    "Your installed browser will render it and return a high-quality PNG."
-                ),
-            )
-            convert = st.form_submit_button("📷 Render PNG", use_container_width=True)
-
-        if convert:
-            if not uploaded_html:
-                st.error("Please upload an HTML file first.")
-            else:
-                html_bytes = uploaded_html.getvalue()
-                with st.spinner("Rendering PNG via browser..."):
-                    try:
-                        png_bytes = render_html_to_png(html_bytes)
-                        st.success("✅ PNG ready to download")
-                        st.download_button(
-                            "⬇️ Download PNG",
-                            png_bytes,
-                            file_name=f"{safe_file}.png",
-                            mime="image/png",
-                            use_container_width=True,
-                        )
-                    except RuntimeError as err:
-                        st.error(str(err))
-
-    with c3:
         st.info(
-            "💡 Upload the exported HTML file here to render a PNG using your installed browser. "
-            "Use HTML export for offline view or PDF: `Ctrl+P` → Save as PDF."
+            "**Firefox / LibreWolf / Waterfox / Tor Browser:**"
+            " built-in screenshot — no upload needed.\n\n"
+            "Press **Ctrl+Shift+S** (or right-click → *Take Screenshot*) "
+            "to capture the full page, then save as PNG."
         )
+
 
 
 def _do_save(sname_in, charts, df):

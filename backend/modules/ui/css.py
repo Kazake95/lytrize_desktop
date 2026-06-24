@@ -5,7 +5,6 @@ modules/ui/css.py — Global CSS injection
 Hides all Streamlit chrome, keeps the purple brand palette, and provides
 all shared component styles used across every page.
 
-FIXES IN THIS VERSION
 ---------------------
 1. Nav button squeeze (Profile "Pro file" wrapping)
        root cause: align-items: left is not a valid flex value → browser
@@ -32,25 +31,30 @@ from pathlib import Path
 
 import streamlit as st
 
+from config import APP_NAME, APP_VERSION
 
-APP_NAME    = "Lytrize"
-APP_VERSION = "1.0"
+
 LOGO_PATH   = Path(__file__).resolve().parents[2] / "assets" / "lytrize.ico"
-THEME_MODES = ("dark",)
+THEME_MODES = ("dark", "light")
 
 
-# ── Theme persistence (dark-only for now) ─────────────────────────────────────
+# ── Theme state (stored in session_state — no file I/O) ───────────────────────
 
-def _data_dir() -> Path:
-    base = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share")))
-    d = base / "lytrize"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+def get_theme_mode() -> str:
+    try:
+        import streamlit as _st
+        return str(_st.session_state.get("theme", "dark"))
+    except Exception:
+        return "dark"
 
 
-def read_theme_mode()  -> str: return "dark"
-def write_theme_mode(m: str) -> None: return
-def get_theme_mode()   -> str: return "dark"
+def set_theme_mode(mode: str) -> None:
+    try:
+        import streamlit as _st
+        _st.session_state["theme"] = mode if mode in THEME_MODES else "dark"
+        _css_block.cache_clear()
+    except Exception:
+        pass
 
 
 # ── Logo ──────────────────────────────────────────────────────────────────────
@@ -93,7 +97,7 @@ def _font_link() -> str:
 def inject_css() -> None:
     """Inject fonts + full stylesheet into the Streamlit page."""
     st.markdown(_font_link(), unsafe_allow_html=True)
-    st.markdown(_css_block(), unsafe_allow_html=True)
+    st.markdown(_css_block(get_theme_mode()), unsafe_allow_html=True)
 
 
 @lru_cache(maxsize=3)
@@ -101,10 +105,622 @@ def _css_block(theme_mode: str | None = None) -> str:
     return _build_css(theme_mode or get_theme_mode())
 
 
+def _light_overrides() -> str:
+    """Extra CSS injected only in light mode. Never touches nav/button structure."""
+    return """
+/* ── LIGHT MODE OVERRIDES ──────────────────────────────────────────────────── */
+
+/* Page & app background */
+.stApp, [data-testid="stAppViewContainer"] {
+    background: linear-gradient(180deg, #f0f3ff 0%, #f8faff 100%) !important;
+    color: #1e1b4b !important;
+}
+
+/* Topbar & footer */
+.lytrize-topbar {
+    background: color-mix(in srgb, #f8faff 92%, transparent) !important;
+    border-bottom: 1px solid rgba(99,102,241,0.15) !important;
+}
+.lytrize-footer {
+    background: color-mix(in srgb, #f8faff 94%, transparent) !important;
+    border-top: 1px solid rgba(99,102,241,0.15) !important;
+}
+
+/* Brand keeps purple gradient */
+.brand {
+    background: linear-gradient(170deg, #4338ca 37%, #7c3aed 95%, #4338ca 100%) !important;
+    -webkit-background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+}
+
+/* Global text — but NOT inside gradient buttons */
+body { color: #1e1b4b !important; }
+p, span, label, li, small, strong, b, code, pre { color: #1e1b4b !important; }
+h1, h2, h3, h4, h5, h6 { color: #1e1b4b !important; }
+a { color: #4f46e5 !important; }
+input, textarea { color: #1e1b4b !important; }
+
+/* Button text */
+.stButton > button,
+.stButton > button p,
+.stButton > button span,
+.stButton > button small,
+.stButton > button label,
+.stButton > button * {
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+}
+
+[data-testid="stBaseButton-secondary"],
+[data-testid="stBaseButton-secondary"] *,
+[data-testid="stBaseButton-secondaryFormSubmit"],
+[data-testid="stBaseButton-secondaryFormSubmit"] *,
+[data-testid="stBaseButton-primaryFormSubmit"],
+[data-testid="stBaseButton-primaryFormSubmit"] *,
+.stButton > button *,
+[data-testid="stButton"] button *,
+[data-testid="stButton"] button * ,
+[data-testid="stFormSubmitButton"] button,
+[data-testid="stFormSubmitButton"] button *,
+button[kind="primary"],
+button[kind="primary"] *,
+[data-testid="stDownloadButton"] > a,
+[data-testid="stDownloadButton"] > a * {
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+}
+.stDownloadButton > button,
+.stDownloadButton > button *,
+[data-testid="stDownloadButton"] > a,
+[data-testid="stDownloadButton"] > a * {
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+}
+
+/* Surfaces */
+.kpi-card, .sess-card, .ag-card {
+    background: linear-gradient(160deg, rgba(255,255,255,0.98), rgba(245,247,255,0.98)) !important;
+    border-color: rgba(99,102,241,0.18) !important;
+    box-shadow: 0 2px 8px rgba(99,102,241,0.07) !important;
+}
+.kpi-lbl, .ag-desc { color: #4b5563 !important; }
+.ag-name           { color: #1e1b4b !important; }
+
+/* KPI value — dark purple gradient on light bg */
+.kpi-val {
+    background: linear-gradient(135deg, #4338ca, #7c3aed) !important;
+    -webkit-background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+}
+
+/* Welcome banner keeps dark gradient — text stays white */
+.welcome-banner {
+    background: linear-gradient(170deg, #4338ca 80%, #7c3aed 99%, #4338ca 100%) !important;
+}
+.welcome-banner, .welcome-banner * {
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+}
+
+/* Alerts */
+[data-testid="stAlert"],
+[data-testid="stNotification"],
+div[data-baseweb="notification"] {
+    background: rgba(241,245,255,0.98) !important;
+    border: 1px solid rgba(99,102,241,0.18) !important;
+    border-radius: 10px !important;
+}
+
+[data-testid="stAlert"] *,
+[data-testid="stNotification"] *,
+div[data-baseweb="notification"] * {
+    color: #1e1b4b !important;
+    -webkit-text-fill-color: #1e1b4b !important;
+}
+
+div[data-baseweb="notification"],
+[data-testid="stAlert"] [data-baseweb="notification"],
+[data-testid="stNotification"] [data-baseweb="notification"] {
+    background: rgba(241,245,255,0.98) !important;
+}
+
+/* Info tint */
+[data-testid="stAlert"][data-baseweb="notification"] {
+    background: rgba(239,246,255,0.98) !important;
+}
+
+/* Success tint */
+[data-testid="stAlert"][kind="success"],
+.stSuccess { background: rgba(236,253,245,0.98) !important; }
+
+
+/* Toast pop-ups */
+[data-testid="stToast"] {
+    background: rgba(255,255,255,0.98) !important;
+    border: 1px solid rgba(99,102,241,0.18) !important;
+    box-shadow: 0 4px 16px rgba(15,23,42,0.14) !important;
+}
+/* Keep toast body transparent */
+[data-testid="stToast"] [data-baseweb="notification"],
+[data-testid="stToast"] [data-baseweb="toast"],
+[data-testid="stToast"] > div {
+    background: transparent !important;
+}
+[data-testid="stToast"] * {
+    color: #1e1b4b !important;
+    -webkit-text-fill-color: #1e1b4b !important;
+}
+
+[data-testid="stToast"] svg {
+    color: #4338ca !important;
+    fill: #4338ca !important;
+}
+[data-testid="stToastViewButton"] {
+    color: #4338ca !important;
+    -webkit-text-fill-color: #4338ca !important;
+}
+
+/* Inputs */
+[data-testid="stTextInput"] input,
+[data-testid="stTextArea"] textarea,
+[data-testid="stNumberInput"] input,
+[data-testid="stDateInput"] input {
+    background: rgba(255,255,255,0.98) !important;
+    color: #1e1b4b !important;
+    -webkit-text-fill-color: #1e1b4b !important;
+    border: 1px solid rgba(99,102,241,0.22) !important;
+}
+[data-testid="stTextInput"] input::placeholder,
+[data-testid="stTextArea"] textarea::placeholder {
+    color: #9ca3af !important;
+    -webkit-text-fill-color: #9ca3af !important;
+}
+
+/* Selectbox and multiselect */
+[data-testid="stSelectbox"] [data-baseweb="select"],
+[data-testid="stSelectbox"] > div,
+[data-testid="stMultiSelect"] [data-baseweb="select"],
+[data-testid="stMultiSelect"] > div {
+    background: rgba(255,255,255,0.98) !important;
+    color: #1e1b4b !important;
+    -webkit-text-fill-color: #1e1b4b !important;
+    border-color: rgba(99,102,241,0.22) !important;
+}
+
+[data-testid="stSelectbox"] [data-baseweb="select"] div,
+[data-testid="stMultiSelect"] [data-baseweb="select"] div {
+    background: transparent !important;
+}
+/* Multiselect chips */
+[data-testid="stMultiSelect"] [data-baseweb="tag"],
+[data-testid="stMultiSelect"] span[data-baseweb="tag"] {
+    background: rgba(99,102,241,0.12) !important;
+    border: 1px solid rgba(99,102,241,0.25) !important;
+    color: #4338ca !important;
+    -webkit-text-fill-color: #4338ca !important;
+}
+[data-testid="stMultiSelect"] [data-baseweb="tag"] span,
+[data-testid="stMultiSelect"] [data-baseweb="tag"] svg {
+    color: #4338ca !important;
+    -webkit-text-fill-color: #4338ca !important;
+    fill: #4338ca !important;
+}
+
+[data-testid="stMultiSelect"] [data-baseweb="tag"],
+[data-testid="stMultiSelect"] [data-baseweb="tag"] *,
+[data-testid="stMultiSelect"] [data-baseweb="tag"] [data-baseweb="tag-label"],
+[data-testid="stMultiSelect"] [data-baseweb="tag"] [data-baseweb="tag-close-icon"],
+[data-testid="stMultiSelect"] [data-baseweb="tag"] [role="button"] {
+    overflow: visible !important;
+    text-overflow: clip !important;
+    max-width: none !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+    min-width: 0 !important;
+    width: auto !important;
+}
+
+[data-testid="stMultiSelect"] [data-baseweb="tag"] {
+    margin-left: 6px !important;
+}
+[data-testid="stMultiSelect"] [data-baseweb="select"],
+[data-testid="stMultiSelect"] [data-baseweb="select"] > div,
+[data-testid="stMultiSelect"] [data-baseweb="select"] div {
+    overflow: visible !important;
+    height: auto !important;
+}
+
+[data-testid="stMultiSelect"] input,
+[data-testid="stMultiSelect"] [data-baseweb="select"] input {
+    color: #1e1b4b !important;
+    -webkit-text-fill-color: #1e1b4b !important;
+    background: transparent !important;
+}
+
+/* Dropdown menu */
+[data-baseweb="popover"],
+[data-baseweb="popover"] > div,
+[data-baseweb="menu"],
+[data-baseweb="menu"] > div,
+[data-baseweb="select"] [role="listbox"],
+[data-baseweb="select"] [role="listbox"] > div,
+[data-testid="stSelectboxVirtualDropdown"],
+[data-testid="stSelectboxVirtualDropdown"] > div {
+    background: rgba(255, 255, 255, 0.99) !important;
+    background-color: rgba(255, 255, 255, 0.99) !important;
+    border: 1px solid rgba(99, 102, 241, 0.22) !important;
+    border-radius: 10px !important;
+    box-shadow: 0 8px 24px rgba(99, 102, 241, 0.12) !important;
+}
+
+
+[data-baseweb="menu"] div:not([data-baseweb="option"]),
+[data-baseweb="select"] [role="listbox"] div:not([data-baseweb="option"]),
+[data-testid="stSelectboxVirtualDropdown"] div:not([data-baseweb="option"]),
+[data-baseweb="menu"] ul,
+[role="listbox"] ul {
+    background: transparent !important;
+    background-color: transparent !important;
+    color: #1e1b4b !important;
+    -webkit-text-fill-color: #1e1b4b !important;
+}
+
+[data-baseweb="option"],
+[data-baseweb="select"] [role="option"] {
+    background: rgba(255, 255, 255, 0.99) !important;
+    color: #1e1b4b !important;
+    -webkit-text-fill-color: #1e1b4b !important;
+}
+[data-baseweb="option"]:hover {
+    background: rgba(99, 102, 241, 0.09) !important;
+}
+[aria-selected="true"][data-baseweb="option"] {
+    background: rgba(99, 102, 241, 0.13) !important;
+    color: #4338ca !important;
+    -webkit-text-fill-color: #4338ca !important;
+}
+/* Ensure text and symbols inside selected options inherit the proper active theme color */
+[aria-selected="true"][data-baseweb="option"] * {
+    color: #4338ca !important;
+    -webkit-text-fill-color: #4338ca !important;
+}
+
+/* Expanders */
+[data-testid="stExpander"] {
+    background: rgba(255,255,255,0.98) !important;
+    border: 1px solid rgba(99,102,241,0.18) !important;
+}
+[data-testid="stExpander"] summary {
+    background: rgba(245,247,255,0.98) !important;
+    color: #1e1b4b !important;
+    -webkit-text-fill-color: #1e1b4b !important;
+}
+[data-testid="stExpander"] summary * {
+    color: #1e1b4b !important;
+    -webkit-text-fill-color: #1e1b4b !important;
+}
+[data-testid="stExpander"] summary:hover { background: rgba(99,102,241,0.07) !important; }
+
+/* ── DataFrames & Tables ─────────────────────────────────────────────────── */
+[data-testid="stDataFrame"], [data-testid="stTable"], [data-testid="stTable"] table {
+    background: rgba(255,255,255,0.98) !important;
+    border: 1px solid rgba(99,102,241,0.15) !important;
+    border-radius: 10px !important;
+}
+[data-testid="stDataFrame"] th, [data-testid="stTable"] th {
+    background: rgba(241,245,255,0.98) !important;
+    color: #1e1b4b !important;
+    -webkit-text-fill-color: #1e1b4b !important;
+    padding: 0.55rem 0.9rem !important;
+}
+[data-testid="stDataFrame"] td, [data-testid="stTable"] td {
+    background: rgba(255,255,255,0.98) !important;
+    color: #374151 !important;
+    -webkit-text-fill-color: #374151 !important;
+    padding: 0.55rem 0.9rem !important;
+}
+
+/* Force Streamlit's Glide Data Grid (canvas-based st.dataframe) to adapt to Light Theme */
+[data-testid="stDataFrameResizable"],
+[data-testid="stDataFrame"],
+.stDataFrame,
+div[class*="stDataFrame"] {
+    --gdg-bg-cell: #ffffff !important;
+    --gdg-bg-cell-medium: #f8fafc !important;
+    --gdg-bg-header: #f1f5f9 !important;
+    --gdg-bg-header-has: #e2e8f0 !important;
+    --gdg-bg-header-hovered: #e2e8f0 !important;
+    --gdg-text-dark: #1e1b4b !important;
+    --gdg-text-medium: #374151 !important;
+    --gdg-text-light: #6b7280 !important;
+    --gdg-text-header: #1e1b4b !important;
+    --gdg-text-group-header: #1e1b4b !important;
+    --gdg-border-color: rgba(99,102,241,0.18) !important;
+    --gdg-horizontal-border-color: rgba(99,102,241,0.12) !important;
+}
+[data-testid="stDataFrameResizable"] *,
+[data-testid="stDataFrame"] * {
+    --gdg-bg-cell: #ffffff !important;
+    --gdg-bg-cell-medium: #f8fafc !important;
+    --gdg-bg-header: #f1f5f9 !important;
+    --gdg-bg-header-has: #e2e8f0 !important;
+    --gdg-bg-header-hovered: #e2e8f0 !important;
+    --gdg-text-dark: #1e1b4b !important;
+    --gdg-text-medium: #374151 !important;
+    --gdg-text-light: #6b7280 !important;
+    --gdg-text-header: #1e1b4b !important;
+    --gdg-text-group-header: #1e1b4b !important;
+    --gdg-border-color: rgba(99,102,241,0.18) !important;
+    --gdg-horizontal-border-color: rgba(99,102,241,0.12) !important;
+}
+
+/* Metrics */
+[data-testid="stMetric"] { background: rgba(255,255,255,0.98) !important; }
+
+/* Scrollbar */
+::-webkit-scrollbar-track { background: #f0f3ff; }
+::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.25); }
+::-webkit-scrollbar-thumb:hover { background: rgba(99,102,241,0.45); }
+
+/* Tooltips */
+[data-baseweb="tooltip"] {
+    background: rgba(255,255,255,0.98) !important;
+    border: 1px solid rgba(99,102,241,0.22) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 4px 16px rgba(99,102,241,0.12) !important;
+}
+[data-baseweb="tooltip"] div,
+[data-baseweb="tooltip"] span {
+    background: transparent !important;
+    color: #1e1b4b !important;
+}
+/* The tooltip ARROW (triangle) — hide the dark border artifact */
+[data-baseweb="tooltip"] [data-popper-arrow],
+[data-baseweb="tooltip"] [data-popper-arrow]::before {
+    border-color: rgba(99,102,241,0.22) !important;
+    background: rgba(255,255,255,0.98) !important;
+}
+
+/* File uploader */
+[data-testid="stFileUploader"] { background: transparent !important; border: none !important; }
+[data-testid="stFileUploaderDropzone"] {
+    background: rgba(255,255,255,0.98) !important;
+    border: 1.5px dashed rgba(99,102,241,0.35) !important;
+    border-radius: 10px !important;
+}
+/* Upload button */
+[data-testid="stFileUploaderDropzone"] button,
+[data-testid="stFileUploader"] button {
+    background: linear-gradient(170deg, #4313a6 80%, #8658e6 99%, #4313a6 100%) !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    border: none !important;
+    border-radius: 8px !important;
+}
+[data-testid="stFileUploaderDropzoneInstructions"] span,
+[data-testid="stFileUploaderDropzoneInstructions"] p,
+[data-testid="stFileUploaderDropzoneInstructions"] div {
+    color: #4b5563 !important;
+    -webkit-text-fill-color: #4b5563 !important;
+}
+
+/* Gradient buttons */
+[data-testid="stBaseButton-primary"],
+[data-testid="stBaseButton-primary"] p,
+[data-testid="stBaseButton-primary"] span,
+[data-testid="stBaseButton-primary"] *,
+[data-testid="stBaseButton-secondary"],
+[data-testid="stBaseButton-secondary"] p,
+[data-testid="stBaseButton-secondary"] span,
+[data-testid="stBaseButton-secondary"] *,
+[data-testid="stBaseButton-primaryFormSubmit"],
+[data-testid="stBaseButton-primaryFormSubmit"] p,
+[data-testid="stBaseButton-primaryFormSubmit"] span,
+[data-testid="stBaseButton-primaryFormSubmit"] *,
+[data-testid="stBaseButton-secondaryFormSubmit"],
+[data-testid="stBaseButton-secondaryFormSubmit"] p,
+[data-testid="stBaseButton-secondaryFormSubmit"] span,
+[data-testid="stBaseButton-secondaryFormSubmit"] {
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+}
+
+
+/* Inline code labels */
+[data-testid="stTextInput"] label code,
+[data-testid="stTextInput"] label [data-testid="stMarkdownContainer"] code,
+[data-baseweb="form-control"] label code {
+    background: rgba(99,102,241,0.1) !important;
+    color: #4338ca !important;
+    -webkit-text-fill-color: #4338ca !important;
+    border: 1px solid rgba(99,102,241,0.2) !important;
+    border-radius: 4px !important;
+    padding: 0.1rem 0.35rem !important;
+}
+
+/* Code blocks */
+[data-testid="stCode"],
+[data-testid="stCode"] pre,
+[data-testid="stCode"] code,
+.stCode, .stCode pre, .stCode code {
+    background: rgba(241,245,255,0.98) !important;
+    color: #1e1b4b !important;
+    -webkit-text-fill-color: #1e1b4b !important;
+    border: 1px solid rgba(99,102,241,0.18) !important;
+    border-radius: 6px !important;
+}
+
+
+[data-testid="stMultiSelect"] [data-baseweb="tooltip"],
+[data-testid="stMultiSelect"] [data-baseweb="popover"],
+[data-testid="stMultiSelect"] [role="tooltip"],
+[data-testid="stMultiSelect"] [data-baseweb="input"] ~ [data-baseweb="popover"],
+[data-testid="stMultiSelect"] [data-baseweb="select"] ~ [data-baseweb="popover"],
+[data-testid="stMultiSelect"] div[data-baseweb="popover"],
+[data-testid="stMultiSelect"] div[data-baseweb="tooltip"] {
+    background: rgba(255,255,255,0.99) !important;
+    border: 1px solid rgba(99,102,241,0.22) !important;
+    color: #1e1b4b !important;
+    -webkit-text-fill-color: #1e1b4b !important;
+    box-shadow: 0 4px 16px rgba(15,23,42,0.14) !important;
+}
+[data-testid="stMultiSelect"] [data-baseweb="tooltip"] *,
+[data-testid="stMultiSelect"] [data-baseweb="popover"] *,
+[data-testid="stMultiSelect"] [role="tooltip"] *,
+[data-testid="stMultiSelect"] div[data-baseweb="popover"] *,
+[data-testid="stMultiSelect"] div[data-baseweb="tooltip"] * {
+    color: #1e1b4b !important;
+    -webkit-text-fill-color: #1e1b4b !important;
+    background: transparent !important;
+}
+
+
+[data-testid="stMultiSelect"] div[data-baseweb="popover"] ul,
+[data-testid="stMultiSelect"] div[data-baseweb="popover"] li {
+    background: transparent !important;
+    color: #1e1b4b !important;
+}
+
+
+/* Multiselect chip layout */
+[data-testid="stMultiSelect"] [data-baseweb="tag"] {
+    max-width: none !important;
+    overflow: visible !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+    margin-left: 6px !important;
+}
+[data-testid="stMultiSelect"] [data-baseweb="tag"] * {
+    overflow: visible !important;
+    text-overflow: clip !important;
+    max-width: none !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+}
+
+[data-testid="stMultiSelect"] [data-baseweb="select"],
+[data-testid="stMultiSelect"] [data-baseweb="select"] > div,
+[data-testid="stMultiSelect"] [data-baseweb="select"] div {
+    overflow: visible !important;
+    height: auto !important;
+}
+
+/* Color picker popup */
+[data-baseweb="popover"] input[type="text"],
+[data-baseweb="popover"] input {
+    background: rgba(255,255,255,0.98) !important;
+    color: #1e1b4b !important;
+    -webkit-text-fill-color: #1e1b4b !important;
+    border: 1px solid rgba(99,102,241,0.22) !important;
+}
+
+/* Sliders */
+[data-testid="stSlider"] label,
+[data-testid="stSlider"] p,
+[data-testid="stSlider"] span {
+    color: #1e1b4b !important;
+    -webkit-text-fill-color: #1e1b4b !important;
+}
+
+/* Checkboxes */
+[data-testid="stCheckbox"] label,
+[data-testid="stCheckbox"] p,
+[data-testid="stCheckbox"] span {
+    color: #1e1b4b !important;
+    -webkit-text-fill-color: #1e1b4b !important;
+}
+
+/* Markdown in expanders */
+[data-testid="stExpander"] [data-testid="stMarkdownContainer"] p,
+[data-testid="stExpander"] [data-testid="stMarkdownContainer"] span,
+[data-testid="stExpander"] label {
+    color: #1e1b4b !important;
+    -webkit-text-fill-color: #1e1b4b !important;
+}
+
+[data-testid="stExpander"] .stButton > button,
+[data-testid="stExpander"] .stButton > button *,
+[data-testid="stExpander"] [data-testid="stBaseButton-primary"] *,
+[data-testid="stExpander"] [data-testid="stBaseButton-secondary"] *,
+[data-testid="stExpander"] [data-testid="stDownloadButton"] > a,
+[data-testid="stExpander"] [data-testid="stDownloadButton"] > a * {
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+}
+
+/* Number input */
+[data-testid="stNumberInput"] button {
+    background: rgba(245,247,255,0.98) !important;
+    color: #1e1b4b !important;
+    -webkit-text-fill-color: #1e1b4b !important;
+    border: 1px solid rgba(99,102,241,0.22) !important;
+}
+
+/* Tabs */
+[data-testid="stTabs"] [data-baseweb="tab-list"] {
+    background: rgba(241,245,255,0.98) !important;
+    border-bottom: 1px solid rgba(99,102,241,0.18) !important;
+}
+[data-testid="stTabs"] [data-baseweb="tab"] {
+    color: #4b5563 !important;
+    -webkit-text-fill-color: #4b5563 !important;
+    background: transparent !important;
+}
+[data-testid="stTabs"] [data-baseweb="tab"][aria-selected="true"] {
+    color: #4338ca !important;
+    -webkit-text-fill-color: #4338ca !important;
+    border-bottom: 2px solid #4338ca !important;
+}
+
+/* Captions */
+[data-testid="stCaptionContainer"] p,
+[data-testid="stCaptionContainer"] span {
+    color: #6b7280 !important;
+    -webkit-text-fill-color: #6b7280 !important;
+}
+
+/* File chips */
+[data-testid="stFileChips"], [data-testid="stFileChip"] {
+    background: rgba(241,245,255,0.98) !important;
+    border: 1px solid rgba(99,102,241,0.22) !important;
+    border-radius: 8px !important;
+    color: #1e1b4b !important;
+    -webkit-text-fill-color: #1e1b4b !important;
+}
+[data-testid="stFileChipName"],
+[data-testid="stFileChip"] span,
+[data-testid="stFileChip"] small {
+    color: #1e1b4b !important;
+    -webkit-text-fill-color: #1e1b4b !important;
+}
+"""
+
+
 # ── CSS colour tokens ─────────────────────────────────────────────────────────
 
 def _theme_vars(_mode: str) -> str:
-    """CSS custom-property block — always dark palette."""
+    """CSS custom-property block — dark or light palette."""
+    if _mode == "light":
+        return """
+:root {
+    --bg-primary:        #f8faff;
+    --bg-secondary:      rgba(241, 245, 255, 0.96);
+    --surface-1:         rgba(255, 255, 255, 0.98);
+    --surface-2:         rgba(245, 247, 255, 0.98);
+    --surface-3:         rgba(237, 241, 255, 0.98);
+    --surface-muted:     rgba(99, 102, 241, 0.07);
+    --border-subtle:     rgba(99, 102, 241, 0.18);
+    --border-strong:     rgba(99, 102, 241, 0.35);
+    --text-primary:      #1e1b4b;
+    --text-secondary:    #4b5563;
+    --muted-link:        #4f46e5;
+    --chip-bg:           rgba(99, 102, 241, 0.12);
+    --input-bg:          rgba(255, 255, 255, 0.95);
+    --input-text:        #1e1b4b;
+    --input-placeholder: #9ca3af;
+    --page-bg:           linear-gradient(180deg, #f0f3ff 0%, #f8faff 100%);
+}
+"""
     return """
 :root {
     --bg-primary:      #0e1428;
@@ -133,12 +749,11 @@ def _theme_vars(_mode: str) -> str:
 
 def _build_css(theme_mode: str) -> str:
     vars_css = _theme_vars(theme_mode)
+    extra    = _light_overrides() if theme_mode == "light" else ""
     return f"""
 <style>
 
-/* ═══════════════════════════════════════════════════
-   HIDE ALL STREAMLIT CHROME
-   ═══════════════════════════════════════════════════ */
+/* Hide Streamlit chrome */
 #MainMenu, footer, header,
 .stDeployButton, .stAppDeployButton,
 .stStatusWidget, .stActionButton,
@@ -165,9 +780,7 @@ header,
 }}
 
 
-/* ═══════════════════════════════════════════════════
-   CSS CUSTOM PROPERTIES (TOKENS)
-   ═══════════════════════════════════════════════════ */
+/* Theme tokens */
 :root {{
     --accent-purple:        #6c56e8;
     --accent-purple-strong: #5a49ff;
@@ -180,9 +793,7 @@ header,
 {vars_css}
 
 
-/* ═══════════════════════════════════════════════════
-   PAGE BACKGROUND & LAYOUT
-   ═══════════════════════════════════════════════════ */
+/* Page layout */
 .stApp,
 [data-testid="stAppViewContainer"] {{
     background: var(--page-bg) !important;
@@ -194,9 +805,7 @@ header,
     max-width: 1480px;
 }}
 
-/* ═══════════════════════════════════════════════════
-   GLOBAL TEXT
-   ═══════════════════════════════════════════════════ */
+/* Global text */
 body, p, span, label, li, a, small, strong, b, code, pre, input, textarea {{
     color: var(--text-primary) !important;
 }}
@@ -212,9 +821,7 @@ a {{
 }}
 
 
-/* ═══════════════════════════════════════════════════
-   TOP BAR / BRAND
-   ═══════════════════════════════════════════════════ */
+/* Top bar */
 .lytrize-topbar {{
     position:        fixed;
     top:             0;
@@ -248,13 +855,7 @@ a {{
 }}
 
 
-
-/* ═══════════════════════════════════════════════════
-   TOP-RIGHT NAV BUTTONS
-   FIX 1: align-items was "left" (invalid) → changed to
-           "center". Added white-space: nowrap so the
-           "Session ⚙️" label never wraps to two lines.
-   ═══════════════════════════════════════════════════ */
+/* Navigation buttons */
 div[data-testid="stVerticalBlock"]:has(#nav-target):not(:has(div[data-testid="stVerticalBlock"])) {{
     position:        fixed          !important;
     top:             6px            !important;
@@ -262,9 +863,9 @@ div[data-testid="stVerticalBlock"]:has(#nav-target):not(:has(div[data-testid="st
     z-index:         120            !important;
     display:         flex           !important;
     flex-direction:  row            !important;
-    gap:             0.45rem        !important;
-    align-items:     center         !important;  /* FIX: was "left" — not a valid value */
-    width:           auto           !important;  /* FIX: was fit-content; auto is safer  */
+    gap:             0.50rem        !important;
+    align-items:     center         !important;
+    width:           auto           !important;
 }}
 
 #nav-target {{ display: none !important; }}
@@ -284,7 +885,7 @@ div[data-testid="stVerticalBlock"]:has(#nav-target) [data-testid="stButton"] but
     min-height:       auto                   !important;
     height:           auto                   !important;
 
-    /* FIX: prevent "👤 Profile" from wrapping to "Pro\nfile" */
+
     white-space:      nowrap                 !important;
     min-width:        max-content            !important;
 
@@ -304,9 +905,7 @@ div[data-testid="stVerticalBlock"]:has(#nav-target) [data-testid="baseButton-sec
 }}
 
 
-/* ═══════════════════════════════════════════════════
-   WELCOME BANNER
-   ═══════════════════════════════════════════════════ */
+/* Welcome banner */
 .welcome-banner {{
     margin-top:    0.2rem   !important;
     margin-bottom: 1rem     !important;
@@ -324,9 +923,7 @@ div[data-testid="stVerticalBlock"]:has(#nav-target) [data-testid="baseButton-sec
 }}
 
 
-/* ═══════════════════════════════════════════════════
-   SECTION LABEL
-   ═══════════════════════════════════════════════════ */
+/* Section label */
 .sec-label {{
     font-size:   0.88rem;
     font-weight: 700;
@@ -335,13 +932,12 @@ div[data-testid="stVerticalBlock"]:has(#nav-target) [data-testid="baseButton-sec
 }}
 
 
-/* ═══════════════════════════════════════════════════
-   GLOBAL BUTTONS
-   ═══════════════════════════════════════════════════ */
+/* Global buttons */
 .stButton > button,
 .stDownloadButton > button,
 .stDownloadButton > a,
 [data-testid="stDownloadButton"] > a,
+[data-testid="stFormSubmitButton"] button,
 button[kind="primary"],
 [data-testid="baseButton-primary"] {{
     background:    var(--accent-gradient)              !important;
@@ -361,6 +957,7 @@ button[kind="primary"],
 .stDownloadButton > button:hover,
 .stDownloadButton > a:hover,
 [data-testid="stDownloadButton"] > a:hover,
+[data-testid="stFormSubmitButton"] button:hover,
 [data-testid="baseButton-primary"]:hover {{
     opacity: 0.92 !important;
     transform: translateY(-1px) !important;
@@ -369,25 +966,20 @@ button[kind="primary"],
 .stDownloadButton > button:active,
 .stDownloadButton > a:active,
 [data-testid="stDownloadButton"] > a:active,
+[data-testid="stFormSubmitButton"] button:active,
 [data-testid="baseButton-primary"]:active {{
     opacity: 0.85 !important;
     transform: translateY(0) !important;
 }}
 
 
-/* ═══════════════════════════════════════════════════
-   KPI CARDS
-   FIX 2: changed from row → column layout so all three
-   cards are the same height regardless of label length.
-   Added min-height, white-space: nowrap on the label,
-   and centre-aligned the content.
-   ═══════════════════════════════════════════════════ */
+/* KPI cards */
 .kpi-card {{
     background:      linear-gradient(160deg, var(--surface-1), var(--surface-2)) !important;
     border:          1px solid var(--border-subtle) !important;
     border-radius:   16px                           !important;
 
-    /* FIX: column layout — stacks icon → value → label vertically */
+
     display:         flex;
     flex-direction:  column;
     align-items:     center;
@@ -395,8 +987,9 @@ button[kind="primary"],
     text-align:      center;
     gap:             0.2rem;
 
-    /* FIX: fixed min-height makes all cards equal regardless of label length */
+
     min-height:      90px;
+    width:           100%;        /* Fill the Streamlit column fully */
     padding:         1rem 0.85rem !important;
     box-sizing:      border-box;
 
@@ -418,7 +1011,8 @@ button[kind="primary"],
     flex-shrink: 0;
 }}
 .kpi-val {{
-    background:              #ffffff;
+    /* Bright vivid purple — readable against dark card backgrounds */
+    background:              linear-gradient(135deg, #a78bfa 0%, #c084fc 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     font-size:               1.75rem;
@@ -431,7 +1025,7 @@ button[kind="primary"],
     color:       var(--text-secondary) !important;
     line-height: 1.3;
 
-    /* FIX: prevents "Datasets\nAnalysed" two-line wrapping */
+
     white-space: nowrap;
 }}
 .kpi-body {{
@@ -442,9 +1036,7 @@ button[kind="primary"],
 }}
 
 
-/* ═══════════════════════════════════════════════════
-   SESSION CARDS (Previous Sessions list)
-   ═══════════════════════════════════════════════════ */
+/* Session cards */
 .sess-card {{
     background:    linear-gradient(160deg, var(--surface-1), var(--surface-2)) !important;
     border:        1px solid var(--border-subtle)  !important;
@@ -458,13 +1050,7 @@ button[kind="primary"],
 }}
 
 
-/* ═══════════════════════════════════════════════════
-   ANALYSIS CARDS  (.ag-card / .ag-icon / .ag-name / .ag-desc)
-   FIX 3: these classes were used in analysis.py but
-   were never defined here, leaving cards completely
-   unstyled. Now match the KPI card visual language:
-   gradient surface, border, rounded corners, hover glow.
-   ═══════════════════════════════════════════════════ */
+/* Analysis cards */
 .ag-card {{
     background:    linear-gradient(160deg, var(--surface-1), var(--surface-2)) !important;
     border:        1px solid var(--border-subtle) !important;
@@ -478,11 +1064,10 @@ button[kind="primary"],
     min-height:     108px;
     box-sizing:     border-box;
 
-    /* Flush bottom so the Streamlit Select button sits tight below */
+
     margin-bottom:  0.1rem;
 
-    /* GPU-composite the hover transform so it doesn't repaint the surrounding
-       layout on every frame — prevents the visible "jump" on first hover. */
+
     transform:       translateY(0);
     will-change:     transform;
     backface-visibility: hidden;
@@ -495,13 +1080,15 @@ button[kind="primary"],
     transform:    translateY(-1px);
 }}
 
-/* Selected state applied via inline style in analysis.py */
 
 .ag-icon {{
     font-size:     1.5rem;
     line-height:   1;
     margin-bottom: 0.1rem;
     flex-shrink:   0;
+}}
+.brand_theme_vars {{
+    display: none;
 }}
 .ag-name {{
     font-size:   0.88rem;
@@ -534,9 +1121,7 @@ button[kind="primary"],
 }}
 
 
-/* ═══════════════════════════════════════════════════
-   FORM INPUTS & SELECTS
-   ═══════════════════════════════════════════════════ */
+/* Form inputs */
 [data-testid="stTextInput"] input,
 [data-testid="stSelectbox"] > div,
 [data-testid="stMultiSelect"] > div,
@@ -558,9 +1143,7 @@ button[kind="primary"],
 }}
 
 
-/* ═══════════════════════════════════════════════════
-   TABS
-   ═══════════════════════════════════════════════════ */
+/* Tabs */
 [data-testid="stTabs"] [data-baseweb="tab"] {{
     color:       var(--text-secondary) !important;
     font-weight: 500;
@@ -574,9 +1157,7 @@ button[kind="primary"],
 }}
 
 
-/* ═══════════════════════════════════════════════════
-   EXPANDERS
-   ═══════════════════════════════════════════════════ */
+/* Expanders */
 [data-testid="stExpander"] {{
     background:    var(--surface-1) !important;
     border:        1px solid var(--border-subtle) !important;
@@ -593,9 +1174,7 @@ button[kind="primary"],
 }}
 
 
-/* ═══════════════════════════════════════════════════
-   DATAFRAME / TABLE
-   ═══════════════════════════════════════════════════ */
+/* Data tables */
 [data-testid="stDataFrame"] {{
     border:        1px solid var(--border-subtle) !important;
     border-radius: 10px                           !important;
@@ -611,9 +1190,7 @@ button[kind="primary"],
 }}
 
 
-/* ═══════════════════════════════════════════════════
-   METRICS
-   ═══════════════════════════════════════════════════ */
+/* Metrics */
 [data-testid="stMetric"] {{
     background:    var(--surface-1) !important;
     border:        1px solid var(--border-subtle) !important;
@@ -632,18 +1209,14 @@ button[kind="primary"],
 }}
 
 
-/* ═══════════════════════════════════════════════════
-   DIVIDER
-   ═══════════════════════════════════════════════════ */
+/* Divider */
 hr {{
     border-color: var(--border-subtle) !important;
     margin: 1rem 0 !important;
 }}
 
 
-/* ═══════════════════════════════════════════════════
-   FOOTER
-   ═══════════════════════════════════════════════════ */
+/* Footer */
 .lytrize-footer {{
     position:        fixed;
     left:            0;
@@ -664,18 +1237,14 @@ hr {{
 }}
 
 
-/* ═══════════════════════════════════════════════════
-   SCROLLBAR (Webkit)
-   ═══════════════════════════════════════════════════ */
+/* Scrollbar */
 ::-webkit-scrollbar       {{ width: 6px; height: 6px; }}
 ::-webkit-scrollbar-track {{ background: var(--bg-primary); }}
 ::-webkit-scrollbar-thumb {{ background: var(--border-subtle); border-radius: 3px; }}
 ::-webkit-scrollbar-thumb:hover {{ background: var(--border-strong); }}
 
 
-/* ═══════════════════════════════════════════════════
-   TOOLTIPS / POPOVER
-   ═══════════════════════════════════════════════════ */
+/* Tooltips */
 [data-baseweb="tooltip"] {{
     background:    var(--surface-2) !important;
     border:        1px solid var(--border-subtle) !important;
@@ -683,51 +1252,42 @@ hr {{
 }}
 
 
-/* ═══════════════════════════════════════════════════
-   RESPONSIVE
-   ═══════════════════════════════════════════════════ */
+/* Responsive */
 @media (max-width: 800px) {{
     .main .block-container {{
         padding-left:  1rem !important;
         padding-right: 1rem !important;
     }}
-    /* Stack nav buttons vertically on narrow screens */
+
     div[data-testid="stVerticalBlock"]:has(#nav-target):not(:has(div[data-testid="stVerticalBlock"])) {{
         top:   4px  !important;
         right: 8px  !important;
         gap:   0.3rem !important;
     }}
     .kpi-lbl {{
-        white-space: normal;  /* Allow wrap on very small screens */
+        white-space: normal;
         font-size:   0.7rem;
     }}
     .ag-card {{ min-height: 90px; }}
 }}
 
-/* Hide Streamlit's auto-generated "500MB per file • HTML" hint line
-   that appears below every st.file_uploader widget. */
+/* Hide file uploader hint */
 [data-testid="stFileUploaderDropzoneInstructions"] > div > small {{
     display: none !important;
 }}
+
+{extra}
 
 </style>
 """
 
 
-# ═════════════════════════════════════════════════════════════════════════════=
-# render_logo — top bar + right-side navigation
-# ═════════════════════════════════════════════════════════════════════════════=
+# ── Logo ──────────────────────────────────────────────────────────────────────
 
 def render_logo() -> None:
     """
-    Render the fixed top bar (brand logo + name) and the top-right nav buttons.
-
-    Navigation buttons are injected into a fixed-position container via
-    a CSS :has(#nav-target) selector trick. The #nav-target div is hidden;
-    it only serves as an anchor for the CSS selector.
-
-    The container is pinned to top: 6px; right: 24px via CSS, independent
-    of Streamlit's column layout — so it never shifts when columns are added.
+    Render the fixed top bar + right-side nav buttons.
+    Button order: ☀️/🌙 Theme | Sessions ⚙️ | ⏻ Sign Out
     """
     logo_src  = logo_data_uri()
     icon_html = (
@@ -755,22 +1315,35 @@ def render_logo() -> None:
     )
 
     # Top-right navigation — pinned by CSS selector on #nav-target
-    is_guest = st.session_state.get("is_guest", False)
+    is_guest   = st.session_state.get("is_guest", False)
+    theme_mode = st.session_state.get("theme", "dark")
+
     with st.container():
         st.markdown('<div id="nav-target"></div>', unsafe_allow_html=True)
 
-        if st.button("Sessions ⚙️", key="global_nav_profile", help="Backup-Restore"):
+        # Theme toggle — icon only, clean and compact
+        _icon = "☀️" if theme_mode == "dark" else "🌙"
+        _help = "Switch to light mode" if theme_mode == "dark" else "Switch to dark mode"
+        if st.button(_icon, key="global_nav_theme", help=_help):
+            set_theme_mode("light" if theme_mode == "dark" else "dark")
+            st.rerun()
+
+        # Pipe divider (second)
+        st.markdown(
+            "<span style='color:rgba(148,163,184,0.45);font-size:1rem;"
+            "line-height:1;pointer-events:none;user-select:none;margin:0 0.3rem;'>│</span>",
+            unsafe_allow_html=True,
+        )
+
+        # Sessions button
+        if st.button(" Sessions ⚙️", key="global_nav_profile", help="Backup-Restore"):
             st.session_state.page = "profile"
             st.rerun()
 
         if not is_guest:
-            # Render sign-out as a separate clearly-labelled button.
-            # Previously it was an icon-only "⏻" button rendered immediately
-            # after Profile — the two overlapped visually in the top-right corner.
-            # Now it has text, a divider character, and its own CSS class so the
-            # app's stylesheet can position it with a gap from the Profile button.
             st.markdown(
-                "<span style='color:rgba(148,163,184,0.5);margin:0 2px;'>|</span>",
+                "<span style='color:rgba(148,163,184,0.45);font-size:1rem;"
+                "line-height:1;pointer-events:none;user-select:none;'>│</span>",
                 unsafe_allow_html=True,
             )
             if st.button("⏻ Sign Out", key="global_nav_logout",
@@ -806,9 +1379,7 @@ def _do_logout() -> None:
     st.rerun()
 
 
-# ═════════════════════════════════════════════════════════════════════════════=
-# inject_footer
-# ═════════════════════════════════════════════════════════════════════════════=
+# ── Table layout standardizer for light-mode ─────────────────────────────────
 
 def inject_footer() -> None:
     """Render the fixed bottom footer bar."""

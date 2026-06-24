@@ -14,6 +14,7 @@ the runner returns [] and the caller is expected to show no charts.
 
 import plotly.express as px
 from modules.charts import chart_layout, COLORS, num_cols as _num_cols
+from modules.analysis.apply_lytrize_standard import apply_lytrize_standard
 
 
 def run_correlation(df, x_cols=None, y_cols=None, palette=None, **kwargs):
@@ -42,13 +43,20 @@ def run_correlation(df, x_cols=None, y_cols=None, palette=None, **kwargs):
 
     fig = px.imshow(
         corr,
-        text_auto=".2f",
         title="Correlation Heatmap",
         color_continuous_scale=pal,
         color_continuous_midpoint=0,   # centre scale at 0 so white = no correlation
         aspect="auto",
         zmin=-1, zmax=1)
+    # Plotly 6.x encodes `text_auto` annotations incorrectly on some backends,
+    # so we assign the texttemplate manually on each heatmap trace.
+    for tr in fig.data:
+        if str(getattr(tr, "type", "")).lower() == "heatmap":
+            tr.texttemplate = "%{z:.2f}"
     fig.update_layout(**chart_layout())
+    apply_lytrize_standard(fig, title="Correlation Heatmap",
+                           analysis_type="correlation",
+                           axis_editing=False)
     charts.append(("Correlation", fig))
 
     return charts

@@ -6,9 +6,8 @@
 
 Upload a CSV or Excel file and get interactive charts, dashboards, and insights in seconds. Everything stays on your device.
 
-[![Platform](https://img.shields.io/badge/platform-Linux%20(amd64)-blue?style=flat-square)](https://github.com)
+[![Platform](https://img.shields.io/badge/platform-Linux%20(amd64)-blue?style=flat-square)](https://github.com/Kazake95/lytrize_desktop)
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
-[![License](https://img.shields.io/badge/license-see%20LICENSE-lightgrey?style=flat-square)](./LICENSE)
 
 </div>
 
@@ -76,7 +75,7 @@ No manual Python setup, no `pip install`, no virtual environment to activate.
 ```bash
 sudo dnf install lytrize-1.0-1.x86_64.rpm
 # or on older systems:
-sudo rpm -i lytrize-1.2-1.x86_64.rpm
+sudo rpm -i lytrize-1.0-1.x86_64.rpm
 ```
 
 ### Option 3 — Build from source
@@ -161,9 +160,3 @@ Check `~/.local/share/lytrize/streamlit.log` for Python tracebacks. If the issue
 Lytrize is open source. Bug reports, feature requests, and pull requests are welcome.
 
 Before opening a PR, please read [CONTRIBUTING.md](./CONTRIBUTING.md) for the architecture, development setup, and contribution guidelines.
-
----
-
-## License
-
-See [LICENSE](./LICENSE).

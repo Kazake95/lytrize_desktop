@@ -713,33 +713,49 @@ def merge_user_data(source_user_id: int, target_user_id: int) -> None:
     UPDATE SET user_id=target WHERE user_id=source would hit a UNIQUE constraint
     if the target already has a draft (e.g. the user signed in on this device
     before, generating a draft, then signed out and continued as guest).
-    The fix: delete the target's stale draft first, then reassign the guest draft.
-    The guest draft is fresher — it reflects what the user was just working on.
+    The fix: use a SAVEPOINT so the source draft is never lost if the merge
+    fails partway through.
+
+    Steps within the savepoint:
+      1. Delete the target's stale draft.
+      2. Reassign the source (guest) draft to the target user.
+
+    On failure, the savepoint is rolled back, preserving both drafts.
     """
     if not source_user_id or not target_user_id or source_user_id == target_user_id:
         return
     try:
         with _db() as conn:
+            cur = conn.cursor()
             # sessions and user_activity: safe bulk reassignment (no PK collision risk).
             for table in ("sessions", "user_activity"):
-                _execute(
-                    conn,
-                    _ph(f"UPDATE {table} SET user_id=? WHERE user_id=?"),
+                cur.execute(
+                    f"UPDATE {table} SET user_id=? WHERE user_id=?",
                     (target_user_id, source_user_id),
                 )
 
-            # draft_sessions: user_id IS the PRIMARY KEY — must avoid collision.
-            # Delete any stale target draft before moving the guest draft across.
-            _execute(
-                conn,
-                _ph("DELETE FROM draft_sessions WHERE user_id=?"),
-                (target_user_id,),
-            )
-            _execute(
-                conn,
-                _ph("UPDATE draft_sessions SET user_id=? WHERE user_id=?"),
-                (target_user_id, source_user_id),
-            )
+            # draft_sessions: user_id IS the PRIMARY KEY — use a savepoint so we
+            # never lose the source draft if the operation fails partway through.
+            cur.execute("SAVEPOINT draft_merge")
+            try:
+                # Delete target's stale draft first (safe to lose — it reflects
+                # the older session this particular user was on before signing in
+                # as a guest and creating fresher work).
+                cur.execute(
+                    "DELETE FROM draft_sessions WHERE user_id=?",
+                    (target_user_id,),
+                )
+                # Now reassign source (guest) draft to the target user.
+                cur.execute(
+                    "UPDATE draft_sessions SET user_id=? WHERE user_id=?",
+                    (target_user_id, source_user_id),
+                )
+                cur.execute("RELEASE SAVEPOINT draft_merge")
+            except Exception:
+                cur.execute("ROLLBACK TO SAVEPOINT draft_merge")
+                # Source draft remains with source_user_id — it's preserved and
+                # the user can retry the sign-in to attempt the merge again.
+                raise
 
         # Invalidate the session-list cache so the next get_user_sessions()
         # call reflects the newly merged sessions immediately.
@@ -900,8 +916,6 @@ def rename_session_db(session_id: int, new_name: str, user_id=None) -> None:
                      _ph("UPDATE sessions SET session_name=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?"),
                      (new_name, session_id, user_id))
     get_user_sessions.clear()  # invalidate session list cache
-
-
 
 
 
@@ -1092,9 +1106,14 @@ def get_user_sessions(user_id: int) -> list:
         )
         rows = c.fetchall()
         # Pad to always return 7-tuples so callers are schema-agnostic.
-        n_got = len(select_cols.split(", "))
-        if n_got < len(wanted):
-            rows = [tuple(r) + (None,) * (len(wanted) - n_got) for r in rows]
+        # Check column-by-column rather than by count: if a column is missing
+        # from the schema, pad None at the end (all seven wanted columns are
+        # fetched in order, so missing ones are always at the tail).
+        n_got = len(select_cols.split(","))  # safe even w/o spaces
+        n_wanted = len(wanted)
+        if n_got < n_wanted:
+            pad_count = n_wanted - n_got
+            rows = [tuple(list(r) + [None] * pad_count) for r in rows]
         return rows
     except Exception as e:
         log.warning("get_user_sessions: %s", e)

@@ -30,6 +30,7 @@ Requires:       xcb-util-cursor
 Requires:       dbus-libs
 Recommends:     chromium-browser
 Recommends:     firefox
+Recommends:     mscore-fonts
 
 %description
 Lytrize is a local-first Linux desktop analytics app.
@@ -56,6 +57,7 @@ chmod 755 %{buildroot}/usr/local/bin/lytrize
 /usr/share/icons/
 %dir /opt/lytrize
 /opt/lytrize/backend
+/opt/lytrize/backend/assets/fonts
 /opt/lytrize/desktop
 /opt/lytrize/venv
 /opt/lytrize/lytrize.service
@@ -145,47 +147,29 @@ fi
 
 %postun
 if [ "$1" -eq 0 ]; then
+    # Remove system files
     rm -rf /opt/lytrize 2>/dev/null || true
     for SIZE in 16 22 24 32 48 64 96 128 256 scalable; do
         rm -f "/usr/share/icons/hicolor/${SIZE}x${SIZE}/apps/lytrize.png" 2>/dev/null || true
+        rm -f "/usr/share/icons/hicolor/${SIZE}/apps/lytrize.png"         2>/dev/null || true
     done
     rm -f /usr/share/icons/hicolor/scalable/apps/lytrize.png 2>/dev/null || true
     rm -f /usr/share/pixmaps/lytrize.png                     2>/dev/null || true
 
-    TARGET_USER="${SUDO_USER:-$USER}"
-    if [ -n "$TARGET_USER" ] && [ "$TARGET_USER" != "root" ]; then
-        USER_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6 2>/dev/null || echo "")"
-        USER_DATA_DIR="$USER_HOME/.local/share/lytrize"
-        if [ -d "$USER_DATA_DIR" ]; then
-            if [ -t 0 ]; then
-                printf "\nRemove saved sessions at %s? [y/N] " "$USER_DATA_DIR"
-                read -r _A </dev/tty || _A="n"
-                case "$_A" in [Yy]*) rm -rf "$USER_DATA_DIR" ;; *) echo "Kept." ;; esac
-            else
-                echo "User data kept at: $USER_DATA_DIR (remove manually if needed)"
-            fi
+    # ── DELETE USER DATA FOR ALL USERS (no prompt) ────────────────────
+    for homedir in /home/* /root; do
+        if [ -d "$homedir/.local/share/lytrize" ]; then
+            rm -rf "$homedir/.local/share/lytrize"
+            echo "  Removed $homedir/.local/share/lytrize"
         fi
-    fi
+        if [ -d "$homedir/.cache/lytrize" ]; then
+            rm -rf "$homedir/.cache/lytrize"
+            echo "  Removed $homedir/.cache/lytrize"
+        fi
+    done
 
+    # Refresh caches
     gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
     update-desktop-database /usr/share/applications      2>/dev/null || true
-    echo "Lytrize fully removed."
+    echo "Lytrize fully removed, including all user data."
 fi
-
-
-%changelog
-* Sun May 25 2026 Lytrize <vnat8638@gmail.com> - 1.2-1
-- Add libegl1/mesa-libEGL and libdbus-1-3 to Requires (fixes PySide6 on fresh install)
-- Remove python3-venv from Requires (not needed at runtime)
-- Bake icon files into package directly (no longer depends on postinst convert)
-- Desktop file uses absolute icon path /usr/share/pixmaps/lytrize.png
-- Shell stub exports QT_PLUGIN_PATH and LD_LIBRARY_PATH for bundled PySide6 plugins
-- postinst no longer uses set -e; each step fails gracefully
-- Fix $HOME in postinst (was /root during sudo apt install; now uses SUDO_USER)
-
-* Fri May 24 2026 Lytrize <vnat8638@gmail.com> - 1.1-1
-- Remove Playwright dependency; HTML-to-PNG uses system browser
-- Fix stale runners.py import
-
-* Wed May 21 2026 Lytrize <vnat8638@gmail.com> - 1.0-1
-- Initial release

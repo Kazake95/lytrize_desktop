@@ -156,6 +156,14 @@ def chart_layout(height: int | None = None) -> dict:
         margin=dict(l=20, r=20, t=48, b=20),
         bargap=0.28,
         bargroupgap=0.1,
+        # Gridlines off by default for every cartesian chart. Runners that build
+        # their own xaxis/yaxis dicts (scatter_plot.py, matrix_table.py heatmap
+        # view) set showgrid=False locally instead of relying on this default,
+        # since merging a literal xaxis=/yaxis= kwarg into the same update_layout()
+        # call as **chart_layout() would otherwise collide on those keys.
+        # Geo/mapbox runners (map_plot.py) already pop "xaxis"/"yaxis" before use.
+        xaxis=dict(showgrid=False, zeroline=False, showticklabels=True),
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=True),
         # ── Hover tooltip styling ──────────────────────────────────────────────
         # Dark semi-opaque background so text is legible on any chart colour.
         # namelength=-1 shows the full trace name instead of truncating it.
@@ -182,6 +190,8 @@ def chart_layout(height: int | None = None) -> dict:
             bgcolor="rgba(18, 26, 45, 0.96)",
             bordercolor="rgba(133, 102, 252, 0.30)",
             font=dict(size=13, color="#f5f7ff", family="Inter, system-ui, sans-serif"),
+            # NOTE: hover_font_family is passed through from apply_lytrize_standard
+            # when non-default; default remains Inter for backward compatibility.
             namelength=-1,
         ),
     )
@@ -901,12 +911,11 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                     "follows the local shape of the data — bends and curves in the line indicate "
                     "non-linear relationships that a straight-line model would miss."
                 )
+                _lx_sat = _named(x_col)
+                _ly_sat = _named(y_col)
                 insights.append(
-                    "Where the LOWESS curve flattens, {_named(y_col)} stops responding to changes "
-                    "in {_named(x_col)} — a potential saturation or threshold effect."
-                    .format(_named=_named, _x=x_col, _y=y_col)
-                    .replace("{_named(x_col)}", _named(x_col))
-                    .replace("{_named(y_col)}", _named(y_col))
+                    f"Where the LOWESS curve flattens, {_ly_sat} stops responding to changes "
+                    f"in {_lx_sat} — a potential saturation or threshold effect."
                 )
 
             # ── No trendline ──────────────────────────────────────────────────

@@ -27,6 +27,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 from modules.charts import chart_layout, COLORS
+from modules.analysis.apply_lytrize_standard import apply_lytrize_standard
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -187,6 +188,7 @@ def run_time_series(df, x_cols=None, y_cols=None, agg="mean", date_part=None,
                 text=[f"{v:,.1f}" for v in y2_vals],      # ★ add static labels
                 textposition="top center",                 # ★ position them above the points
             ), secondary_y=True)
+            _ts_title = f"TS: {col} & {dual}"
             fig.update_layout(
                 title=f"{agg_lbl} {col} & {dual_agg_lbl} {dual} over {x_label}",
                 **chart_layout())
@@ -195,6 +197,9 @@ def run_time_series(df, x_cols=None, y_cols=None, agg="mean", date_part=None,
                 fig.update_xaxes(type="category", title_text=x_label)
             fig.update_yaxes(title_text=f"{agg_lbl} {col}", secondary_y=False)
             fig.update_yaxes(title_text=f"{dual_agg_lbl} {dual}", secondary_y=True)
+            apply_lytrize_standard(fig, title=_ts_title,
+                                   xaxis=dt_col or "Index", yaxis=col,
+                                   analysis_type="time_series")
 
         else:
             # Single-axis line chart.
@@ -215,7 +220,10 @@ def run_time_series(df, x_cols=None, y_cols=None, agg="mean", date_part=None,
                     title=f"Trend: {col}",
                     color_discrete_sequence=[c_pri])
             fig.update_layout(**chart_layout())
-
-        charts.append((f"TS: {col}", fig))
+            _ts_title = f"TS: {col}"
+            apply_lytrize_standard(fig, title=_ts_title,
+                                   xaxis=dt_col or "Index", yaxis=col,
+                                   analysis_type="time_series")
+        charts.append((_ts_title, fig))
 
     return charts

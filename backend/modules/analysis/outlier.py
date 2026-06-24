@@ -192,8 +192,9 @@ def _make_outlier_fig(df: pd.DataFrame, col: str, info: dict) -> go.Figure:
         yaxis_title=col,
         **chart_layout(),
     )
+    fig.update_xaxes(showgrid=False, zeroline=False)
+    fig.update_yaxes(showgrid=False, zeroline=False)
     return fig
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Upload-page entry point
@@ -554,6 +555,8 @@ def run_outlier(df, x_cols=None, y_cols=None, palette=None, **kwargs):  # Legacy
             yaxis_title=col,
             **chart_layout(),
         )
+        fig.update_xaxes(showgrid=False, zeroline=False)
+        fig.update_yaxes(showgrid=False, zeroline=False)
         charts.append((f"Outliers: {col}", fig))
 
     return charts

@@ -18,6 +18,7 @@ One chart is produced per (dimension × metric) combination.
 import plotly.express as px
 import pandas as pd
 from modules.charts import chart_layout, COLORS, cat_cols as _cat_cols
+from modules.analysis.apply_lytrize_standard import apply_lytrize_standard
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -107,6 +108,9 @@ def run_pie_chart(df, x_cols=None, y_cols=None, agg="mean", sort_by=None,
                     color_discrete_sequence=pal,
                     hole=0.45)  # 0.45 = donut. Change to 0 for solid pie.
                 fig.update_layout(**chart_layout())
+                apply_lytrize_standard(fig, title=f"{agg_label} {metric} Split by {col}{title_suffix}",
+                                       legend=col, analysis_type="pie_chart",
+                                       axis_editing=False)
                 charts.append((f"Pie: {col}", fig))
 
         # ── Case B: no metric → value counts ──────────────────────────────────
@@ -124,6 +128,9 @@ def run_pie_chart(df, x_cols=None, y_cols=None, agg="mean", sort_by=None,
                 color_discrete_sequence=pal,
                 hole=0.45)
             fig.update_layout(**chart_layout())
+            apply_lytrize_standard(fig, title=f"Distribution of {col}{title_suffix}",
+                                   legend=col, analysis_type="pie_chart",
+                                   axis_editing=False)
             charts.append((f"Pie Counts: {col}", fig))
 
     return charts

@@ -24,6 +24,7 @@ CONTRIBUTING -- to add a new chart type within this module:
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from modules.charts import chart_layout, COLORS, cat_cols as _cat_cols
+from modules.analysis.apply_lytrize_standard import apply_lytrize_standard
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -233,7 +234,12 @@ def run_categorical(df, x_cols=None, y_cols=None, agg="mean", sort_by=None,
                         fig.update_layout(margin=dict(l=20, r=20, t=56, b=60))
                     _apply_plotly_sort(fig, cats, is_horiz, sort_by)
 
-                charts.append((f"{agg_lbl} {metric} by {col}", fig))
+                _chart_title = f"{agg_lbl} {metric} by {col}"
+                apply_lytrize_standard(fig, title=_chart_title,
+                                       xaxis=col if not is_horiz else f"{agg_lbl} {metric}",
+                                       yaxis=f"{agg_lbl} {metric}" if not is_horiz else col,
+                                       analysis_type="categorical")
+                charts.append((_chart_title, fig))
 
         # ── Case B: no metric → value counts ──────────────────────────────────
         else:
@@ -268,6 +274,11 @@ def run_categorical(df, x_cols=None, y_cols=None, agg="mean", sort_by=None,
                 fig.update_layout(margin=dict(l=20, r=100, t=56, b=20))
             _apply_plotly_sort(fig, cats, is_horiz, sort_by)
 
-            charts.append((f"Counts: {col}", fig))
+            _counts_title = f"Counts: {col}"
+            apply_lytrize_standard(fig, title=_counts_title,
+                                   xaxis=col if not is_horiz else "Count",
+                                   yaxis="Count" if not is_horiz else col,
+                                   analysis_type="categorical")
+            charts.append((_counts_title, fig))
 
     return charts

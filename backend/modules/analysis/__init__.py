@@ -135,6 +135,23 @@ def _g_uid(uid: str, aid: str, key: str, default=None):
     return st.session_state.get(_sk_uid(uid, aid, key), default)
 
 
+def _ensure_single_choice_state(key: str, options, default):
+    """Normalize legacy list state so a selectbox can safely reuse the key."""
+    current = st.session_state.get(key, default)
+    if isinstance(current, list):
+        current = next((v for v in current if v in options and v not in (None, "")), default)
+    if current not in options:
+        current = default
+    st.session_state[key] = current
+
+
+def _single_choice_value(value, default=None):
+    """Return a scalar value or None from selectbox/multiselect-compatible state."""
+    if isinstance(value, list):
+        value = next((v for v in value if v not in (None, "")), default)
+    return None if value in (None, "") else value
+
+
 def render_config_panel_scoped(uid: str, aid: str, df) -> None:
     """
     Same as render_config_panel() but every widget key is scoped to `uid` so
@@ -144,29 +161,26 @@ def render_config_panel_scoped(uid: str, aid: str, df) -> None:
     NONE = "None"
     sk = lambda key: _sk_uid(uid, aid, key)   # noqa: E731
 
-    # Colour Palette only applies to bar/scatter/line charts.
-    # For matrix_table: heatmap uses its own colorscale; table header uses first palette colour.
-    if aid != "matrix_table":
+    # Colour Palette — not relevant for matrix_table (uses per-element colours)
+    # or map_plot (uses colourscale, not a discrete palette).
+    if aid not in ("matrix_table", "map_plot"):
         st.selectbox("🎨 Colour Palette", list(PALETTES.keys()), key=sk("palette"))
-    else:
-        st.info(
-            "🎨 **Heatmap:** Colorscale is set in Chart Settings → Colour scale. "
-            "**Table:** accent palette controls the header colour.",
-            icon=None,
-        )
-        st.selectbox("🎨 Table Header Accent", list(PALETTES.keys()), key=sk("palette"))
     st.markdown("---")
 
     if aid == "statistical":
         c1, c2, c3 = st.columns(3)
-        with c1: st.multiselect("Group by (optional)", cat, max_selections=1, key=sk("x"))
+        with c1:
+            _ensure_single_choice_state(sk("x"), [NONE] + cat, NONE)
+            st.selectbox("Group by (optional)", [NONE] + cat, key=sk("x"))
         with c2: st.multiselect("Metrics", num, default=num[:4], key=sk("y"))
         with c3: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=sk("agg"))
 
     elif aid == "distribution":
         c1, c2 = st.columns(2)
         with c1: st.multiselect("Numeric columns", num, default=num[:4], key=sk("x"))
-        with c2: st.multiselect("Colour by (optional)", cat, max_selections=1, key=sk("color"))
+        with c2:
+            _ensure_single_choice_state(sk("color"), [NONE] + cat, NONE)
+            st.selectbox("Colour by (optional)", [NONE] + cat, key=sk("color"))
 
     elif aid == "correlation":
         c1, c2 = st.columns(2)
@@ -203,9 +217,9 @@ def render_config_panel_scoped(uid: str, aid: str, df) -> None:
         dt_candidates = dt if dt else all_cols
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            st.multiselect("Date / Time column", dt_candidates,
-                           default=dt_candidates[:1] if dt_candidates else [],
-                           max_selections=1, key=sk("x"))
+            default_dt = dt_candidates[0] if dt_candidates else NONE
+            _ensure_single_choice_state(sk("x"), [NONE] + dt_candidates, default_dt)
+            st.selectbox("Date / Time column", [NONE] + dt_candidates, key=sk("x"))
         with c2: st.multiselect("Primary metric(s)", num, default=num[:2], key=sk("y"))
         with c3: st.selectbox("Date grouping", list(_DATE_PARTS.keys()), key=sk("date_part"))
         with c4: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=sk("agg"))
@@ -313,17 +327,17 @@ def _collect_kwargs_scoped(uid: str, aid: str, df) -> dict:
     kwargs = {"palette": PALETTES.get(pal_label, list(PALETTES.values())[0])}
 
     if aid == "statistical":
-        kwargs.update(x_cols=g("x",[]) or None, y_cols=g("y",num[:4]) or num,
-                      agg=_AGG_FUNCS.get(g("agg","Mean (Avg)"), "mean"))
+        kwargs.update(x_cols=_single_choice_value(g("x", NONE), NONE), y_cols=g("y", num[:4]) or num,
+                      agg=_AGG_FUNCS.get(g("agg","Avg"), "mean"))
     elif aid == "distribution":
-        color = g("color",[])
-        kwargs.update(x_cols=g("x",num[:4]) or num[:4], y_cols=color or None)
+        color = _single_choice_value(g("color", NONE), NONE)
+        kwargs.update(x_cols=g("x", num[:4]) or num[:4], y_cols=None if color is None else [color])
     elif aid == "correlation":
-        kwargs.update(x_cols=g("x",num) or num, y_cols=g("y",[]) or None)
+        kwargs.update(x_cols=g("x", num) or num, y_cols=g("y", []) or None)
     elif aid in ("categorical","pie_chart"):
         x = g("x",cat[:2]) or cat[:2]
         y = g("y",[]) or None
-        agg = _AGG_FUNCS.get(g("agg","Mean (Avg)"), "mean")
+        agg = _AGG_FUNCS.get(g("agg","Avg"), "mean")
         top_n_v = int(g("top_n",0) or 0)
         top_n = top_n_v if top_n_v > 0 else None
         sort_by = _sort_map.get(g("sort","Value ↓"), "Value (Desc)")
@@ -334,19 +348,19 @@ def _collect_kwargs_scoped(uid: str, aid: str, df) -> dict:
             dual_y = None if (not raw_dual or raw_dual == NONE) else raw_dual
             if dual_y and y and dual_y in (y if isinstance(y,list) else [y]):
                 dual_y = None
-            dual_y_agg = _AGG_FUNCS.get(g("dual_y_agg", "Mean (Avg)"), "mean") if dual_y else None
+            dual_y_agg = _AGG_FUNCS.get(g("dual_y_agg", "Avg"), "mean") if dual_y else None
             kwargs.update(direction=direction, dual_y_col=dual_y, dual_y_agg=dual_y_agg)
     elif aid == "time_series":
-        x = g("x",[])
-        y = g("y",num[:2]) or num[:2]
-        agg = _AGG_FUNCS.get(g("agg","Mean (Avg)"), "mean")
-        date_part = _DATE_PARTS.get(g("date_part","None"))
+        x = _single_choice_value(g("x", NONE), NONE)
+        y = g("y", num[:2]) or num[:2]
+        agg = _AGG_FUNCS.get(g("agg", "Avg"), "mean")
+        date_part = _DATE_PARTS.get(g("date_part", "None"))
         raw_dual = g("dual_y_ts", NONE)
         dual_y = None if (not raw_dual or raw_dual == NONE) else raw_dual
         if dual_y and dual_y in (y if isinstance(y,list) else [y]):
             dual_y = None
-        dual_y_agg = _AGG_FUNCS.get(g("dual_y_agg", "Mean (Avg)"), "mean") if dual_y else None
-        kwargs.update(x_cols=x or None, y_cols=y, agg=agg,
+        dual_y_agg = _AGG_FUNCS.get(g("dual_y_agg", "Avg"), "mean") if dual_y else None
+        kwargs.update(x_cols=None if x in (NONE, None, "") else [x], y_cols=y, agg=agg,
                       date_part=date_part, dual_y_col=dual_y, dual_y_agg=dual_y_agg)
 
     elif aid == "scatter_plot":
@@ -371,7 +385,7 @@ def _collect_kwargs_scoped(uid: str, aid: str, df) -> dict:
         kwargs.update(
             index_col=_mt_r("index_col"), columns_col=_mt_r("columns_col"),
             values_col=_mt_r("values_col"),
-            agg=_AGG_FUNCS.get(g("agg", "Mean (Avg)"), "mean"),
+            agg=_AGG_FUNCS.get(g("agg", "Avg"), "mean"),
             view_type=g("view_type", "Heatmap"),
             sort_rows=_mt_sort_map.get(g("sort_rows", "Value ↓"), "value_desc"),
             top_n_rows=_mt_top_n_v if _mt_top_n_v > 0 else None,
@@ -398,7 +412,7 @@ def _collect_kwargs_scoped(uid: str, aid: str, df) -> dict:
                 lat_col=_mp_r("lat_col"), lon_col=_mp_r("lon_col"),
                 location_col=_mp_r("location_col"), color_col=_mp_r("color_col"),
                 size_col=_mp_r("size_col"), value_col=_mp_r("value_col"),
-                agg_func=_AGG_FUNCS.get(g("agg_func", "Mean (Avg)"), "mean"),
+                agg_func=_AGG_FUNCS.get(g("agg_func", "Avg"), "mean"),
                 invert_colorscale=bool(g("invert_colorscale", False)),
                 map_style=g("map_style", "carto-positron"),
                 marker_opacity=float(g("marker_opacity", 0.82)),
@@ -430,17 +444,10 @@ def render_config_panel(aid: str, df) -> None:
     num, cat, dt, all_cols = _num_cols(), _cat_cols(), _dt_cols(), df.columns.tolist()
     NONE = "None"  # Sentinel string used in "no secondary column" selectboxes.
 
-    # Colour palette selector — shown for all analyses except matrix_table heatmap
-    # (heatmap uses its own independent colorscale set in Chart Settings).
-    if aid != "matrix_table":
+    # Colour palette selector — not relevant for matrix_table (per-element colours)
+    # or map_plot (uses colourscale not a discrete palette).
+    if aid not in ("matrix_table", "map_plot"):
         st.selectbox("🎨 Colour Palette", list(PALETTES.keys()), key=_sk(aid, "palette"))
-    else:
-        st.info(
-            "🎨 **Heatmap:** colorscale is set in Chart Settings → Colour scale. "
-            "**Table:** accent palette controls the header colour.",
-            icon=None,
-        )
-        st.selectbox("🎨 Table Header Accent", list(PALETTES.keys()), key=_sk(aid, "palette"))
     st.markdown("---")
 
     # ── Descriptive ───────────────────────────────────────────────────────────
@@ -452,7 +459,9 @@ def render_config_panel(aid: str, df) -> None:
     # Aggregates numeric metrics, optionally grouped by one categorical column.
     elif aid == "statistical":
         c1, c2, c3 = st.columns(3)
-        with c1: st.multiselect("Group by (optional)", cat, max_selections=1, key=_sk(aid, "x"))
+        with c1:
+            _ensure_single_choice_state(_sk(aid, "x"), [NONE] + cat, NONE)
+            st.selectbox("Group by (optional)", [NONE] + cat, key=_sk(aid, "x"))
         with c2: st.multiselect("Metrics", num, default=num[:4], key=_sk(aid, "y"))
         with c3: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=_sk(aid, "agg"))
 
@@ -461,7 +470,9 @@ def render_config_panel(aid: str, df) -> None:
     elif aid == "distribution":
         c1, c2 = st.columns(2)
         with c1: st.multiselect("Numeric columns", num, default=num[:4], key=_sk(aid, "x"))
-        with c2: st.multiselect("Colour by (optional)", cat, max_selections=1, key=_sk(aid, "color"))
+        with c2:
+            _ensure_single_choice_state(_sk(aid, "color"), [NONE] + cat, NONE)
+            st.selectbox("Colour by (optional)", [NONE] + cat, key=_sk(aid, "color"))
 
     # ── Correlation ───────────────────────────────────────────────────────────
     # Pearson correlation heatmap. Requires at least 2 numeric columns.
@@ -609,16 +620,15 @@ def render_config_panel(aid: str, df) -> None:
         dt_candidates = dt if dt else all_cols
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            st.multiselect(
-                "Date / Time column", dt_candidates,
-                default=dt_candidates[:1] if dt_candidates else [],
-                max_selections=1, key=_sk(aid, "x"))
+            default_dt = dt_candidates[0] if dt_candidates else NONE
+            _ensure_single_choice_state(_sk(aid, "x"), [NONE] + dt_candidates, default_dt)
+            st.selectbox("Date / Time column", [NONE] + dt_candidates, key=_sk(aid, "x"))
         with c2: st.multiselect("Primary metric(s)", num, default=num[:2], key=_sk(aid, "y"))
         with c3: st.selectbox("Date grouping", list(_DATE_PARTS.keys()), key=_sk(aid, "date_part"))
         with c4: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=_sk(aid, "agg"))
         st.markdown("---")
 
-        # Dual Y -- always-visible selectbox with "None" sentinel (see note above).
+        # Dual Y -- always-visible selectbox with "None" sentinel.
         st.markdown("**📊 Dual Y-Axis (Secondary metric as dashed line)**")
         st.caption("Choose a secondary metric on the right Y-axis. Select 'None' to disable.")
         dual_opts_ts = [NONE] + list(num)
@@ -671,16 +681,16 @@ def _collect_kwargs(aid: str, df) -> dict:
 
     # ── Statistical ───────────────────────────────────────────────────────────
     if aid == "statistical":
-        x   = _g(aid, "x", [])
+        x   = _single_choice_value(_g(aid, "x", NONE), NONE)
         y   = _g(aid, "y", num[:4]) or num
-        agg = _AGG_FUNCS.get(_g(aid, "agg", "Mean (Avg)"), "mean")
-        kwargs.update(x_cols=x or None, y_cols=y, agg=agg)
+        agg = _AGG_FUNCS.get(_g(aid, "agg", "Avg"), "mean")
+        kwargs.update(x_cols=None if x is None else [x], y_cols=y, agg=agg)
 
     # ── Distribution ──────────────────────────────────────────────────────────
     elif aid == "distribution":
         x     = _g(aid, "x", num[:4]) or num[:4]
-        color = _g(aid, "color", [])
-        kwargs.update(x_cols=x, y_cols=color or None)
+        color = _single_choice_value(_g(aid, "color", NONE), NONE)
+        kwargs.update(x_cols=x, y_cols=None if color is None else [color])
 
     # ── Correlation ───────────────────────────────────────────────────────────
     elif aid == "correlation":
@@ -692,7 +702,7 @@ def _collect_kwargs(aid: str, df) -> dict:
     elif aid in ("categorical", "pie_chart"):
         x        = _g(aid, "x", cat[:2]) or cat[:2]
         y        = _g(aid, "y", []) or None
-        agg      = _AGG_FUNCS.get(_g(aid, "agg", "Mean (Avg)"), "mean")
+        agg      = _AGG_FUNCS.get(_g(aid, "agg", "Avg"), "mean")
         raw_sort = _g(aid, "sort", "Value ↓")
         sort_by  = _sort_map.get(raw_sort, "Value (Desc)")
         top_n_v  = int(_g(aid, "top_n", 0) or 0)
@@ -706,7 +716,7 @@ def _collect_kwargs(aid: str, df) -> dict:
             # Prevent the secondary metric from being the same as the primary.
             if dual_y and y and dual_y in (y if isinstance(y, list) else [y]):
                 dual_y = None
-            dual_y_agg = _AGG_FUNCS.get(_g(aid, "dual_y_agg", "Mean (Avg)"), "mean") if dual_y else None
+            dual_y_agg = _AGG_FUNCS.get(_g(aid, "dual_y_agg", "Avg"), "mean") if dual_y else None
             kwargs.update(direction=direction, dual_y_col=dual_y, dual_y_agg=dual_y_agg)
 
     # ── Scatter Plot ──────────────────────────────────────────────────────────
@@ -736,7 +746,7 @@ def _collect_kwargs(aid: str, df) -> dict:
             index_col=_mt_resolve("index_col"),
             columns_col=_mt_resolve("columns_col"),
             values_col=_mt_resolve("values_col"),
-            agg=_AGG_FUNCS.get(_g(aid, "agg", "Mean (Avg)"), "mean"),
+            agg=_AGG_FUNCS.get(_g(aid, "agg", "Avg"), "mean"),
             view_type=_g(aid, "view_type", "Heatmap"),
             sort_rows=_mt_sort_map2.get(_g(aid, "sort_rows", "Value ↓"), "value_desc"),
             top_n_rows=_mt_top_n_v2 if _mt_top_n_v2 > 0 else None,
@@ -767,7 +777,7 @@ def _collect_kwargs(aid: str, df) -> dict:
                 value_col=_mp_resolve("value_col"),
                 size_col=_mp_resolve("size_col"),
                 color_col=_mp_resolve("color_col"),
-                agg_func=_AGG_FUNCS.get(_g(aid, "agg_func", "Mean (Avg)"), "mean"),
+                agg_func=_AGG_FUNCS.get(_g(aid, "agg_func", "Avg"), "mean"),
                 invert_colorscale=bool(_g(aid, "invert_colorscale", False)),
                 map_style=_g(aid, "map_style", "carto-positron"),
                 marker_opacity=float(_g(aid, "marker_opacity", 0.82)),
@@ -775,17 +785,18 @@ def _collect_kwargs(aid: str, df) -> dict:
 
     # ── Time Series ───────────────────────────────────────────────────────────
     elif aid == "time_series":
-        x         = _g(aid, "x", [])
+        x         = _g(aid, "x", NONE)
         y         = _g(aid, "y", num[:2]) or num[:2]
-        agg       = _AGG_FUNCS.get(_g(aid, "agg", "Mean (Avg)"), "mean")
+        agg       = _AGG_FUNCS.get(_g(aid, "agg", "Avg"), "mean")
         date_part = _DATE_PARTS.get(_g(aid, "date_part", "None"))
+        x_cols    = None if x in (NONE, None, "") else [x]
         raw_dual  = _g(aid, "dual_y_ts", NONE)
         dual_y    = None if (not raw_dual or raw_dual == NONE) else raw_dual
         # Prevent secondary from being the same column as any primary metric.
         if dual_y and dual_y in (y if isinstance(y, list) else [y]):
             dual_y = None
-        dual_y_agg = _AGG_FUNCS.get(_g(aid, "dual_y_agg", "Mean (Avg)"), "mean") if dual_y else None
-        kwargs.update(x_cols=x or None, y_cols=y, agg=agg,
+        dual_y_agg = _AGG_FUNCS.get(_g(aid, "dual_y_agg", "Avg"), "mean") if dual_y else None
+        kwargs.update(x_cols=None if x in (NONE, None, "") else [x], y_cols=y, agg=agg,
                       date_part=date_part, dual_y_col=dual_y, dual_y_agg=dual_y_agg)
 
     return kwargs

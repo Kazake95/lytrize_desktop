@@ -150,13 +150,14 @@ def run_scatter_plot(df, x_col=None, y_col=None, color_col=None, size_col=None,
     axis_style = dict(
         tickfont=dict(color="#94a3b8", size=11),
         title=dict(font=dict(color="#cbd5e1", size=12)),
-        gridcolor="rgba(100,116,139,0.18)",
+        showgrid=False,
+        zeroline=False,
         linecolor="rgba(100,116,139,0.3)",
         zerolinecolor="rgba(100,116,139,0.25)",
         automargin=True,
     )
+    fig.update_layout(**chart_layout())
     fig.update_layout(
-        **chart_layout(),
         xaxis_title=x,
         yaxis_title=y,
         xaxis=axis_style,

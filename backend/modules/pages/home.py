@@ -23,7 +23,7 @@ from modules.database import (
     get_user_sessions, get_session_charts, get_session_meta,
     rename_session_db, delete_session_db,
 )
-from modules.ui.css import inject_footer, render_logo
+from modules.ui.css import inject_footer, lru_cache, render_logo
 from modules.analysis import ANALYSIS_OPTIONS
 
 # ── Image for the right column ────────────────────────────────────────────────
@@ -32,14 +32,22 @@ USE_RIGHT_IMAGE  = True
 
 
 @st.cache_resource(show_spinner=False)
-def _banner_data_uri() -> str:
+def _local_username() -> str:
+    """Read the OS username once per process — getpass.getuser() is an OS syscall."""
+    try:
+        return getpass.getuser() or "Local user"
+    except Exception:
+        return "Local user"
+
+
+@lru_cache(maxsize=1)
+def banner_data_uri() -> str:
     """
     Load and base64-encode the welcome banner image exactly once per process.
 
-    @st.cache_resource stores the result in the server process's memory for
-    the entire lifetime of the Streamlit server — no re-reads on reruns.
-    Returns an empty string if the file is absent or unreadable (the
-    <img> element is simply omitted in that case).
+    @lru_cache stores the result in memory for the entire lifetime of the
+    process — no re-reads on reruns. Returns an empty string if the file is
+    absent or unreadable (the <img> element is simply omitted in that case).
     """
     try:
         data = base64.b64encode(RIGHT_IMAGE_PATH.read_bytes()).decode("ascii")
@@ -61,7 +69,7 @@ def page_home():
 
     with left_col:
         # ── Welcome banner ────────────────────────────────────────────────────
-        local_user   = getpass.getuser() or "Local user"
+        local_user   = _local_username()
         display_name = escape(local_user)
 
         st.markdown(
@@ -99,7 +107,7 @@ def page_home():
                     unsafe_allow_html=True,
                 )
 
-        st.markdown("<div style='margin-top:0.85rem'></div>", unsafe_allow_html=True)
+        st.write("")  # spacer
 
         # ── Start New Analysis button ──────────────────────────────────────────
         if st.button("🚀 Start New Analysis", type="primary"):
@@ -117,7 +125,7 @@ def page_home():
         with right_col:
             # _banner_data_uri() is cached — the disk read + base64 encoding
             # happens only once per process, not on every Streamlit rerun.
-            uri = _banner_data_uri()
+            uri = banner_data_uri()
             if uri:
                 st.markdown(
                     f'<img src="{uri}" '
@@ -195,7 +203,7 @@ def page_home():
 
             with se:
                 if st.button("🗑️", key=f"d_{sid}", help="Delete session"):
-                    st.session_state[f"_confirm_del_{sid}"] = True
+                    st.session_state["_pending_delete_sid"] = sid
                     st.rerun()
 
             # ── Inline rename form ─────────────────────────────────────────
@@ -216,17 +224,12 @@ def page_home():
                         st.session_state.pop(f"_renaming_{sid}", None)
                         st.rerun()
 
-            # ── Inline delete confirmation ────────────────────────────────
-            # BUG NOTE: use get() not pop() here.
-            # pop() removes the key on the rerun that *shows* the dialog, so by
-            # the time the user clicks "Confirm delete" the key is already gone
-            # and the confirmation block never renders. We pop() explicitly only
-            # inside each action branch.
-            if st.session_state.get(f"_confirm_del_{sid}", False):
+            # ── Inline delete confirmation (deterministic state) ─────────
+            if st.session_state.get("_pending_delete_sid") == sid:
                 ca, cb = st.columns(2)
                 with ca:
                     if st.button("✅ Confirm delete", key=f"cd_{sid}"):
-                        st.session_state.pop(f"_confirm_del_{sid}", None)
+                        st.session_state.pop("_pending_delete_sid", None)
                         deleted = delete_session_db(sid, st.session_state.get("user_id"))
                         if not deleted:
                             st.error(
@@ -246,7 +249,7 @@ def page_home():
                         st.rerun()
                 with cb:
                     if st.button("Cancel", key=f"cx_{sid}"):
-                        st.session_state.pop(f"_confirm_del_{sid}", None)
+                        st.session_state.pop("_pending_delete_sid", None)
                         st.rerun()
 
     inject_footer()

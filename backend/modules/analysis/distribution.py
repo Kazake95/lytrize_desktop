@@ -9,20 +9,13 @@ skew, quartiles, and outliers alongside the frequency distribution.
 Each chart is coloured with a different palette entry so a dashboard
 containing multiple distribution charts is visually distinguishable at a glance.
 
-Bug fixed in this version
--------------------------
-The function docstring for run_distribution() was placed AFTER several
-executable statements (the sample call and the toast). Python only recognises
-a string literal as a docstring when it is the *first* statement of a
-function/class/module body — placing code before it means
-``run_distribution.__doc__`` was silently ``None``, breaking any tooling or
-help() call that relies on it. The docstring is now the first statement.
 """
 
 import streamlit as st
 import plotly.express as px
 from modules.charts import chart_layout, COLORS, num_cols as _num_cols
 from modules.utils.perf import sample_for_histogram
+from modules.analysis.apply_lytrize_standard import apply_lytrize_standard
 
 
 def run_distribution(df, x_cols=None, y_cols=None, palette=None, **kwargs):
@@ -84,6 +77,8 @@ def run_distribution(df, x_cols=None, y_cols=None, palette=None, **kwargs):
 
         fig.update_layout(**chart_layout())
         label = f"Dist: {col} by {color_col}" if color_col else f"Dist: {col}"
+        apply_lytrize_standard(fig, title=label, xaxis=col, yaxis="Count",
+                               analysis_type="distribution")
         charts.append((label, fig))
 
     return charts

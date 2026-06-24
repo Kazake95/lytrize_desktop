@@ -58,6 +58,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+import signal  # process-group termination support
 
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
@@ -608,6 +609,25 @@ class Launcher(QWidget):
             border-color: rgba(30,41,59,0.8);
             background: transparent;
         }
+
+        /* ── Close button (X) ── */
+        QPushButton#close_btn {
+            background: transparent;
+            color: #64748b;
+            border: none;
+            border-radius: 4px;
+            padding: 2px;
+            font-size: 14px;
+            font-weight: normal;
+        }
+        QPushButton#close_btn:hover {
+            background: rgba(239,68,68,0.2);
+            color: #f87171;
+        }
+        QPushButton#close_btn:pressed {
+            background: rgba(239,68,68,0.3);
+            color: #ef4444;
+        }
     """
 
     def __init__(self) -> None:
@@ -689,18 +709,26 @@ class Launcher(QWidget):
         title_col.addWidget(lbl_title)
         title_col.addWidget(lbl_sub)
 
+        # ── Close button (X) ──────────────────────────────────────────────
+        self.close_btn = QPushButton("✕")
+        self.close_btn.setObjectName("close_btn")
+        self.close_btn.setFixedSize(24, 24)
+        self.close_btn.setFlat(True)
+        self.close_btn.clicked.connect(self.close)   # triggers closeEvent
+
         header = QHBoxLayout()
         header.setSpacing(10)
         header.addStretch()
         header.addWidget(lbl_icon)
         header.addLayout(title_col)
         header.addStretch()
+        header.addWidget(self.close_btn)
 
         # ── Status row (pulsing dot + text) ──────────────────────────────
         self._dot = _PulseDot("#64748b", 9, self._card)
         self._dot.setFixedSize(9, 9)
 
-        self.lbl_status = QLabel("● Stopped")
+        self.lbl_status = QLabel("Stopped")
         self.lbl_status.setObjectName("status_text")
 
         status_row = QHBoxLayout()
@@ -967,6 +995,7 @@ class Launcher(QWidget):
             env=env,
             stdout=_log_fh,
             stderr=_log_fh,
+            start_new_session=True,   # process group leader for clean shutdown
         )
         self.tray.show()
 
@@ -1069,7 +1098,10 @@ class Launcher(QWidget):
     # ── Stop ──────────────────────────────────────────────────────────────
 
     def _stop_and_quit(self) -> None:
-        """Terminate the Streamlit subprocess and exit the launcher."""
+        """
+        Terminate the Streamlit subprocess (and all its children) and exit.
+        Uses process group kill to ensure no background processes remain.
+        """
         self._progress_timer.stop()
 
         if self._watch_thread is not None:
@@ -1080,11 +1112,22 @@ class Launcher(QWidget):
             self._watch_thread.cancel()
 
         if self._proc is not None and self._proc.poll() is None:
-            self._proc.terminate()
             try:
+                pgid = os.getpgid(self._proc.pid)
+                os.killpg(pgid, signal.SIGTERM)
                 self._proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                self._proc.kill()
+                try:
+                    os.killpg(pgid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                self._proc.wait()
+            except ProcessLookupError:
+                pass
+            except Exception:
+                if self._proc.poll() is None:
+                    self._proc.terminate()
+                    self._proc.wait()
 
         self.tray.hide()
         QApplication.quit()

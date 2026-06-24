@@ -1,13 +1,5 @@
 """
 modules/pages/upload.py -- File upload and column classification page.
-
-Performance note
-----------------
-_uploaded_signature() previously fell back to len(uploaded.getbuffer()) when
-file_id was unavailable. getbuffer() copies the entire upload into memory just
-to count bytes — unnecessary since Streamlit's UploadedFile always exposes a
-.size attribute. The fallback now uses .size directly, capping peak memory use
-on the upload path.
 """
 
 import streamlit as st
@@ -32,75 +24,65 @@ def _is_excel(name: str) -> bool:
 def _uploaded_signature(uploaded) -> str:
     """
     Return a stable string that uniquely identifies this upload within a session.
-
-    Used to detect whether the user has replaced the file between reruns so we
-    can clear cached state and re-parse the new file.
-
-    Previously the fallback branch called ``uploaded.getbuffer()`` which reads
-    the ENTIRE file into memory (a 500 MB CSV allocates 500 MB) solely to count
-    bytes. Streamlit's UploadedFile always exposes a ``.size`` attribute, so we
-    use that instead — zero extra memory cost.
-
-    Signature components:
-      - ``uploaded.name``    : filename (catches a same-size different-file swap)
-      - ``uploaded.size``    : byte count from UploadedFile metadata
-      - ``uploaded.file_id`` : opaque ID assigned by Streamlit per upload session
-                               (present in Streamlit ≥ 1.27; omitted gracefully
-                               when absent for compatibility with older builds)
     """
+    import hashlib
+
     file_id = getattr(uploaded, "file_id", None)
-    size    = getattr(uploaded, "size", 0) or 0   # 'or 0' guards against None
+    size    = getattr(uploaded, "size", 0) or 0
+
     if file_id:
-        # Preferred path: file_id is unique per browser upload event, so
-        # name + size + file_id is unambiguous even if the same file is
-        # re-uploaded after edits.
         return f"{uploaded.name}:{size}:{file_id}"
-    # Fallback (older Streamlit builds without file_id): name + size is a
-    # good-enough heuristic for typical desktop BI use — two different CSV
-    # files with the same name and the same byte count are extremely rare.
-    return f"{uploaded.name}:{size}"
+
+    content_suffix = ""
+    if size > 0 and size < 10_000_000:
+        try:
+            uploaded.seek(0)
+            head = uploaded.read(65536)
+            uploaded.seek(max(0, size - 65536))
+            tail = uploaded.read(65536)
+            content_hash = hashlib.md5(head + tail).hexdigest()[:12]
+            content_suffix = f":{content_hash}"
+        except Exception:
+            pass
+        finally:
+            uploaded.seek(0)
+
+    return f"{uploaded.name}:{size}{content_suffix}"
 
 
-@st.cache_data(show_spinner=False)
-def _read_csv_cached(file_bytes: bytes, filename: str) -> pd.DataFrame:
+# Streamlit cache_resource completely bypasses pickling loops.
+# max_entries=1 frees RAM when switching files.
+@st.cache_resource(show_spinner=False, max_entries=1)
+def _read_csv_cached(file_sig: str, _uploaded_file) -> pd.DataFrame:
     """
-    Parse and dtype-optimise a CSV file, caching the result by raw bytes.
-
-    Streamlit's cache_data hashes `file_bytes` so the same upload content is
-    never re-parsed between reruns. The cache is invalidated automatically when
-    `file_bytes` changes (i.e. the user uploads a different file).
-
-    Args:
-        file_bytes: Raw bytes of the uploaded CSV.
-        filename:   Original filename (included in the cache key for safety,
-                    in case two different files hash to the same byte sequence).
-
-    Returns:
-        Dtype-optimised DataFrame.
+    Parse and dtype-optimise a CSV file.
+    Using st.cache_resource instead of st.cache_data avoids unpickling/copying
+    the entire dataframe on every rerun.
     """
     import io
+    _uploaded_file.seek(0)
+    file_bytes = _uploaded_file.read()
     return read_csv_fast(io.BytesIO(file_bytes))
 
 
 def page_upload():
     render_logo()
 
+    st.session_state["_last_viewed_page"] = "upload"
+
+
     if st.button("← Home"):
         st.session_state.page = "home"
+        st.session_state.pop("_last_viewed_page", None)
+        st.session_state.pop("_resume_upload", None)
         st.rerun()
 
     st.markdown("## 📂 Upload Dataset")
 
-    # if st.session_state.get("is_guest", False):
-    #     st.info(
-    #         "⚠️ **Guest mode** — sessions are saved locally on this device. "
-    #         "Sign in later to sync them to your cloud account.",
-    #         icon=None,
-    #     )
-
     if "editing_session_id" in st.session_state:
         fname = st.session_state.get("editing_file_name", "the original file")
-        if st.session_state.pop("_edit_needs_reupload", False):
+        if st.session_state.get("_edit_needs_reupload"):
+            st.session_state.pop("_edit_needs_reupload", None)
             st.warning(
                 f"✏️ **Editing session: \"{st.session_state.get('editing_session_name', '')}\"**\n\n"
                 f"The original dataset (**{fname}**) needs to be re-uploaded to add or "
@@ -116,15 +98,17 @@ def page_upload():
     uploaded = st.file_uploader(
         "CSV or Excel (single or multi-sheet) — up to 500 MB",
         type=["csv", "xlsx", "xls"],
+        key="main_file_uploader",
     )
 
-    # ── Resume existing session (navigated back from Analysis) ───────────────
-    # When the user clicks "Upload" from the Analysis page, the file_uploader
-    # widget starts empty (Streamlit doesn't persist uploaded files across page
-    # navigations). If a df is already loaded we show the existing pipeline
-    # rather than leaving the user with a blank upload screen.
-    if not uploaded and "df" in st.session_state and st.session_state.get("file_name"):
-        _resumed_name = st.session_state["file_name"]
+    if (not uploaded) and ("df" in st.session_state) and st.session_state.get("df") is not None:
+        _resumed_name = st.session_state.get("file_name") or "your dataset"
+        
+        if st.session_state.get("_resume_upload"):
+            _show_analysis_pipeline(st.session_state["df"], _resumed_name)
+            inject_footer()
+            return
+
         st.info(
             f"📂 **{_resumed_name}** is still loaded from your last session. "
             "You can continue cleaning and transforming, or upload a new file above to replace it.",
@@ -140,13 +124,9 @@ def page_upload():
             if st.button("🗑 Start fresh (clear dataset)", key="_clear_dataset",
                          use_container_width=True):
                 for k in ["df", "file_name", "file_signature", "_dq_charts", "_dq_sig",
-                          "_ul_preview_mode", "_resume_upload"]:
+                          "_ul_preview_mode", "_resume_upload", "_df_snapshot_sig", "_last_draft_upload_cache"]:
                     st.session_state.pop(k, None)
                 st.rerun()
-
-        # Render the pipeline if the user already confirmed to resume.
-        if st.session_state.get("_resume_upload"):
-            _show_analysis_pipeline(st.session_state["df"], _resumed_name)
         inject_footer()
         return
 
@@ -160,20 +140,16 @@ def page_upload():
         st.session_state.get("file_name")      != uploaded.name or
         st.session_state.get("file_signature") != file_sig
     )
-    # Clear the resume flag now that a real file is in the widget.
     st.session_state.pop("_resume_upload", None)
 
     if not is_excel:
         if "df" not in st.session_state or file_changed:
             with st.spinner("Reading and optimising file…"):
-                # Read the bytes once and cache by content so re-runs (widget
-                # interactions, column describes, etc.) never re-parse the CSV.
-                uploaded.seek(0)
-                file_bytes = uploaded.read()
-                df = _read_csv_cached(file_bytes, uploaded.name)
+                df = _read_csv_cached(file_sig, uploaded)
             st.session_state.df             = df
             st.session_state.file_name      = uploaded.name
             st.session_state.file_signature = file_sig
+            st.session_state["_resume_upload"] = True
             _clear_excel_state()
             mb = mem_mb(df)
             if mb > 50:
@@ -182,7 +158,6 @@ def page_upload():
             df = st.session_state.df
         _show_analysis_pipeline(df, uploaded.name)
     else:
-        # ── Excel path ────────────────────────────────────────────────────────
         if file_changed:
             st.session_state.pop("df", None)
             _clear_excel_state(uploaded.name)
@@ -193,6 +168,7 @@ def page_upload():
             df = show_excel_loader(uploaded)
             if df is not None:
                 st.session_state.df = df
+                st.session_state["_resume_upload"] = True
                 st.rerun()
         else:
             if st.button("⚙️ Edit Excel Configuration", key="_xl_edit_config"):
@@ -202,37 +178,41 @@ def page_upload():
 
 
 def _save_upload_snapshot(df, file_name: str) -> None:
-    """Persist df parquet + minimal draft immediately after upload.
-
-    Called from _show_analysis_pipeline so the dataset survives an app
-    restart even before the user reaches the analysis page.
-    """
+    """Persist df parquet + minimal draft immediately after upload if modified."""
     uid = st.session_state.get("user_id")
     if not uid:
         return
     try:
-        from modules.utils.session_cache import save_df_snapshot
-        from modules.database import save_draft
-        import json as _json
-        save_df_snapshot(uid)
-        save_draft(
-            user_id               = uid,
-            page                  = "upload",
-            charts_json           = "[]",
-            file_name             = file_name,
-            col_descriptions_json = _json.dumps(
-                st.session_state.get("col_descriptions", {})
-            ),
-        )
+        # Include id(df) so snapshot changes are tracked by memory reference,
+        # preventing redundant disk writes when only config or description changes.
+        df_sig = (id(df), df.shape, tuple(df.columns))
+        sig_changed = st.session_state.get("_df_snapshot_sig") != df_sig
+        
+        draft_cache_key = ("_draft_upload_cache", file_name, df_sig)
+        if st.session_state.get("_last_draft_upload_cache") != draft_cache_key or sig_changed:
+            from modules.utils.session_cache import save_df_snapshot
+            from modules.database import save_draft
+            import json as _json
+            
+            if sig_changed:
+                save_df_snapshot(uid)
+                st.session_state["_df_snapshot_sig"] = df_sig
+                
+            save_draft(
+                user_id               = uid,
+                page                  = "upload",
+                charts_json           = "[]",
+                file_name             = file_name,
+                col_descriptions_json = _json.dumps(
+                    st.session_state.get("col_descriptions", {})
+                ),
+            )
+            st.session_state["_last_draft_upload_cache"] = draft_cache_key
     except Exception:
-        pass  # Never block the upload flow on a snapshot failure
+        pass
 
 
 def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
-    # Persist the df snapshot and a minimal draft immediately on upload so
-    # the dataset can be restored if the app is restarted before any charts
-    # are generated (analysis.py also calls _persist_draft but only once
-    # the user has navigated there).
     _save_upload_snapshot(df, file_name)
     st.markdown("---")
     _n_rows = df.shape[0]
@@ -292,38 +272,44 @@ def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
             st.session_state.col_descriptions = col_descs
             st.success("✅ Saved.")
 
-    with st.expander("🧹 Data Quality", expanded=False):
-        st.info(
-            "Preview missing values and duplicate rows here, then use the "
-            "cleaning controls below to remove them safely. "
-            "Changes are applied immediately to the dataset.",
-            icon="ℹ️",
-        )
-        # Run the data quality UI every time so interactive fragments
-        # (missing value preview + duplicate controls) are rendered.
-        dq_charts = run_data_quality(df)
-
-        if dq_charts:
-            st.markdown("#### Data Quality Summaries")
-            for title, fig in dq_charts:
-                if title == "Duplicate Rows Summary":
-                    unique_rows = int(df.drop_duplicates().shape[0])
-                    duplicate_rows = len(df) - unique_rows
-                    st.markdown(
-                        f"**Duplicate rows:** {duplicate_rows:,} duplicate row(s) / "
-                        f"{unique_rows:,} unique row(s)."
-                    )
-                    st.caption(
-                        "Duplicate row counts use the default pandas duplicate\n"
-                        "definition and keep the first occurrence by default."
-                    )
+    with st.expander("🧹 Data Quality Summary", expanded=False):
+        st.info("Check the box below to run a data quality analysis.")
+        if st.checkbox("🔍 Enable Data Quality Diagnostics", key="_enable_dq_run"):
+            with st.spinner("Analyzing data quality metrics..."):
+                # Safety sample of 100,000 rows to ensure instant UI loading
+                if len(df) > 100_000:
+                    st.warning("⚠️ Large dataset detected. Analyzing a representative 100,000-row sample for speed.")
+                    dq_df = df.sample(n=100_000, random_state=42)
                 else:
-                    st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No data quality issues were detected in the previewed dataset.")
+                    dq_df = df
+                dq_charts = run_data_quality(dq_df)
+
+                if dq_charts:
+                    st.markdown("#### Data Quality Summaries")
+                    for title, fig in dq_charts:
+                        if title == "Duplicate Rows Summary":
+                            unique_rows = int(dq_df.drop_duplicates().shape[0])
+                            duplicate_rows = len(dq_df) - unique_rows
+                            st.markdown(
+                                f"**Duplicate rows:** {duplicate_rows:,} duplicate row(s) / "
+                                f"{unique_rows:,} unique row(s)."
+                            )
+                        else:
+                            st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No data quality issues were detected.")
 
     with st.expander("🔍 Outlier Detection", expanded=False):
-        run_outlier_upload(df)
+        st.info("Check the box below to run outlier analysis across numeric columns.")
+        if st.checkbox("📊 Enable Outlier Scanners", key="_enable_outlier_run"):
+            with st.spinner("Calculating outlier boundaries..."):
+                # Safety sample of 100,000 rows to prevent execution freeze
+                if len(df) > 100_000:
+                    st.warning("⚠️ Large dataset detected. Scanning a representative 100,000-row sample for speed.")
+                    outlier_df = df.sample(n=100_000, random_state=42)
+                else:
+                    outlier_df = df
+                run_outlier_upload(outlier_df)
 
     with st.expander("🧩 Column Manager", expanded=False):
         df = show_column_manager(df)
@@ -335,70 +321,69 @@ def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
         df = show_data_cleaner(df)
 
     with st.expander("💾 Save Cleaned Data as CSV", expanded=False):
-        st.caption(
-            "Download the current (cleaned) dataset as a CSV file. "
-            "The file reflects all cleaning operations applied so far."
-        )
-        import io as _io, datetime as _dt
+        st.caption("Download the current (cleaned) dataset as a CSV file.")
+        
+        if st.checkbox("⚙️ Prepare CSV Download File", key="_enable_csv_export"):
+            import io as _io, datetime as _dt
 
-        _csv_col1, _csv_col2 = st.columns([2, 1])
-        with _csv_col1:
-            _default_name = (
-                st.session_state.get("file_name", "cleaned_data")
-                .replace(".csv", "")
-                .replace(".xlsx", "")
-                .replace(".xls", "")
+            _csv_col1, _csv_col2 = st.columns([2, 1])
+            with _csv_col1:
+                _default_name = (
+                    st.session_state.get("file_name", "cleaned_data")
+                    .replace(".csv", "")
+                    .replace(".xlsx", "")
+                    .replace(".xls", "")
+                )
+                _csv_filename = st.text_input(
+                    "File name",
+                    value=f"{_default_name}_cleaned",
+                    placeholder="e.g. my_dataset_cleaned",
+                    key="csv_export_filename",
+                )
+            with _csv_col2:
+                all_cols_for_idx = ["None (default integer index)"] + list(df.columns)
+                _csv_index_choice = st.selectbox(
+                    "Index column (optional)",
+                    options=all_cols_for_idx,
+                    index=0,
+                    key="csv_export_index",
+                )
+
+            _fname = (_csv_filename.strip() or "cleaned_data").rstrip(".csv") + ".csv"
+            _use_col_as_idx = (
+                _csv_index_choice
+                if _csv_index_choice != "None (default integer index)"
+                else None
             )
-            _csv_filename = st.text_input(
-                "File name",
-                value=f"{_default_name}_cleaned",
-                placeholder="e.g. my_dataset_cleaned",
-                key="csv_export_filename",
-                help="The .csv extension will be added automatically.",
+
+            with st.spinner("Generating export file (this can take a moment for large datasets)..."):
+                _export_df = df.set_index(_use_col_as_idx) if _use_col_as_idx else df
+                _csv_bytes = _export_df.to_csv(index=bool(_use_col_as_idx)).encode("utf-8")
+
+            st.download_button(
+                label="⬇️ Download",
+                data=_csv_bytes,
+                file_name=_fname,
+                mime="text/csv",
+                key="csv_export_download_btn",
+                use_container_width=True,
             )
-        with _csv_col2:
-            all_cols_for_idx = ["None (default integer index)"] + list(df.columns)
-            _csv_index_choice = st.selectbox(
-                "Index column (optional)",
-                options=all_cols_for_idx,
-                index=0,
-                key="csv_export_index",
-                help="Choose a column to use as the CSV row index, or keep the default integer index.",
+            st.caption(
+                f"📊 {len(df):,} rows × {len(df.columns)} columns — "
+                f"{len(_csv_bytes)/1024/1024:.1f} MB"
             )
-
-        _fname = (_csv_filename.strip() or "cleaned_data").rstrip(".csv") + ".csv"
-        _use_col_as_idx = (
-            _csv_index_choice
-            if _csv_index_choice != "None (default integer index)"
-            else None
-        )
-
-        _export_df = df.set_index(_use_col_as_idx) if _use_col_as_idx else df
-        _csv_bytes = _export_df.to_csv(index=bool(_use_col_as_idx)).encode("utf-8")
-
-        st.download_button(
-            label="⬇️ Download",
-            data=_csv_bytes,
-            file_name=_fname,
-            mime="text/csv",
-            key="csv_export_download_btn",
-            use_container_width=True,
-        )
-        st.caption(
-            f"📊 {len(df):,} rows × {len(df.columns)} columns — "
-            f"{len(_csv_bytes)/1024:.1f} KB"
-        )
+        else:
+            st.info("Check the box above to generate the download link for your dataset.")
 
     with st.expander("🧠 Classify Columns & Proceed to Analysis", expanded=False):
         show_column_classifier(df)
 
 
 def _clear_excel_state(new_file_name: str = "") -> None:
-    """Remove per-file Excel sheet-selection state when the user changes files."""
     keys_to_delete = [
         k for k in list(st.session_state.keys())
         if k.startswith("_xl_sheets_") and (
-            not new_file_name or not k.endswith(new_file_name)
+            not new_file_name or new_file_name not in k
         )
     ]
     for k in keys_to_delete:

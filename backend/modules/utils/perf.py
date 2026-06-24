@@ -25,6 +25,8 @@ Design rules:
 
 import pandas as pd
 import numpy as np
+import os
+from pathlib import Path
 from typing import Union
 
 
@@ -47,50 +49,37 @@ def optimize_dtypes(df: pd.DataFrame) -> pd.DataFrame:
     """
     Shrink a DataFrame's memory footprint without losing precision or data.
 
-    Operations applied (in order):
-      1. Downcast int64 → smallest fitting int (int8 / int16 / int32 / int64).
-      2. Downcast float64 → float32 where value range allows.
-      3. Convert low-cardinality object columns to pd.Categorical.
-
-    Typical savings on real-world CSVs:
-        int-heavy files    →  40–60 % smaller
-        mixed files        →  25–45 % smaller
-        string-heavy files →  10–30 % smaller (via Categorical)
-
-    Args:
-        df: Input DataFrame. Never mutated.
-
-    Returns:
-        New DataFrame with optimised dtypes.
+    Highly optimized to prevent unnecessary dataframe copying. Mutates only
+    newly downcasted series, performing a zero-copy return if already optimized.
     """
-    out = df.copy()
+    modified = {}
 
-    for col in out.columns:
-        dtype = out[col].dtype
+    for col in df.columns:
+        series = df[col]
+        dtype = series.dtype
 
         if pd.api.types.is_integer_dtype(dtype):
-            # Downcast to the smallest integer type that fits all values.
-            out[col] = pd.to_numeric(out[col], downcast="integer")
+            opt_series = pd.to_numeric(series, downcast="integer")
+            if opt_series.dtype != dtype:
+                modified[col] = opt_series
 
         elif dtype == np.float64:
             # Downcast float64 → float32 for memory savings.
-            # PRECISION NOTE: float32 has ~7 significant decimal digits vs float64's ~15.
-            # For financial columns (prices, currency, exact totals) this is acceptable
-            # for charting purposes but should not be used for computational accuracy.
-            # Columns that stay as float32 are display-only in charts; all DB writes
-            # and aggregations should cast back to float64 if precision matters.
-            out[col] = pd.to_numeric(out[col], downcast="float")
+            opt_series = pd.to_numeric(series, downcast="float")
+            if opt_series.dtype != dtype:
+                modified[col] = opt_series
 
         elif dtype == object:
-            n_uniq = out[col].nunique()
-            n_rows = len(out)
+            n_uniq = series.nunique()
+            n_rows = len(df)
             ratio  = n_uniq / n_rows if n_rows else 0
-            # Only categorise when the column has low cardinality; high-cardinality
-            # object columns (e.g. free-text, IDs) gain nothing from Categorical.
             if n_uniq <= _CAT_MAX_UNIQ and ratio < _CAT_THRESHOLD:
-                out[col] = out[col].astype("category")
+                modified[col] = series.astype("category")
 
-    return out
+    if not modified:
+        return df  # Zero-copy if already fully optimized
+
+    return df.assign(**modified)
 
 
 # ── Plot sampling ─────────────────────────────────────────────────────────────
@@ -108,20 +97,6 @@ def sample_for_plot(
 ) -> tuple[pd.DataFrame, bool]:
     """
     Return a representative random sample of at most n rows for Plotly rendering.
-
-    Plotly serialises every data point to JSON and ships it to the browser.
-    A 400 MB CSV with 5 M rows produces an ~800 MB JSON blob that freezes
-    the browser tab.  Capping at 50 K rows has no visible effect on bar /
-    time-series charts (which aggregate anyway) and is clearly labelled on
-    scatter / distribution / outlier charts.
-
-    Args:
-        df:           Input DataFrame.
-        n:            Maximum rows to return.
-        random_state: Reproducibility seed.
-
-    Returns:
-        (sampled_df, was_sampled)  --  was_sampled is True when df had > n rows.
     """
     if len(df) <= n:
         return df, False
@@ -139,22 +114,31 @@ def read_csv_fast(file, **kwargs) -> pd.DataFrame:
     """
     Read a CSV file and return a dtype-optimised DataFrame.
 
-    Uses low_memory=False to avoid mid-column dtype mis-detection (common
-    in mixed-type columns that are all-numeric except for a header row).
-    Then calls optimize_dtypes() to shrink the result.
-
-    For files too large to fit in RAM, use read_csv_chunked() instead.
-
-    Args:
-        file:     File-like object or path string.
-        **kwargs: Forwarded to pd.read_csv (e.g. sep=";", encoding="latin1").
-
-    Returns:
-        Optimised DataFrame.
+    Automatically scales to chunked reading for files larger than 30MB
+    to prevent memory allocation spikes.
     """
     kwargs.setdefault("low_memory", False)
     if hasattr(file, "seek"):
         file.seek(0)
+    
+    file_size = 0
+    if hasattr(file, "size"):
+        file_size = file.size
+    elif hasattr(file, "getvalue"):
+        try:
+            file_size = len(file.getvalue())
+        except Exception:
+            pass
+    elif isinstance(file, (str, Path)):
+        try:
+            file_size = os.path.getsize(file)
+        except Exception:
+            pass
+
+    # Safe-guard memory: Streamline chunked loading for large files
+    if file_size > 30 * 1024 * 1024:
+        return read_csv_chunked(file, **kwargs)
+
     df = pd.read_csv(file, **kwargs)
     return optimize_dtypes(df)
 
@@ -167,21 +151,7 @@ def read_csv_chunked(
 ) -> pd.DataFrame:
     """
     Read a large CSV in chunks and concatenate, applying dtype optimisation
-    to each chunk before joining. This caps peak RAM usage to roughly
-    ``chunksize × row_bytes`` rather than ``total_rows × row_bytes``.
-
-    Useful when read_csv_fast() would exceed available memory (e.g. files
-    larger than ~500 MB on machines with 8 GB RAM).
-
-    Args:
-        file:      File-like object or path string (seek(0)'d before reading).
-        chunksize: Rows per chunk. 200 K is a reasonable default.
-        max_rows:  Optional hard cap on total rows loaded. Pass this to
-                   cap memory when the caller only needs a preview or sample.
-        **kwargs:  Forwarded to pd.read_csv.
-
-    Returns:
-        Concatenated, dtype-optimised DataFrame.
+    to each chunk before joining. This caps peak RAM usage.
     """
     kwargs.setdefault("low_memory", False)
     if hasattr(file, "seek"):
@@ -198,7 +168,6 @@ def read_csv_chunked(
             break
 
     if not chunks:
-        # Return an empty DataFrame preserving the column schema if possible.
         return pd.DataFrame()
 
     return pd.concat(chunks, ignore_index=True)
@@ -209,13 +178,6 @@ def read_csv_chunked(
 def get_sheet_names(file) -> list[str]:
     """
     Return the list of sheet names without loading any cell data.
-
-    pd.ExcelFile in header-only mode is ~100× faster than
-    pd.read_excel(sheet_name=None) on large workbooks because it reads
-    only the workbook XML manifest, not the cell values.
-
-    Args:
-        file: File-like object (will be seek(0)'d before reading).
     """
     if hasattr(file, "seek"):
         file.seek(0)
@@ -226,16 +188,6 @@ def get_sheet_names(file) -> list[str]:
 def read_excel_sheet(file, sheet_name: Union[str, int] = 0) -> pd.DataFrame:
     """
     Read a SINGLE sheet from an Excel file with dtype optimisation.
-
-    Unlike pd.read_excel(sheet_name=None) which loads the entire workbook,
-    this reads only the requested sheet -- critical for large multi-sheet files.
-
-    Args:
-        file:       File-like object (seek(0)'d before reading).
-        sheet_name: Sheet name (str) or 0-based index (int).
-
-    Returns:
-        Optimised DataFrame for the requested sheet.
     """
     if hasattr(file, "seek"):
         file.seek(0)
@@ -244,13 +196,6 @@ def read_excel_sheet(file, sheet_name: Union[str, int] = 0) -> pd.DataFrame:
 
 
 # ── Cached pivot computation ──────────────────────────────────────────────────
-# Wrapping pd.pivot_table in cache_data avoids recomputing the entire pivot
-# every Streamlit rerun triggered by widget interactions (settings, scroll, etc.)
-# The hash key is a tuple of (df shape, col names, agg, index, columns, values).
-#
-# NOTE: streamlit is intentionally imported INSIDE this function, not at module
-# level, to keep the rest of this module usable as a pure data layer (e.g. from
-# tests or CLI scripts that run without a Streamlit server).
 
 def _pivot_impl(df: pd.DataFrame, index: str, columns: str,
                 values: str, aggfunc: str) -> pd.DataFrame:
@@ -261,14 +206,11 @@ def _pivot_impl(df: pd.DataFrame, index: str, columns: str,
     )
 
 
-# Decorate once at import time.  Previously the decorator was applied inside
-# cached_pivot() on every call, which created a new cache bucket each time and
-# made the cache completely ineffective.
 try:
     import streamlit as _st
     _pivot_impl = _st.cache_data(show_spinner=False, ttl=300)(_pivot_impl)
 except Exception:
-    pass  # Not running under Streamlit (tests/CLI) — use the raw function.
+    pass  # Not running under Streamlit (tests/CLI)
 
 
 def cached_pivot(
@@ -280,17 +222,11 @@ def cached_pivot(
 ) -> pd.DataFrame:
     """
     Cached pd.pivot_table wrapper.
-
-    Using @st.cache_data means Streamlit hashes df by content; for large
-    datasets this is still faster than recomputing the full pivot on every rerun.
-    TTL=300s ensures stale data doesn't linger after a dataset reload.
     """
     return _pivot_impl(df, index, columns, values, aggfunc)
 
 
 # ── Distribution sampling ─────────────────────────────────────────────────────
-# Plotly histogram pre-bins data in the browser. For >50K rows the JSON
-# payload becomes large enough to cause lag. Sample down to 50K rows first.
 
 _HIST_SAMPLE = 50_000
 
@@ -302,17 +238,13 @@ def sample_for_histogram(
 ) -> tuple[pd.DataFrame, bool]:
     """
     Sample for histogram / distribution charts.
-    Histogram shape is statistically robust at 50K rows for most distributions.
     """
     return sample_for_plot(df, n=n, random_state=random_state)
 
 
 # ── Categorical sampling ──────────────────────────────────────────────────────
-# Categorical bar charts aggregate before plotting so sampling hurts accuracy.
-# Only sample when the UNIQUE VALUE count is extreme (>2K bars would be unreadable
-# anyway). We group the tail into "Other" instead of random sampling.
 
-_CAT_MAX_BARS = 50   # never render more than 50 bars; roll the rest into "Other"
+_CAT_MAX_BARS = 50
 
 
 def top_n_with_other(
@@ -322,25 +254,20 @@ def top_n_with_other(
 ) -> pd.Series:
     """
     Keep the top-n most frequent categories and replace the rest with 'Other'.
-
-    This is more meaningful than random row-sampling for categorical charts
-    because it preserves the most important groups while keeping render fast.
     """
     top = series.value_counts().nlargest(n).index
     return series.where(series.isin(top), other=other_label)
 
 
 # ── Render budget guard ───────────────────────────────────────────────────────
-# Hard limits on data points shipped to the browser. Exceeding these makes
-# Plotly unresponsive regardless of how fast the Python side is.
 
 RENDER_LIMITS = {
     "scatter":     8_000,
     "histogram":  50_000,
     "map":        10_000,
     "line":       50_000,
-    "bar":         5_000,   # per series; aggregation should happen before this
-    "heatmap":       500,   # cells (rows × cols)
+    "bar":         5_000,
+    "heatmap":       500,
 }
 
 
@@ -351,15 +278,6 @@ def enforce_render_limit(
 ) -> tuple[pd.DataFrame, bool]:
     """
     Sample df to the render budget for chart_type.
-
-    Args:
-        df:           Input DataFrame.
-        chart_type:   One of the keys in RENDER_LIMITS. Unknown types fall back
-                      to the histogram limit (50 K rows).
-        random_state: Reproducibility seed.
-
-    Returns:
-        (df_possibly_sampled, was_sampled).
     """
     limit = RENDER_LIMITS.get(chart_type, 50_000)
     return sample_for_plot(df, n=limit, random_state=random_state)

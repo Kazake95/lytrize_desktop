@@ -1,43 +1,46 @@
-# ── Database ──────────────────────────────────────────────────────────────────
-# Never commit the live SQLite database – it contains real user data.
-lytrize.db
-*.db
-*.sqlite
-*.sqlite3
-
-# ── Environment & secrets ─────────────────────────────────────────────────────
-.lytrize_env/
-.env.*
-!.env.example
-.streamlit/secrets.toml
-test_commands.txt
-
-# ── Test & sample data ────────────────────────────────────────────────────────
-test.csv
-tests/data/
-*.zip
-
-# ── Python ────────────────────────────────────────────────────────────────────
+# ── Python ──────────────────────────────────────────────────────────────────
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
 dist/
 build/
-.eggs/
+*.egg
 
-# ── Virtual environments ──────────────────────────────────────────────────────
+# ── Virtual environments ──────────────────────────────────────────────────
+venv/
 .venv/
-my_venv/
 env/
-ENV/
 
-# ── IDE & OS ──────────────────────────────────────────────────────────────────
-.idea/
+# ── Streamlit ─────────────────────────────────────────────────────────────
+.streamlit/secrets.toml
+
+# ── IDE ────────────────────────────────────────────────────────────────────
 .vscode/
+.idea/
 *.swp
 *.swo
+*~
+
+# ── OS ─────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# ── Coverage & testing ────────────────────────────────────────────────────────
-.coverage
-.pytest_cache/
-htmlcov/
+# ── Local data (never commit user data) ───────────────────────────────────
+*.db
+*.parquet
+session.token
+launcher_prefs.json
+browser-profiles/
+streamlit.log
+
+# ── Build artifacts ────────────────────────────────────────────────────────
+*.deb
+*.rpm
+
+# ── Temporary / scratch files ─────────────────────────────────────────────
+current lytrize issues.txt
+test_commands.txt
+Lytrize_Codebase_Blueprint.md

@@ -191,20 +191,20 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
                 ),
                 tickfont=dict(color="#94a3b8", size=10),
                 thickness=14, len=0.85,
-                bgcolor="rgba(15,23,42,0.4)",
+                bgcolor="rgba(0,0,0,0)",
                 bordercolor="rgba(100,116,139,0.3)", borderwidth=1,
             ),
         ))
         axis_common = dict(
             tickfont=dict(color="#94a3b8", size=10),
-            gridcolor="rgba(100,116,139,0.15)",
+            showgrid=False,
             linecolor="rgba(100,116,139,0.25)",
             automargin=True,
         )
         _layout = chart_layout(height=height)
         _layout["margin"] = dict(l=10, r=100, t=58, b=90)
+        fig.update_layout(**_layout)
         fig.update_layout(
-            **_layout,
             title=dict(text=base_title, font=dict(color="#e2e8f0", size=13)),
             xaxis=dict(**axis_common,
                        title=dict(text=cols, font=dict(color="#cbd5e1", size=12)),
@@ -217,27 +217,38 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
             "analysis_type": "matrix_heatmap",
             "x_axis": cols, "y_axis": idx,
             "legend": f"{agg_label}({vals})",
-            "supports_auto_insights": True, "supports_notes": True,
+            "supports_auto_insights": False, "supports_notes": True,
             "supports_axis_editing": True, "supports_legend_editing": True,
+            "matrix_view": "heatmap",
         }
         charts.append((f"Matrix Heatmap: {idx} × {cols}", fig))
 
     # ── Table view (Excel pivot-table style) ──────────────────────────────────
     else:
-        # Row totals (one per data row)
+        # ── Row totals — only meaningful for count and sum ───────────────────
+        # For mean/median/max/min/std the row "total" is a sum of means which
+        # is misleading. Hide the totals column for those aggs.
+        _show_row_totals = agg in ("sum", "count")
+
         row_totals = []
-        for row in z_values:
-            clean = [v for v in row if v is not None and not (isinstance(v, float) and np.isnan(v))]
-            row_totals.append(float(np.sum(clean)) if clean else np.nan)
+        if _show_row_totals:
+            for row in z_values:
+                clean = [v for v in row if v is not None and not (isinstance(v, float) and np.isnan(v))]
+                row_totals.append(float(np.sum(clean)) if clean else np.nan)
+        else:
+            row_totals = [np.nan] * len(z_values)
 
-        # Column totals (one per data column)
+        # Column totals (one per data column) — only meaningful for sum/count
         col_totals = []
-        for j in range(n_cols_p):
-            clean = [row[j] for row in z_values
-                     if row[j] is not None and not (isinstance(row[j], float) and np.isnan(row[j]))]
-            col_totals.append(float(np.sum(clean)) if clean else np.nan)
+        if _show_row_totals:
+            for j in range(n_cols_p):
+                clean = [row[j] for row in z_values
+                         if row[j] is not None and not (isinstance(row[j], float) and np.isnan(row[j]))]
+                col_totals.append(float(np.sum(clean)) if clean else np.nan)
+        else:
+            col_totals = [np.nan] * n_cols_p
 
-        grand_total = sum(v for v in row_totals if not np.isnan(v))
+        grand_total = sum(v for v in col_totals if not np.isnan(v)) if _show_row_totals else np.nan
 
         # Per-column value range for mini gradient (conditional formatting)
         col_ranges = []
@@ -248,25 +259,50 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
 
         # ── Column widths (character-length-based) ──────────────────────────
         _idx_w  = min(max(max((len(str(r)) for r in y_labels), default=6), len(str(idx)), 8), 30)
-        # Column width: use the MAXIMUM of header-name length and formatted value
-        # length so column headers always fit without truncation.
         _hdr_len  = max((len(str(h)) for h in x_labels), default=4)
         _val_len  = max((len(str(v)) for row in z_values for v in row
                          if v is not None and not (isinstance(v, float) and np.isnan(v))),
                         default=4)
-        _data_w = min(max(_hdr_len, _val_len, 6), 24)  # cap at 24 (was 16)
+        _data_w = min(max(_hdr_len, _val_len, 6), 24)
         _tot_w  = max(len("Total"), _data_w)
-        _col_widths = [_idx_w] + [_data_w] * n_cols_p + [_tot_w]
+        # Header label per the selected aggregation function — defined here
+        # (before first use) to fix the UnboundLocalError that occurred when
+        # _VALUE_HEADER_MAP was referenced at column-width calculation time
+        # but the dict was only defined ~80 lines further down.
+        _VALUE_HEADER_MAP = {
+            "sum":    "Overall Total",
+            "mean":   "Overall Average",
+            "median": "Overall Median",
+            "min":    "Overall Minimun",
+            "max":    "Overall Maximum",
+            "count":  "Overall Count",
+            "std":    "Overall Std. Dev",
+        }
+        _val_hdr_w = max(len(_VALUE_HEADER_MAP.get(agg, f"{agg.upper()}({vals})")), _data_w)
+        if _show_row_totals:
+            _col_widths = [_idx_w] + [_data_w] * n_cols_p + [_val_hdr_w] + [_tot_w]
+        else:
+            _col_widths = [_idx_w] + [_data_w] * n_cols_p + [_val_hdr_w]
 
-        _px_per_unit = 8   # slightly tighter per-char multiplier with wider cap
-        _fig_width   = min((sum(_col_widths)) * _px_per_unit + 24, 1400)  # allow up to 1400
+        _px_per_unit = 8
+        _fig_width   = min((sum(_col_widths)) * _px_per_unit + 24, 1400)
 
         # ── Build cell colour arrays (conditional gradient per column) ───────
-        hdr_color = pal[0] if pal else "#4f46e5"
+        table_header_color = None
+        if isinstance(kwargs, dict):
+            table_header_color = kwargs.get("table_header_color")
+
+        hdr_color = str(table_header_color) if table_header_color else (pal[0] if pal else "#4f46e5")
         hdr_alt   = pal[1] if len(pal) > 1 else "#6366f1"
-        # Alternate header colours per column for visual grouping
         hdr_fills = [hdr_color] + [hdr_color if i % 2 == 0 else hdr_alt
-                                    for i in range(n_cols_p)] + ["#1e3a5f"]
+                                    for i in range(n_cols_p)]
+        # Value column header fill — matches the alternating pattern of the
+        # data columns so all headers share one consistent colour scheme.
+        hdr_fills = hdr_fills + [hdr_color if n_cols_p % 2 == 0 else hdr_alt]
+        if _show_row_totals:
+            # Totals column header follows the same alternating scheme.
+            _tot_idx = n_cols_p + 1  # index column (0) + data cols + value col
+            hdr_fills = hdr_fills + [hdr_color if _tot_idx % 2 == 0 else hdr_alt]
 
         # Row fill colours (alternating)
         n_data_rows = len(y_labels)
@@ -292,47 +328,81 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
                 else:
                     col_bg.append(base)
             cell_fills_by_col.append(col_bg)
-        # Row total column
-        row_tot_base = ["#1e3a5f" if i % 2 == 0 else "#172554" for i in range(n_data_rows)]
-        cell_fills_by_col.append(row_tot_base)
+        # Value column fill (per-row aggregate) — muted teal to visually
+        # separate it from the pivot data columns.
+        val_col_base = ["#0f2a3a" if i % 2 == 0 else "#0a1e2a" for i in range(n_data_rows)]
+        cell_fills_by_col.append(val_col_base)
+        # Row total column fill (only appended if _show_row_totals)
+        if _show_row_totals:
+            row_tot_base = ["#1e3a5f" if i % 2 == 0 else "#172554" for i in range(n_data_rows)]
+            cell_fills_by_col.append(row_tot_base)
 
         # ── Format cell values ───────────────────────────────────────────────
         index_vals_disp = y_labels
         data_cols_fmt   = [[_fmt(row[j]) for row in z_values] for j in range(n_cols_p)]
-        row_totals_fmt  = [_fmt(v) for v in row_totals]
+        row_totals_fmt  = [_fmt(v) for v in row_totals] if _show_row_totals else []
+
+        # ── Value column (per-row aggregated measure) ───────────────────────
+        # Each row from the pivot corresponds to one value of `idx`. We
+        # aggregate `vals` over all rows of the original df that share that
+        # `idx` value, using the same aggregation function as the pivot cells
+        # so the column is consistent with what the matrix already shows.
+        # Handle std specially because it isn't a standard groupby method name.
+        _value_col_method = "std" if agg == "std" else agg
+        try:
+            if _value_col_method in ("count",):
+                _val_series = df.groupby(idx, dropna=False)[vals].count()
+            elif _value_col_method in ("min", "max", "sum", "mean", "median"):
+                _val_series = getattr(df.groupby(idx, dropna=False)[vals], _value_col_method)()
+            else:
+                _val_series = df.groupby(idx, dropna=False)[vals].first()
+        except Exception:
+            _val_series = pd.Series(index=pivot.index, dtype=float)
+        # Reindex onto the pivot's row labels for safe alignment
+        _val_series = _val_series.reindex(pivot.index)
+        value_col_fmt = [_fmt(v) for v in _val_series.tolist()]
+
+        # value_header_label uses _VALUE_HEADER_MAP, now defined earlier (see
+        # column-width section above) to fix the original UnboundLocalError.
+        value_header_label = _VALUE_HEADER_MAP.get(agg, f"{agg.upper()}({vals})")
 
         # ── Header row ───────────────────────────────────────────────────────
-        col_headers = [f"<b>{idx}</b>"] + [f"<b>{h}</b>" for h in x_labels] + ["<b>Total ▸</b>"]
+        # The value column (per-row aggregate) is always appended after the
+        # data columns.  Previously col_headers and _data_cells omitted it
+        # while hdr_fills already allocated a colour slot for it — that
+        # mismatch made the last data column's header receive the wrong fill.
+        total_header_label = "Total ▸"
+        if agg == "count":
+            total_header_label = "Count ▸"
+        if _show_row_totals:
+            col_headers = ([f"<b>{idx}</b>"] + [f"<b>{h}</b>" for h in x_labels]
+                           + [f"<b>{value_header_label}</b>"]
+                           + [f"<b>{total_header_label}</b>"])
+        else:
+            col_headers = ([f"<b>{idx}</b>"] + [f"<b>{h}</b>" for h in x_labels]
+                           + [f"<b>{value_header_label}</b>"])
 
         height = max(n_rows * 28 + 200, 480)
 
-        fig = go.Figure(go.Table(
-            columnwidth=_col_widths,
-            header=dict(
-                values=col_headers,
-                fill_color=hdr_fills,
-                font=dict(color="white", size=12, family="Inter, system-ui, sans-serif"),
-                align=["left"] + ["right"] * n_cols_p + ["right"],
-                line_color="rgba(255,255,255,0.1)",
-                height=34,
-            ),
-            cells=dict(
-                values=[index_vals_disp] + data_cols_fmt + [row_totals_fmt],
-                fill_color=cell_fills_by_col,
-                font=dict(color="#f1f5f9", size=11, family="Inter, system-ui, sans-serif"),
-                align=["left"] + ["right"] * n_cols_p + ["right"],
-                line_color="rgba(255,255,255,0.05)",
-                height=26,
-            ),
-        ))
-
         # ── Column totals + grand total footer ───────────────────────────────
-        totals_fmt  = [_fmt_total(v) for v in col_totals]
-        grand_fmt   = _fmt_total(grand_total)
-        footer_vals = [["<b>◀ Total</b>"]] + [[v] for v in totals_fmt] + [[grand_fmt]]
-        footer_fills = ["#0f172a"] + ["#0f2a4a"] * n_cols_p + ["#0a1628"]
+        totals_fmt   = [_fmt_total(v) for v in col_totals]
+        grand_fmt    = _fmt_total(grand_total) if _show_row_totals else ""
+        if _show_row_totals:
+            footer_label = "Total"
+            if agg == "count":
+                footer_label = "Count"
+            footer_vals  = ([[f"<b>◀ {footer_label}</b>"]] + [[v] for v in totals_fmt]
+                            + [[""]] + [[grand_fmt]])
+            footer_fills = ["#0f172a"] + ["#0f2a4a"] * n_cols_p + ["#0f172a"] + ["#0a1628"]
+        else:
+            footer_vals  = [["<b>◀ Total</b>"]] + [[v] for v in totals_fmt] + [[""]]
+            footer_fills = ["#0f172a"] + ["#0f2a4a"] * n_cols_p + ["#0f172a"]
 
-        fig.add_trace(go.Table(
+        # Footer trace added FIRST so Plotly assigns it the bottom domain.
+        # Plotly renders the last-added table trace at the top — so adding
+        # the footer first means the data trace (added second) gets the top
+        # position and its column header row is visible.
+        fig = go.Figure(go.Table(
             columnwidth=_col_widths,
             header=dict(values=[""] * len(col_headers),
                         fill_color="rgba(0,0,0,0)",
@@ -342,9 +412,36 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
                 fill_color=footer_fills,
                 font=dict(color="#818cf8", size=12,
                           family="Inter, system-ui, sans-serif"),
-                align=["left"] + ["right"] * n_cols_p + ["right"],
+                align=["left"] + ["right"] * n_cols_p + ["right"] + (["right"] if _show_row_totals else []),
                 line_color="rgba(100,116,139,0.2)",
                 height=30,
+            ),
+        ))
+
+        # Data trace added SECOND — Plotly gives it the top domain so its
+        # header row (column names) is the first thing the user sees.
+        # Value column is now correctly appended (was missing before, causing
+        # the fill-colour mismatch on the last data column header).
+        _data_cells = [index_vals_disp] + data_cols_fmt + [value_col_fmt]
+        if _show_row_totals:
+            _data_cells = _data_cells + [row_totals_fmt]
+        fig.add_trace(go.Table(
+            columnwidth=_col_widths,
+            header=dict(
+                values=col_headers,
+                fill_color=hdr_fills,
+                font=dict(color="white", size=12, family="Inter, system-ui, sans-serif"),
+                align=["left"] + ["right"] * n_cols_p + ["right"] + (["right"] if _show_row_totals else []),
+                line_color="rgba(255,255,255,0.1)",
+                height=34,
+            ),
+            cells=dict(
+                values=_data_cells,
+                fill_color=cell_fills_by_col,
+                font=dict(color="#f1f5f9", size=11, family="Inter, system-ui, sans-serif"),
+                align=["left"] + ["right"] * n_cols_p + ["right"] + (["right"] if _show_row_totals else []),
+                line_color="rgba(255,255,255,0.05)",
+                height=26,
             ),
         ))
 
@@ -358,8 +455,9 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
         fig._lytrize_meta = {
             "analysis_type": "matrix_table",
             "x_axis": cols, "y_axis": idx, "legend": None,
-            "supports_auto_insights": True, "supports_notes": True,
+            "supports_auto_insights": False, "supports_notes": True,
             "supports_axis_editing": True,
+            "matrix_view": "table",
         }
         charts.append((f"Matrix Table: {idx} × {cols}", fig))
 

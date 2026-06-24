@@ -19,6 +19,7 @@ Two operating modes depending on whether a group-by column is selected:
 
 import plotly.express as px
 from modules.charts import chart_layout, COLORS, num_cols as _num_cols
+from modules.analysis.apply_lytrize_standard import apply_lytrize_standard
 
 
 def run_statistical(df, x_cols=None, y_cols=None, agg="mean", palette=None, **kwargs):
@@ -55,6 +56,9 @@ def run_statistical(df, x_cols=None, y_cols=None, agg="mean", palette=None, **kw
                 title=f"{agg_label} of {metric} by {grp}",
                 color=grp, color_discrete_sequence=pal, text_auto=".2f")
             fig.update_layout(**chart_layout())
+            apply_lytrize_standard(fig, title=f"{agg_label} of {metric} by {grp}",
+                                   xaxis=grp, yaxis=f"{agg_label} {metric}",
+                                   analysis_type="statistical")
             charts.append((f"{agg_label} by {grp}", fig))
 
     else:
@@ -66,6 +70,9 @@ def run_statistical(df, x_cols=None, y_cols=None, agg="mean", palette=None, **kw
             title=f"{agg_label} Overview",
             color="Column", color_discrete_sequence=pal, text_auto=".2f")
         fig.update_layout(**chart_layout())
+        apply_lytrize_standard(fig, title=f"{agg_label} Overview",
+                               xaxis="Column", yaxis=agg_label,
+                               analysis_type="statistical")
         charts.append((f"{agg_label} Values", fig))
 
         # Companion standard deviation chart -- helps spot which columns vary most.
@@ -76,6 +83,9 @@ def run_statistical(df, x_cols=None, y_cols=None, agg="mean", palette=None, **kw
             title="Standard Deviation",
             color="Column", color_discrete_sequence=pal, text_auto=".2f")
         fig2.update_layout(**chart_layout())
+        apply_lytrize_standard(fig2, title="Standard Deviation",
+                               xaxis="Column", yaxis="Std Dev",
+                               analysis_type="statistical")
         charts.append(("Standard Deviation", fig2))
 
     return charts

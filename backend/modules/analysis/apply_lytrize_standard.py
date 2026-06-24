@@ -95,6 +95,10 @@ def apply_lytrize_standard(
         )
     )
 
+    # Ensure gridlines are always off on every axis (primary + secondary)
+    fig.update_xaxes(showgrid=False, zeroline=False)
+    fig.update_yaxes(showgrid=False, zeroline=False)
+
     if xaxis:
         fig.update_xaxes(title=xaxis)
 
@@ -122,6 +126,7 @@ def apply_lytrize_standard(
         "supports_notes": notes_supported,
         "supports_axis_editing": axis_editing,
         "supports_legend_editing": legend_editing,
+        "is_correlation": (analysis_type == "correlation"),
     }
 
     return fig

@@ -1,0 +1,14 @@
+[theme]
+# Force Streamlit to inherit from its native dark scheme by default
+base = "dark"
+
+# Custom colors aligning with Lytrize's dark brand identity
+primaryColor = "#6c56e8"
+backgroundColor = "#0e1428"
+secondaryBackgroundColor = "#121a30"
+textColor = "#eef2ff"
+font = "sans serif"
+
+[server]
+# Enable uploads up to the 500 MB limit supported in upload.py
+maxUploadSize = 500

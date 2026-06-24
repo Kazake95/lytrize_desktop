@@ -123,6 +123,20 @@ DEFAULT_THEME = {
     "max_width":      "",
     "show_meta":      True,
     "show_print_hint": True,
+    "kpi_text_color": "#f5f7ff",
+    "kpi_val_size":   14,
+    "title_font":     "Inter",
+    "title_style":    "Normal",
+    "title_size":     28,
+    "title_color":    "#6163df",
+    "insights_font":  "Inter",
+    "insights_style": "Normal",
+    "insights_size":  14,
+    "insights_color": "#f5f7ff",
+    "notes_font":     "Inter",
+    "notes_style":    "Normal",
+    "notes_size":     14,
+    "notes_color":    "#f5f7ff",
 }
 
 
@@ -287,16 +301,23 @@ def generate_html_report(
 
         def _kpi_val_style(k, base):
             full = f'{k.get("prefix","")}{k.get("value","--")}{k.get("suffix","")}'
-            size = "0.95rem" if len(full) > 16 else ("1.1rem" if len(full) > 12 else "1.4rem")
+            # Use theme-controlled font size as base; auto-shrink for very long values
+            base_size = t.get("kpi_val_size", 14)
+            size = f"{max(base_size - 4, 10)}px" if len(full) > 16 else (
+                   f"{max(base_size - 2, 10)}px" if len(full) > 12 else f"{base_size}px")
+            kpi_col = t.get("kpi_text_color", "#f5f7ff")
             wrap = "white-space:normal;word-break:break-word;overflow-wrap:anywhere;" if len(full) > 12 else ""
-            return f"font-size:{size};{wrap}{base}"
+            # base (from _change_style) overrides kpi_col for positive/negative changes
+            colour_part = base if base else f"color:{kpi_col}"
+            return f"font-size:{size};{wrap}{colour_part}"
 
         kpi_items = "".join(
             f'<div class="kpi-card">'
             f'<div class="kpi-icon">{_h(k.get("icon","📊"))}</div>'
             f'<div class="kpi-value" style="{_kpi_val_style(k, _change_style(k))}">'
             f'{_h(_arrow(k))}{_h(k.get("prefix",""))}{_h(k.get("value","--"))}{_h(k.get("suffix",""))}</div>'
-            f'<div class="kpi-label">{_h(k.get("label","KPI"))}</div>'
+            f'<div class="kpi-label" style="color:{_h(t.get("kpi_text_color", "#f5f7ff"))}">'
+            f'{_h(k.get("label","KPI"))}</div>'
             f'</div>'
             for k in kpis
         )
@@ -347,7 +368,17 @@ def generate_html_report(
         chart_html = fig_r.to_html(
             full_html=False,
             include_plotlyjs=include_js,
-            config={"responsive": True, "displayModeBar": "hover"},
+            config={
+                # Show the modebar on hover in the interactive HTML view.
+                # In headless PNG screenshots the hover-suppression CSS
+                # (injected by playwright_renderer before the screenshot fires)
+                # hides .modebar via display:none, so it never appears in PNGs
+                # regardless of this setting -- giving a cleaner export.
+                "displayModeBar": "hover",
+                # Don't let Plotly try to resize to a non-existent viewport in
+                # headless mode; it renders at its own computed width instead.
+                "responsive": False,
+            },
         )
 
         # Insights panel
@@ -427,7 +458,7 @@ def generate_html_report(
     }}
 
     .report-header {{ text-align: center; margin-bottom: 2rem; }}
-    .report-header h1 {{ font-size: 2rem; font-weight: 800; color: {t['accent_color']}; }}
+    .report-header h1 {{ font-size: {t['title_size'] / 16:.2f}rem; font-weight: 800; color: {t['title_color']}; font-family: {t['title_font']}, 'Helvetica Neue', Arial, sans-serif; }}
     .report-header .meta {{ font-size: 0.8rem; color: #64748b; margin-top: 0.4rem; }}
 
     .print-hint {{
@@ -500,7 +531,9 @@ def generate_html_report(
       border-radius: 6px;
       padding: 0.6rem 0.9rem;
       margin-top: 0.7rem;
-      font-size: 0.8rem;
+      font-size: {t['insights_size'] / 16:.2f}rem;
+      color: {t['insights_color']};
+      font-family: {t['insights_font']}, 'Helvetica Neue', Arial, sans-serif;
     }}
     .insights strong {{ display: block; margin-bottom: 0.25rem; }}
     .insights ul {{ margin-left: 1rem; }}
@@ -513,7 +546,9 @@ def generate_html_report(
       border-left: 4px solid {t['notes_border']};
       margin-top: 0.7rem;
       border-radius: 4px;
-      font-size: 0.82rem;
+      font-size: {t['notes_size'] / 16:.2f}rem;
+      color: {t['notes_color']};
+      font-family: {t['notes_font']}, 'Helvetica Neue', Arial, sans-serif;
       font-style: italic;
     }}
 

@@ -123,8 +123,8 @@ def show_column_manager(df):  # Add Column / Remove Column UI shown on the uploa
             b1, b2 = st.columns(2)
             with b1: date_col = st.selectbox("Source Date Column", df.columns, key="date_col")
             with b2: part_to_extract = st.selectbox("Part to Extract",
-                ["Year","Quarter","Month (Number)","Month Name","Week Number",
-                 "Day","Weekday Name","Hour (12h AM/PM)","Hour (24h)"], key="date_part_ext")
+                ["Date (YYYY-MM-DD)", "Year", "Quarter", "Month (Number)", "Month Name", "Week Number",
+                 "Day", "Weekday Name", "Hour (12h AM/PM)", "Hour (24h)"], key="date_part_ext")
             formula_str = "date_extraction_placeholder"
 
         if st.button("➕ Add Column", key="btn_add_col"):
@@ -201,6 +201,7 @@ def show_column_manager(df):  # Add Column / Remove Column UI shown on the uploa
                             )
 
                         mapping = {
+                            "Date (YYYY-MM-DD)": temp_dates.dt.date,
                             "Year":              temp_dates.dt.year,
                             "Quarter":           temp_dates.dt.quarter,
                             "Month (Number)":    temp_dates.dt.month,
