@@ -13,14 +13,11 @@ Upload a CSV or Excel file and get interactive charts, dashboards, and insights 
 
 <div align="center">
 
-![Platform](https://shields.io)
-![Python](https://shields.io)
-
-</div>
-
 ![Lytrize Logo](backend/assets/lytrize.png)
 
 **[📥 Download Desktop App](https://github.com/Kazake95/lytrize_desktop/releases)**
+
+</div>
 
 ---
 
