@@ -1,22 +1,6 @@
 """
-modules/ui/column_manager.py -- Dashboard column-layout helpers.
-================================================================
-
-Provides layout utility functions used by the dashboard page to arrange
-chart cards in portrait (2-column) or landscape (3-column) grids.
-
-Functions:
-    get_column_layout(layout_mode)  -- returns the Streamlit column spec list
-    render_chart_grid(charts, ...)  -- renders all chart cards into the grid
-
-CONTRIBUTING -- to add a new layout mode:
-    1. Add an entry to the layout_mode selectbox in dashboard.py.
-    2. Add a matching branch in get_column_layout() returning a column spec.
-       Streamlit column specs are lists of relative widths, e.g. [1, 1, 1].
-"""
-"""
 modules/ui/column_manager.py
-Column add / remove UI shown on the upload page.
+Column add / remove / rename UI shown on the upload page.
 """
 
 import streamlit as st
@@ -25,7 +9,6 @@ import pandas as pd
 import ast
 import operator
 import re
-from modules.database import log_activity
 
 
 _SAFE_BIN_OPS = {
@@ -93,10 +76,17 @@ def _safe_formula_eval(df: pd.DataFrame, formula: str) -> pd.Series:
     return result
 
 
-def show_column_manager(df):  # Add Column / Remove Column UI shown on the upload page.
+def show_column_manager(df):
+    """Add Column / Remove Column / Rename Column UI shown on the upload page."""
     st.markdown("---")
     st.markdown("## 🛠️ Column Manager")
-    tab_add, tab_remove = st.tabs(["➕ Add Column", "🗑️ Remove Column"])  # Two tabs: one to add derived columns, one to remove existing ones.
+    
+    # Render three tabs to support Adding, Removing, and Renaming columns
+    tab_add, tab_remove, tab_rename = st.tabs([
+        "➕ Add Column", 
+        "🗑️ Remove Column", 
+        "✏️ Rename Column"
+    ])
 
     with tab_add:
         num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
@@ -110,7 +100,7 @@ def show_column_manager(df):  # Add Column / Remove Column UI shown on the uploa
 
         formula_str = date_col = part_to_extract = None
 
-        if calc_type == "Custom formula (use col names)":  # User types a pandas eval() expression using column names.
+        if calc_type == "Custom formula (use col names)":
             formula_str = st.text_input("Formula", key="custom_formula", placeholder="e.g. Sales / Units")
         elif calc_type in ("Column × Column", "Column ÷ Column", "Column + Column", "Column − Column"):
             op_map = {"Column × Column":"*","Column ÷ Column":"/","Column + Column":"+","Column − Column":"-"}
@@ -135,27 +125,14 @@ def show_column_manager(df):  # Add Column / Remove Column UI shown on the uploa
                     if calc_type == "Extract Date/Time Part":
                         raw = df[date_col]
 
-                        # ── Robust datetime parser (handles AM/PM and pure time strings) ──
                         def _parse_datetime_robust(series: pd.Series) -> pd.Series:
-                            """
-                            Multi-strategy parser that handles:
-                              - ISO datetimes / dates  (2024-01-15, 2024-01-15 14:30)
-                              - 12-hr time strings     (3:45 PM, 3:45:22 pm, 3:45PM)
-                              - 24-hr time strings     (14:30, 07:06:11)
-                              - Mixed columns          (some AM/PM, some 24-hr)
-                            Returns a datetime64 Series; failures are NaT.
-                            """
                             s = series.astype(str).str.strip()
-
-                            # Strategy 1 — let pandas infer (handles ISO, many common formats)
                             result = pd.to_datetime(s, errors="coerce")
 
                             remaining = result.isna() & series.notna()
                             if not remaining.any():
                                 return result
 
-                            # Strategy 2 — normalise AM/PM spacing then retry
-                            # "3:45PM" → "3:45 PM", "3:45pm" → "3:45 PM"
                             normalised = (
                                 s[remaining]
                                 .str.upper()
@@ -170,7 +147,6 @@ def show_column_manager(df):  # Add Column / Remove Column UI shown on the uploa
                             if not remaining.any():
                                 return result
 
-                            # Strategy 3 — explicit format sweep for common AM/PM patterns
                             for fmt in (
                                 "%I:%M %p", "%I:%M:%S %p",
                                 "%I:%M%p",  "%I:%M:%S%p",
@@ -232,5 +208,45 @@ def show_column_manager(df):  # Add Column / Remove Column UI shown on the uploa
                     st.session_state[k] = [c for c in st.session_state[k] if c != col_to_del]
             st.success(f"✅ Removed {col_to_del}")
             st.rerun()
+
+    with tab_rename:
+        col_to_rename = st.selectbox("Select column to rename", df.columns.tolist(), key="col_to_rename")
+        new_name_input = st.text_input("New column name", key="rename_new_name_val", placeholder="e.g. Sales_USD")
+        
+        new_name_clean = new_name_input.strip()
+        is_disabled = not new_name_clean or new_name_clean == col_to_rename
+
+        if st.button("✏️ Rename Column", key="btn_rename_col", disabled=is_disabled):
+            if new_name_clean in df.columns:
+                st.error(f"Error: A column named '{new_name_clean}' already exists in your dataset.")
+            else:
+                try:
+                    # Rename the Column Header inside DataFrame
+                    df = df.rename(columns={col_to_rename: new_name_clean})
+                    st.session_state.df = df
+
+                    # Update internal Column Cache Lists if they exist in state
+                    if "num_cols" in st.session_state:
+                        st.session_state["num_cols"] = [
+                            new_name_clean if c == col_to_rename else c 
+                            for c in st.session_state["num_cols"]
+                        ]
+                    if "cat_cols" in st.session_state:
+                        st.session_state["cat_cols"] = [
+                            new_name_clean if c == col_to_rename else c 
+                            for c in st.session_state["cat_cols"]
+                        ]
+
+                    # Propagate changes to user-saved Column Descriptions
+                    if "col_descriptions" in st.session_state:
+                        col_descs = st.session_state["col_descriptions"]
+                        if col_to_rename in col_descs:
+                            col_descs[new_name_clean] = col_descs.pop(col_to_rename)
+                            st.session_state["col_descriptions"] = col_descs
+
+                    st.success(f"✅ Renamed '{col_to_rename}' to '{new_name_clean}'")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error renaming column: {e}")
 
     return st.session_state.df

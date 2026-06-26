@@ -401,59 +401,6 @@ div[data-baseweb="notification"],
 }
 [data-testid="stExpander"] summary:hover { background: rgba(99,102,241,0.07) !important; }
 
-/* ── DataFrames & Tables ─────────────────────────────────────────────────── */
-[data-testid="stDataFrame"], [data-testid="stTable"], [data-testid="stTable"] table {
-    background: rgba(255,255,255,0.98) !important;
-    border: 1px solid rgba(99,102,241,0.15) !important;
-    border-radius: 10px !important;
-}
-[data-testid="stDataFrame"] th, [data-testid="stTable"] th {
-    background: rgba(241,245,255,0.98) !important;
-    color: #1e1b4b !important;
-    -webkit-text-fill-color: #1e1b4b !important;
-    padding: 0.55rem 0.9rem !important;
-}
-[data-testid="stDataFrame"] td, [data-testid="stTable"] td {
-    background: rgba(255,255,255,0.98) !important;
-    color: #374151 !important;
-    -webkit-text-fill-color: #374151 !important;
-    padding: 0.55rem 0.9rem !important;
-}
-
-/* Force Streamlit's Glide Data Grid (canvas-based st.dataframe) to adapt to Light Theme */
-[data-testid="stDataFrameResizable"],
-[data-testid="stDataFrame"],
-.stDataFrame,
-div[class*="stDataFrame"] {
-    --gdg-bg-cell: #ffffff !important;
-    --gdg-bg-cell-medium: #f8fafc !important;
-    --gdg-bg-header: #f1f5f9 !important;
-    --gdg-bg-header-has: #e2e8f0 !important;
-    --gdg-bg-header-hovered: #e2e8f0 !important;
-    --gdg-text-dark: #1e1b4b !important;
-    --gdg-text-medium: #374151 !important;
-    --gdg-text-light: #6b7280 !important;
-    --gdg-text-header: #1e1b4b !important;
-    --gdg-text-group-header: #1e1b4b !important;
-    --gdg-border-color: rgba(99,102,241,0.18) !important;
-    --gdg-horizontal-border-color: rgba(99,102,241,0.12) !important;
-}
-[data-testid="stDataFrameResizable"] *,
-[data-testid="stDataFrame"] * {
-    --gdg-bg-cell: #ffffff !important;
-    --gdg-bg-cell-medium: #f8fafc !important;
-    --gdg-bg-header: #f1f5f9 !important;
-    --gdg-bg-header-has: #e2e8f0 !important;
-    --gdg-bg-header-hovered: #e2e8f0 !important;
-    --gdg-text-dark: #1e1b4b !important;
-    --gdg-text-medium: #374151 !important;
-    --gdg-text-light: #6b7280 !important;
-    --gdg-text-header: #1e1b4b !important;
-    --gdg-text-group-header: #1e1b4b !important;
-    --gdg-border-color: rgba(99,102,241,0.18) !important;
-    --gdg-horizontal-border-color: rgba(99,102,241,0.12) !important;
-}
-
 /* Metrics */
 [data-testid="stMetric"] { background: rgba(255,255,255,0.98) !important; }
 
@@ -692,6 +639,58 @@ div[class*="stDataFrame"] {
 [data-testid="stFileChip"] small {
     color: #1e1b4b !important;
     -webkit-text-fill-color: #1e1b4b !important;
+}
+
+
+/* ── DATAFRAME COLUMN MENU EXEMPTION ─────────────────────────────────────── */
+/* Protects the dataframe column menu popover from inheriting white backgrounds & white text in light theme.
+   This guarantees it remains in its original dark, clear and default styling layout. */
+div[data-baseweb="popover"]:not(:has([role="option"])):not(:has([role="tooltip"])) {
+    background: #12182d !important;
+    background-color: #12182d !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important;
+}
+
+div[data-baseweb="popover"]:not(:has([role="option"])):not(:has([role="tooltip"])) *,
+div[data-baseweb="popover"]:not(:has([role="option"])):not(:has([role="tooltip"])) span,
+div[data-baseweb="popover"]:not(:has([role="option"])):not(:has([role="tooltip"])) p,
+div[data-baseweb="popover"]:not(:has([role="option"])):not(:has([role="tooltip"])) button,
+div[data-baseweb="popover"]:not(:has([role="option"])):not(:has([role="tooltip"])) svg {
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    fill: #ffffff !important;
+    background: transparent !important;
+    background-color: transparent !important;
+}
+
+div[data-baseweb="popover"]:not(:has([role="option"])):not(:has([role="tooltip"])) button:hover,
+div[data-baseweb="popover"]:not(:has([role="option"])):not(:has([role="tooltip"])) [role="button"]:hover,
+div[data-baseweb="popover"]:not(:has([role="option"])):not(:has([role="tooltip"])) div[class*="item"]:hover {
+    background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* ── DATAFRAME ELEMENT TOOLBAR EXEMPTION ─────────────────────────────────── */
+/* Protects the floating toolbar (search, download, fullscreen) from inheriting light background and dark text styles.
+   This ensures it matches default dark theme styling perfectly and remains fully legible. */
+[data-testid="stElementToolbar"] {
+    background: rgba(14, 20, 38, 0.85) !important;
+    background-color: rgba(14, 20, 38, 0.85) !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    border-radius: 8px !important;
+    padding: 2px 4px !important;
+}
+
+[data-testid="stElementToolbar"] button,
+[data-testid="stElementToolbar"] svg {
+    color: #ffffff !important;
+    background: transparent !important;
+    background-color: transparent !important;
+}
+
+[data-testid="stElementToolbar"] button:hover {
+    background-color: rgba(255, 255, 255, 0.12) !important;
 }
 """
 
@@ -1171,22 +1170,6 @@ button[kind="primary"],
 }}
 [data-testid="stExpander"] summary:hover {{
     background: var(--surface-muted) !important;
-}}
-
-
-/* Data tables */
-[data-testid="stDataFrame"] {{
-    border:        1px solid var(--border-subtle) !important;
-    border-radius: 10px                           !important;
-    overflow:      hidden;
-}}
-[data-testid="stDataFrame"] th {{
-    background: var(--surface-2)   !important;
-    color:      var(--text-primary) !important;
-    font-weight: 700;
-}}
-[data-testid="stDataFrame"] td {{
-    color: var(--text-secondary) !important;
 }}
 
 

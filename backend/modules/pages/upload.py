@@ -193,9 +193,16 @@ def _save_upload_snapshot(df, file_name: str) -> None:
             from modules.utils.session_cache import save_df_snapshot
             from modules.database import save_draft
             import json as _json
+            import threading
             
             if sig_changed:
-                save_df_snapshot(uid)
+                # Run the heavy disk-write operation on a background thread
+                # so the frontend interface is not blocked while waiting on the disk I/O.
+                threading.Thread(
+                    target=save_df_snapshot,
+                    args=(uid,),
+                    daemon=True
+                ).start()
                 st.session_state["_df_snapshot_sig"] = df_sig
                 
             save_draft(
