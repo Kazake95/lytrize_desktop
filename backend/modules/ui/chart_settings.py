@@ -756,46 +756,75 @@ def apply_chart_display_options(
             )
 
         if chart_type in ("matrix_heatmap", "correlation", "map_plot"):
-            for tr in f2.data:
-                ttype_for_cb = str(getattr(tr, "type", "")).lower()
-                if ttype_for_cb not in ("heatmap", "choropleth"):
-                    continue
-                cell_sz      = int(opts.get("heatmap_font_size", 10))
-                hdr_sz       = int(opts.get("heatmap_header_size", 10))
+            if chart_type == "map_plot":
+                # For map_plot, apply colorbar settings to both trace-level and coloraxis-level colorbars
                 cb_tick_sz   = int(opts.get("colorbar_tick_size", 10))
                 cb_tick_col  = str(opts.get("colorbar_tick_color", "#94a3b8"))
                 cb_title_sz  = int(opts.get("colorbar_title_size", 11))
                 cb_title_col = str(opts.get("colorbar_title_color", "#cbd5e1"))
                 cb_family    = resolve_font_stack(str(opts.get("colorbar_font_family", _raw_family)))
                 cb_title     = opts.get("colorbar_title", "")
-                _ann_sz  = opts.get("heatmap_annotation_size")
-                final_sz = int(_ann_sz) if _ann_sz is not None else cell_sz
-                # Colorbar font style uses global font style for consistency
                 _cb_font_suffix = dict(weight=_weight, style=_style)
+                # Apply to trace-level colorbars (for choropleth traces)
+                for tr in f2.data:
+                    try:
+                        tr.colorbar.tickfont = dict(
+                            size=cb_tick_sz, color=cb_tick_col, family=cb_family, **_cb_font_suffix)
+                        if cb_title:
+                            tr.colorbar.title.text = cb_title
+                        tr.colorbar.title.font = dict(
+                            size=cb_title_sz, color=cb_title_col, family=cb_family, **_cb_font_suffix)
+                    except Exception:
+                        pass
+                # Apply to coloraxis-level colorbars (for scatter_map/scattermapbox)
                 try:
-                    tf = getattr(tr, "textfont", None)
-                    if tf is not None:
-                        new_tf: dict = {
-                            "size":  final_sz,
-                            "color": getattr(tf, "color", "white") or "white",
-                            "family": cb_family,
-                        }
-                        new_tf.update(_cb_font_suffix)
-                        tr.textfont = new_tf
+                    cb_kwargs = dict(
+                        tickfont=dict(size=cb_tick_sz, color=cb_tick_col, family=cb_family, **_cb_font_suffix),
+                    )
+                    if cb_title:
+                        cb_kwargs["title"] = dict(text=cb_title, font=dict(size=cb_title_sz, color=cb_title_col, family=cb_family, **_cb_font_suffix))
+                    f2.update_coloraxes(colorbar=cb_kwargs)
                 except Exception:
                     pass
-                if chart_type != "map_plot":
+            else:
+                for tr in f2.data:
+                    ttype_for_cb = str(getattr(tr, "type", "")).lower()
+                    if ttype_for_cb not in ("heatmap", "choropleth"):
+                        continue
+                    cell_sz      = int(opts.get("heatmap_font_size", 10))
+                    hdr_sz       = int(opts.get("heatmap_header_size", 10))
+                    cb_tick_sz   = int(opts.get("colorbar_tick_size", 10))
+                    cb_tick_col  = str(opts.get("colorbar_tick_color", "#94a3b8"))
+                    cb_title_sz  = int(opts.get("colorbar_title_size", 11))
+                    cb_title_col = str(opts.get("colorbar_title_color", "#cbd5e1"))
+                    cb_family    = resolve_font_stack(str(opts.get("colorbar_font_family", _raw_family)))
+                    cb_title     = opts.get("colorbar_title", "")
+                    _ann_sz  = opts.get("heatmap_annotation_size")
+                    final_sz = int(_ann_sz) if _ann_sz is not None else cell_sz
+                    _cb_font_suffix = dict(weight=_weight, style=_style)
+                    try:
+                        tf = getattr(tr, "textfont", None)
+                        if tf is not None:
+                            new_tf: dict = {
+                                "size":  final_sz,
+                                "color": getattr(tf, "color", "white") or "white",
+                                "family": cb_family,
+                            }
+                            new_tf.update(_cb_font_suffix)
+                            tr.textfont = new_tf
+                    except Exception:
+                        pass
                     f2.update_xaxes(tickfont=dict(size=hdr_sz, family=cb_family, **_cb_font_suffix))
                     f2.update_yaxes(tickfont=dict(size=hdr_sz, family=cb_family, **_cb_font_suffix))
-                try:
-                    tr.colorbar.tickfont = dict(
-                        size=cb_tick_sz, color=cb_tick_col, family=cb_family, **_cb_font_suffix)
-                    if cb_title:
-                        tr.colorbar.title.text = cb_title
-                    tr.colorbar.title.font = dict(
-                        size=cb_title_sz, color=cb_title_col, family=cb_family, **_cb_font_suffix)
-                except Exception:
-                    pass
+                    try:
+                        tr.colorbar.tickfont = dict(
+                            size=cb_tick_sz, color=cb_tick_col, family=cb_family, **_cb_font_suffix)
+                        if cb_title:
+                            tr.colorbar.title.text = cb_title
+                        tr.colorbar.title.font = dict(
+                            size=cb_title_sz, color=cb_title_col, family=cb_family, **_cb_font_suffix)
+                    except Exception:
+                        pass
 
     except Exception:
         return fig
@@ -1095,7 +1124,7 @@ def render_chart_settings_controls(
                 "Colour scale", COLORSCALES_ALL, index=_cs_idx,
                 key=f"{key_prefix}_heatmap_cs_{uid}",
             )
-            if chart_type in ("matrix_heatmap", "correlation", "map_plot"):
+            if chart_type in ("matrix_heatmap", "correlation"):
                 z1, z2 = st.columns(2)
                 with z1:
                     opts["colorbar_zmin"] = st.text_input(

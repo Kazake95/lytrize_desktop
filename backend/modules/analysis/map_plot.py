@@ -727,6 +727,15 @@ def _run_scatter_map(
             agg_dict[size_col] = agg
         plot_df   = clean_df.groupby(loc_col, as_index=False).agg(agg_dict)
         agg_label = f" · {agg.upper()}({val_col})"
+        # Rename aggregated columns to include agg name for hover display
+        if val_col in plot_df.columns:
+            new_val_name = f"{agg}({val_col})"
+            plot_df.rename(columns={val_col: new_val_name}, inplace=True)
+            val_col = new_val_name
+        if size_col and size_col in plot_df.columns and size_col != val_col:
+            new_size_name = f"{agg}({size_col})"
+            plot_df.rename(columns={size_col: new_size_name}, inplace=True)
+            size_col = new_size_name
     else:
         plot_df, sampled = sample_for_plot(clean_df, n=_MAP_SAMPLE)
 
@@ -769,11 +778,17 @@ def _run_scatter_map(
         centre_lat, centre_lon, zoom = _auto_zoom(plot_df[lat], plot_df[lon])
 
     hover_data: dict = {}
+    # Show only explicitly selected data columns (not lat/lon/technical)
     for col in (val_col, size_col, color_col):
         if col and col in plot_df.columns and col != hover:
             hover_data[col] = True
-    hover_data[lat] = ":.4f"
-    hover_data[lon] = ":.4f"
+    # Exclude ALL other columns to prevent technical columns leaking into tooltip
+    for col in plot_df.columns:
+        if col not in (hover, val_col, size_col, color_col, lat, lon):
+            hover_data[col] = False
+    # Always hide lat/lon from tooltip
+    hover_data[lat] = False
+    hover_data[lon] = False
 
     n_pts     = len(plot_df)
     loc_label = hover or "Locations"
@@ -821,9 +836,9 @@ def _run_scatter_map(
                 title=dict(text=str(color), font=dict(color="#cbd5e1", size=11)),
                 tickfont=dict(color="#94a3b8", size=10),
                 thickness=14, len=0.80,
-                bgcolor="rgba(15,23,42,0.4)",
-                bordercolor="rgba(100,116,139,0.3)",
-                borderwidth=1, x=1.01,
+                bgcolor="rgba(0,0,0,0)",
+                bordercolor="rgba(0,0,0,0)",
+                borderwidth=0, x=1.01,
             )
         )
 
@@ -836,7 +851,7 @@ def _run_scatter_map(
         legend=dict(
             title=dict(text=str(color) if color else ""),
             orientation="v",
-            bgcolor="rgba(15,23,42,0.35)",
+            bgcolor="rgba(0,0,0,0)",
         ),
     )
 
@@ -1002,8 +1017,8 @@ def _run_choropleth(
             title=dict(text=f"{agg_label}({value_col})", font=dict(color="#cbd5e1", size=11)),
             tickfont=dict(color="#94a3b8", size=10),
             thickness=14, len=0.80,
-            bgcolor="rgba(15,23,42,0.4)",
-            bordercolor="rgba(100,116,139,0.3)", borderwidth=1,
+            bgcolor="rgba(0,0,0,0)",
+            bordercolor="rgba(0,0,0,0)", borderwidth=0,
         )
     )
     layout = chart_layout(height=500)
@@ -1087,8 +1102,8 @@ def _render_scatter_geo(
             title=dict(text=f"{agg_label}({value_col})", font=dict(color="#cbd5e1", size=11)),
             tickfont=dict(color="#94a3b8", size=10),
             thickness=14, len=0.80,
-            bgcolor="rgba(15,23,42,0.4)",
-            bordercolor="rgba(100,116,139,0.3)", borderwidth=1,
+            bgcolor="rgba(0,0,0,0)",
+            bordercolor="rgba(0,0,0,0)", borderwidth=0,
         )
     )
     layout = chart_layout(height=520)
