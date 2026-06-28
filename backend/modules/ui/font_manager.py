@@ -15,8 +15,6 @@ from typing import Any
 
 import streamlit as st
 
-# ── Font catalogue ──────────────────────────────────────────────────────────
-# Linux-friendly, open-source first selections with metric-compatible fallbacks.
 FONT_ENTRIES: list[dict[str, str]] = [
     {
         "name": "Inter",
@@ -187,7 +185,6 @@ FONT_ENTRIES: list[dict[str, str]] = [
 
 _ALL_FONT_NAMES = [f["name"] for f in FONT_ENTRIES]
 
-# Cache for the Inter-Variable base64 data URI so we only encode once
 _INTER_BASE64_CACHE: str | None = None
 
 
@@ -281,7 +278,6 @@ def _css_class(font_name: str) -> str:
 
 def inject_font_preview_css() -> None:
     """Inject a <style> block with font-family classes for every registered font."""
-    # First inject @font-face rules so bundled fonts are loadable
     inject_bundled_font_css()
 
     css_rules = ""
@@ -304,7 +300,6 @@ def font_select(label: str, default: str, key: str) -> str:
 
     selected = st.selectbox(label, options, index=_index_of(options, default), key=key)
 
-    # Show a preview line rendered in the selected font
     preview_class = _css_class(selected)
     st.markdown(
         f"""

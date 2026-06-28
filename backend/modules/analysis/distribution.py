@@ -1,15 +1,5 @@
-"""
-modules/analysis/distribution.py -- Distribution histogram runner.
-=================================================================
+"""modules/analysis/distribution.py -- Distribution histogram runner."""
 
-Produces one histogram + box-plot marginal per selected numeric column.
-The box-plot marginal sits above the histogram and lets users quickly spot
-skew, quartiles, and outliers alongside the frequency distribution.
-
-Each chart is coloured with a different palette entry so a dashboard
-containing multiple distribution charts is visually distinguishable at a glance.
-
-"""
 
 import streamlit as st
 import plotly.express as px
@@ -18,67 +8,50 @@ from modules.utils.perf import sample_for_histogram
 from modules.analysis.apply_lytrize_standard import apply_lytrize_standard
 
 
+
+
 def run_distribution(df, x_cols=None, y_cols=None, palette=None, **kwargs):
-    """
-    Generate histogram + box-plot marginal charts for numeric columns.
-
-    One histogram per column in x_cols. Large datasets are sampled down to
-    50 K rows before plotting to keep the Plotly JSON payload manageable;
-    a toast notification informs the user when sampling occurs.
-
-    Args:
-        df:      Working DataFrame.
-        x_cols:  Numeric columns to plot. Defaults to the first 6 numeric cols.
-        y_cols:  Optional list containing one categorical column for colour-split.
-                 When provided, each histogram bar is split by category value,
-                 each category gets its own colour, and a legend is shown.
-        palette: List of hex colour strings.
-        **kwargs: Extra kwargs silently ignored (runner protocol).
-
-    Returns:
-        list of (title: str, fig: Figure) -- one entry per column in x_cols.
-    """
-    # Sample large datasets to keep the Plotly JSON payload manageable.
-    # Histogram shape is statistically robust at 50 K rows for most distributions.
+    """Generate histogram + box-plot marginal charts for numeric columns."""
     df, was_sampled = sample_for_histogram(df)
     if was_sampled:
         st.toast("⚡ Distribution chart: sampled 50,000 rows for performance.", icon="⚡")
 
+
     charts    = []
-    num       = x_cols or _num_cols()[:6]   # Cap default at 6 to avoid overwhelming output.
+    num       = x_cols or _num_cols()[:6]
     pal       = palette or COLORS
-    color_col = y_cols[0] if y_cols else None  # y_cols carries the optional "Colour by" column.
+    color_col = y_cols[0] if y_cols else None
+
 
     for i, col in enumerate(num):
         if color_col and color_col in df.columns:
-            # ── Colour-split histogram ────────────────────────────────────────
-            # One trace per unique category value; overlaid so shapes stay legible.
             fig = px.histogram(
                 df,
                 x=col,
                 color=color_col,
-                nbins=35,            # 35 bins is a good default for most real-world datasets.
-                marginal="box",      # Box plot above the histogram shows quartiles and outliers.
-                barmode="overlay",   # Overlay keeps bars legible when split by category.
+                nbins=35,
+                marginal="box",
+                barmode="overlay",
                 opacity=0.75,
                 title=f"Distribution: {col} by {color_col}",
                 color_discrete_sequence=pal,
             )
         else:
-            # ── Single-colour histogram (no colour split selected) ────────────
             fig = px.histogram(
                 df,
                 x=col,
-                nbins=35,            # 35 bins is a sensible default for most datasets.
-                marginal="box",      # Box plot above the histogram for quartile visibility.
+                nbins=35,
+                marginal="box",
                 title=f"Distribution: {col}",
                 color_discrete_sequence=[pal[i % len(pal)]],
             )
+
 
         fig.update_layout(**chart_layout())
         label = f"Dist: {col} by {color_col}" if color_col else f"Dist: {col}"
         apply_lytrize_standard(fig, title=label, xaxis=col, yaxis="Count",
                                analysis_type="distribution")
         charts.append((label, fig))
+
 
     return charts

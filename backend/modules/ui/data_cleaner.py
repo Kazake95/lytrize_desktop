@@ -1,8 +1,8 @@
-"""
-modules/ui/data_cleaner.py -- Advanced data cleaning and text normalisation panel.
-"""
+"""modules/ui/data_cleaner.py -- Advanced data cleaning and text normalisation panel."""
+
 
 from __future__ import annotations
+
 
 import re
 import streamlit as st
@@ -10,13 +10,19 @@ import pandas as pd
 import numpy as np
 
 
+
+
 _PREVIEW_SAMPLE = 2_000
+
+
 
 
 def _sample(series: pd.Series) -> tuple[pd.Series, bool]:
     if len(series) > _PREVIEW_SAMPLE:
         return series.sample(_PREVIEW_SAMPLE, random_state=42), True
     return series, False
+
+
 
 
 def _count_label(n_changed: int, total_sample: int, full_len: int, was_sampled: bool) -> str:
@@ -28,6 +34,8 @@ def _count_label(n_changed: int, total_sample: int, full_len: int, was_sampled: 
             f"~{pct:.0f}% will change (~{est:,} of {full_len:,} values estimated):"
         )
     return f"**Live preview** — {n_changed:,} of {full_len:,} values will change:"
+
+
 
 
 def _preview_table(before: pd.Series, after: pd.Series, n: int = 20) -> pd.DataFrame:
@@ -42,13 +50,19 @@ def _preview_table(before: pd.Series, after: pd.Series, n: int = 20) -> pd.DataF
     })
 
 
+
+
 def _apply_df(df: pd.DataFrame, col: str, new_series: pd.Series) -> None:
     df[col] = new_series
     st.session_state.df = df
 
 
+
+
 def _changed_count(before: pd.Series, after: pd.Series) -> int:
     return int((before.astype(str) != after.astype(str)).sum())
+
+
 
 
 def _tab_text_clean(df: pd.DataFrame) -> None:
@@ -57,8 +71,10 @@ def _tab_text_clean(df: pd.DataFrame) -> None:
         st.info("No text columns found in the dataset.")
         return
 
+
     col = st.selectbox("Column to clean", str_cols, key="dc_tc_col")
     series = df[col].astype(str)
+
 
     st.markdown("**Select operations to apply** (applied in order shown):")
     c1, c2, c3 = st.columns(3)
@@ -77,6 +93,7 @@ def _tab_text_clean(df: pd.DataFrame) -> None:
         do_unicode  = st.checkbox("Normalise unicode (NFKD → ASCII)",   value=False, key="dc_tc_uni")
         do_rmnl     = st.checkbox("Remove newlines / carriage returns", value=False, key="dc_tc_nl")
         do_empty_na = st.checkbox("Empty string → NaN",                 value=False, key="dc_tc_emna")
+
 
     def _apply_ops(s: pd.Series) -> pd.Series:
         s = s.copy()
@@ -97,9 +114,11 @@ def _tab_text_clean(df: pd.DataFrame) -> None:
         if do_empty_na: s = s.replace({"": np.nan, "nan": np.nan, "None": np.nan})
         return s
 
+
     sample, was_sampled = _sample(series)
     preview_sample = _apply_ops(sample)
     n_changed = _changed_count(sample, preview_sample)
+
 
     st.caption(_count_label(n_changed, len(sample), len(series), was_sampled))
     preview_df = _preview_table(sample, preview_sample)
@@ -112,11 +131,14 @@ def _tab_text_clean(df: pd.DataFrame) -> None:
         use_container_width=True, hide_index=True,
     )
 
+
     if st.button("✅ Apply Text Clean", key="dc_tc_apply", type="primary",
                  disabled=n_changed == 0):
         _apply_df(df, col, _apply_ops(df[col].astype(str)))
         st.success(f"✅ Cleaned `{col}`.")
         st.rerun()
+
+
 
 
 def _tab_find_replace(df: pd.DataFrame) -> None:
@@ -125,8 +147,10 @@ def _tab_find_replace(df: pd.DataFrame) -> None:
         st.info("No text columns found in the dataset.")
         return
 
+
     col    = st.selectbox("Column", str_cols, key="dc_fr_col")
     series = df[col].astype(str)
+
 
     fa, fb = st.columns(2)
     with fa:
@@ -134,8 +158,10 @@ def _tab_find_replace(df: pd.DataFrame) -> None:
     with fb:
         repl_val = st.text_input("Replace with", placeholder="e.g. (leave blank to delete)", key="dc_fr_repl")
 
+
     use_regex   = st.checkbox("Use regular expression", key="dc_fr_regex")
     case_insens = st.checkbox("Case-insensitive match",  key="dc_fr_ci")
+
 
     if find_val:
         try:
@@ -147,6 +173,7 @@ def _tab_find_replace(df: pd.DataFrame) -> None:
                 preview_sample = sample.str.replace(find_val, repl_val, regex=False, flags=flags)
             n_changed = _changed_count(sample, preview_sample)
 
+
             if n_changed == 0:
                 st.info(
                     f"🔍 No values matching **`{find_val}`** found in column **`{col}`**. "
@@ -156,6 +183,7 @@ def _tab_find_replace(df: pd.DataFrame) -> None:
                 st.caption(_count_label(n_changed, len(sample), len(series), was_sampled))
                 preview_df = _preview_table(sample, preview_sample)
                 st.dataframe(preview_df, use_container_width=True, hide_index=True)
+
 
                 if st.button("✅ Apply Find & Replace", key="dc_fr_apply", type="primary"):
                     if use_regex:
@@ -169,6 +197,8 @@ def _tab_find_replace(df: pd.DataFrame) -> None:
             st.error(f"Invalid regex: {e}")
     else:
         st.info("Enter a search term above to preview changes.")
+
+
 
 
 _PATTERNS = {
@@ -185,12 +215,15 @@ _PATTERNS = {
 }
 
 
+
+
 def _tab_validate(df: pd.DataFrame) -> None:
     str_cols = df.columns.tolist()
     col = st.selectbox("Column to validate", str_cols, key="dc_val_col")
     
-    # Validation runs exclusively inside this active tab on a non-null astype(str) series
+
     series = df[col].dropna().astype(str)
+
 
     pattern_name = st.selectbox("Validation rule", list(_PATTERNS.keys()), key="dc_val_pat")
     if pattern_name == "Custom regex…":
@@ -200,8 +233,10 @@ def _tab_validate(df: pd.DataFrame) -> None:
         pattern = _PATTERNS[pattern_name]
         st.code(pattern, language="regex")
 
+
     if not pattern:
         return
+
 
     try:
         mask_pass  = series.str.match(pattern, case=True, na=False)
@@ -211,10 +246,12 @@ def _tab_validate(df: pd.DataFrame) -> None:
         n_null = int(df[col].isna().sum())
         total  = len(df)
 
+
         pa, pb, pc = st.columns(3)
         pa.metric("✅ Pass",    f"{n_pass:,}")
         pb.metric("❌ Fail",    f"{n_fail:,}",  delta=f"{n_fail/total*100:.1f}%" if total else "")
         pc.metric("⬜ Null",    f"{n_null:,}")
+
 
         if n_fail:
             st.markdown(f"**Rows that fail validation** (first 20 of {n_fail:,}):")
@@ -222,11 +259,13 @@ def _tab_validate(df: pd.DataFrame) -> None:
             st.dataframe(df.loc[fail_idx, [col]].reset_index(),
                          use_container_width=True, hide_index=True)
 
+
             action = st.radio("Action on failing rows", [
                 "None — just report",
                 "Replace failing values with NaN",
                 "Flag: add a new boolean column '_valid_<colname>'",
             ], key="dc_val_action")
+
 
             if st.button("✅ Apply", key="dc_val_apply", type="primary",
                          disabled=action == "None — just report"):
@@ -245,8 +284,11 @@ def _tab_validate(df: pd.DataFrame) -> None:
         else:
             st.success(f"✅ All {n_pass:,} non-null values pass the validation rule.")
 
+
     except re.error as e:
         st.error(f"Invalid regex: {e}")
+
+
 
 
 def _tab_string_ops(df: pd.DataFrame) -> None:
@@ -254,6 +296,7 @@ def _tab_string_ops(df: pd.DataFrame) -> None:
     if not str_cols:
         st.info("No text columns found in the dataset.")
         return
+
 
     op = st.selectbox("Operation", [
         "Trim to fixed length",
@@ -264,16 +307,19 @@ def _tab_string_ops(df: pd.DataFrame) -> None:
         "Extract with regex capture group",
     ], key="dc_so_op")
 
+
     col = st.selectbox("Source column", str_cols, key="dc_so_col")
     series = df[col].astype(str)
     new_series = series.copy()
     new_col_name: str | None = None
+
 
     try:
         if op == "Trim to fixed length":
             length = st.number_input("Max characters to keep", 1, 1000, 50, key="dc_so_len")
             side   = st.radio("Keep from", ["Left (start)", "Right (end)"], horizontal=True, key="dc_so_side")
             new_series = series.str[:length] if "Left" in side else series.str[-length:]
+
 
         elif op == "Pad to fixed length (left / right)":
             length  = st.number_input("Target length", 1, 200, 10, key="dc_so_padlen")
@@ -283,11 +329,13 @@ def _tab_string_ops(df: pd.DataFrame) -> None:
                          else series.str.ljust(length, char) if side == "Right"
                          else series.str.rjust(length, char))
 
+
         elif op == "Extract substring (start, end positions)":
             sa, sb = st.columns(2)
             start = sa.number_input("Start (0-based)", 0, 999, 0, key="dc_so_start")
             end   = sb.number_input("End (exclusive, 0 = end of string)", 0, 999, 0, key="dc_so_end")
             new_series = series.str[start: end if end > 0 else None]
+
 
         elif op == "Split column into two (by delimiter)":
             delim    = st.text_input("Delimiter", value=",", key="dc_so_delim")
@@ -298,11 +346,13 @@ def _tab_string_ops(df: pd.DataFrame) -> None:
                 lambda x: x[part_idx] if isinstance(x, list) and len(x) > part_idx else np.nan
             )
 
+
         elif op == "Concatenate two columns into a new column":
             col2     = st.selectbox("Second column", [c for c in df.columns if c != col], key="dc_so_col2")
             sep      = st.text_input("Separator", value=" ", key="dc_so_sep")
             new_col_name = st.text_input("New column name", value=f"{col}_{col2}", key="dc_so_concatcol")
             new_series = series.str.cat(df[col2].astype(str), sep=sep)
+
 
         elif op == "Extract with regex capture group":
             pattern  = st.text_input("Regex with one capture group ()", key="dc_so_re",
@@ -314,6 +364,7 @@ def _tab_string_ops(df: pd.DataFrame) -> None:
                 st.info("Enter a regex pattern above.")
                 return
 
+
         n_changed = _changed_count(series, new_series)
         target_col = new_col_name if new_col_name else col
         label = f"new column `{target_col}`" if new_col_name else f"`{col}`"
@@ -323,6 +374,7 @@ def _tab_string_ops(df: pd.DataFrame) -> None:
                    f" → {label}")
         st.dataframe(_preview_table(sample, ns_sample.astype(str)),
                      use_container_width=True, hide_index=True)
+
 
         if st.button("✅ Apply", key="dc_so_apply", type="primary"):
             if new_col_name:
@@ -334,8 +386,11 @@ def _tab_string_ops(df: pd.DataFrame) -> None:
                 st.success(f"✅ Applied to `{col}` — {n_changed:,} values updated.")
             st.rerun()
 
+
     except Exception as e:
         st.error(f"Error: {e}")
+
+
 
 
 def _tab_numeric_clean(df: pd.DataFrame) -> None:
@@ -344,8 +399,10 @@ def _tab_numeric_clean(df: pd.DataFrame) -> None:
         st.info("No numeric columns found in the dataset.")
         return
 
+
     col    = st.selectbox("Column", num_cols, key="dc_nc_col")
     series = pd.to_numeric(df[col], errors="coerce")
+
 
     op = st.selectbox("Operation", [
         "Clamp to min/max range",
@@ -359,7 +416,9 @@ def _tab_numeric_clean(df: pd.DataFrame) -> None:
         "Fill NaN with custom value",
     ], key="dc_nc_op")
 
+
     new_series = series.copy()
+
 
     try:
         if op == "Clamp to min/max range":
@@ -367,6 +426,7 @@ def _tab_numeric_clean(df: pd.DataFrame) -> None:
             mn = ca.number_input("Min value", value=float(series.min()), key="dc_nc_mn")
             mx = cb.number_input("Max value", value=float(series.max()), key="dc_nc_mx")
             new_series = series.clip(lower=mn, upper=mx)
+
 
         elif "outliers" in op:
             iqr_mult = st.slider("IQR multiplier (lower = stricter)", 1.0, 3.0, 1.5, 0.1,
@@ -381,26 +441,33 @@ def _tab_numeric_clean(df: pd.DataFrame) -> None:
             new_series = series.copy()
             new_series[mask] = fill
 
+
         elif op == "Round to N decimal places":
             n_dec = st.number_input("Decimal places", 0, 10, 2, key="dc_nc_dec")
             new_series = series.round(int(n_dec))
+
 
         elif op == "Scale to 0–1 (min-max normalisation)":
             mn, mx = series.min(), series.max()
             new_series = (series - mn) / (mx - mn) if mx > mn else series * 0
 
+
         elif op == "Z-score standardisation (mean=0, std=1)":
             new_series = (series - series.mean()) / series.std()
+
 
         elif op == "Fill NaN with median":
             new_series = series.fillna(series.median())
 
+
         elif op == "Fill NaN with mean":
             new_series = series.fillna(series.mean())
+
 
         elif op == "Fill NaN with custom value":
             fill_val = st.number_input("Fill value", value=0.0, key="dc_nc_fill")
             new_series = series.fillna(fill_val)
+
 
         n_changed = int((series.round(8) != new_series.round(8)).sum())
         sample, was_sampled = _sample(series)
@@ -411,14 +478,18 @@ def _tab_numeric_clean(df: pd.DataFrame) -> None:
         st.dataframe(_preview_table(before_str, after_str),
                      use_container_width=True, hide_index=True)
 
+
         if st.button("✅ Apply Numeric Clean", key="dc_nc_apply", type="primary",
                      disabled=n_changed == 0):
             _apply_df(df, col, new_series)
             st.success(f"✅ Applied to `{col}` — {n_changed:,} values updated.")
             st.rerun()
 
+
     except Exception as e:
         st.error(f"Error: {e}")
+
+
 
 
 def show_data_cleaner(df: pd.DataFrame) -> pd.DataFrame:
@@ -429,7 +500,7 @@ def show_data_cleaner(df: pd.DataFrame) -> pd.DataFrame:
         "Every tab shows a live preview of changes before you apply them."
     )
 
-    # Master activation gate to completely bypass regex processing and tab renders unless active
+
     if st.checkbox("⚙️ Open Data Cleaner Tools Panel", key="_enable_data_cleaner_panel"):
         tabs = st.tabs([
             "🔤 Text Clean",
@@ -439,6 +510,7 @@ def show_data_cleaner(df: pd.DataFrame) -> pd.DataFrame:
             "🔢 Numeric Clean",
         ])
 
+
         with tabs[0]: _tab_text_clean(df)
         with tabs[1]: _tab_find_replace(df)
         with tabs[2]: _tab_validate(df)
@@ -446,5 +518,6 @@ def show_data_cleaner(df: pd.DataFrame) -> pd.DataFrame:
         with tabs[4]: _tab_numeric_clean(df)
     else:
         st.info("Check the box above to open the data cleaning tabs (Text, Find & Replace, Validate, etc.).")
+
 
     return st.session_state.get("df", df)

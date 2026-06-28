@@ -1,27 +1,5 @@
-"""
-modules/utils/perf.py -- Performance utilities for large dataset handling.
-============================================================================
+"""modules/utils/perf.py -- Performance utilities for large dataset handling."""
 
-Key functions:
-  optimize_dtypes(df)         -- Shrink DataFrame memory footprint by downcasting
-                                 numerics and converting low-cardinality strings
-                                 to pandas Categorical dtype.
-  sample_for_plot(df, n)      -- Return a random sample of at most n rows for
-                                 Plotly. Returns (sampled_df, was_sampled).
-  read_csv_fast(file, **kw)   -- read_csv with dtype optimisation.
-  read_csv_chunked(file, **kw) -- Memory-safe chunked reader for very large CSVs.
-  read_excel_sheet(file, sn)  -- Read ONE sheet (no eager full-workbook load).
-  get_sheet_names(file)       -- Sheet list without reading any cell data.
-  mem_mb(df)                  -- DataFrame RAM usage in MB.
-
-Design rules:
-  - No module-level Streamlit imports — this is a pure data layer.
-    `streamlit` is only imported *inside* cached_pivot, which is the single
-    function that requires @st.cache_data. All other functions are importable
-    from plain Python scripts and tests without a running Streamlit server.
-  - Every function that returns a DataFrame returns a new object; no in-place
-    mutation of caller data.
-"""
 
 import pandas as pd
 import numpy as np
@@ -30,44 +8,42 @@ from pathlib import Path
 from typing import Union
 
 
-# ── Memory reporting ──────────────────────────────────────────────────────────
+
 
 def mem_mb(df: pd.DataFrame) -> float:
     """Return total DataFrame memory usage in megabytes (deep=True)."""
     return df.memory_usage(deep=True).sum() / 1_048_576
 
 
-# ── dtype optimisation ────────────────────────────────────────────────────────
 
-# Categorical threshold: object columns with ≤ this fraction of unique values
-# AND ≤ _CAT_MAX_UNIQ distinct values are converted to pd.Categorical.
-_CAT_THRESHOLD = 0.50   # if > 50 % of rows are unique, keep as object
-_CAT_MAX_UNIQ  = 1_000  # hard cap -- too many categories = no gain
+
+_CAT_THRESHOLD = 0.50
+_CAT_MAX_UNIQ  = 1_000
+
+
 
 
 def optimize_dtypes(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Shrink a DataFrame's memory footprint without losing precision or data.
-
-    Highly optimized to prevent unnecessary dataframe copying. Mutates only
-    newly downcasted series, performing a zero-copy return if already optimized.
-    """
+    """Shrink a DataFrame's memory footprint without losing precision or data."""
     modified = {}
+
 
     for col in df.columns:
         series = df[col]
         dtype = series.dtype
+
 
         if pd.api.types.is_integer_dtype(dtype):
             opt_series = pd.to_numeric(series, downcast="integer")
             if opt_series.dtype != dtype:
                 modified[col] = opt_series
 
+
         elif dtype == np.float64:
-            # Downcast float64 → float32 for memory savings.
             opt_series = pd.to_numeric(series, downcast="float")
             if opt_series.dtype != dtype:
                 modified[col] = opt_series
+
 
         elif dtype == object:
             n_uniq = series.nunique()
@@ -76,13 +52,15 @@ def optimize_dtypes(df: pd.DataFrame) -> pd.DataFrame:
             if n_uniq <= _CAT_MAX_UNIQ and ratio < _CAT_THRESHOLD:
                 modified[col] = series.astype("category")
 
+
     if not modified:
-        return df  # Zero-copy if already fully optimized
+        return df
+
 
     return df.assign(**modified)
 
 
-# ── Plot sampling ─────────────────────────────────────────────────────────────
+
 
 _SAMPLE_NOTE = (
     "⚠️ Chart rendered from a {n:,}-row sample (dataset has {total:,} rows). "
@@ -90,17 +68,19 @@ _SAMPLE_NOTE = (
 )
 
 
+
+
 def sample_for_plot(
     df: pd.DataFrame,
     n: int = 50_000,
     random_state: int = 42,
 ) -> tuple[pd.DataFrame, bool]:
-    """
-    Return a representative random sample of at most n rows for Plotly rendering.
-    """
+    """Return a representative random sample of at most n rows for Plotly rendering."""
     if len(df) <= n:
         return df, False
     return df.sample(n=n, random_state=random_state).reset_index(drop=True), True
+
+
 
 
 def sample_note(n: int, total: int) -> str:
@@ -108,19 +88,15 @@ def sample_note(n: int, total: int) -> str:
     return _SAMPLE_NOTE.format(n=n, total=total)
 
 
-# ── Fast CSV reader ───────────────────────────────────────────────────────────
+
 
 def read_csv_fast(file, **kwargs) -> pd.DataFrame:
-    """
-    Read a CSV file and return a dtype-optimised DataFrame.
-
-    Automatically scales to chunked reading for files larger than 30MB
-    to prevent memory allocation spikes.
-    """
+    """Read a CSV file and return a dtype-optimised DataFrame."""
     kwargs.setdefault("low_memory", False)
     if hasattr(file, "seek"):
         file.seek(0)
     
+
     file_size = 0
     if hasattr(file, "size"):
         file_size = file.size
@@ -135,12 +111,15 @@ def read_csv_fast(file, **kwargs) -> pd.DataFrame:
         except Exception:
             pass
 
-    # Safe-guard memory: Streamline chunked loading for large files
+
     if file_size > 30 * 1024 * 1024:
         return read_csv_chunked(file, **kwargs)
 
+
     df = pd.read_csv(file, **kwargs)
     return optimize_dtypes(df)
+
+
 
 
 def read_csv_chunked(
@@ -149,16 +128,15 @@ def read_csv_chunked(
     max_rows: int | None = None,
     **kwargs,
 ) -> pd.DataFrame:
-    """
-    Read a large CSV in chunks and concatenate, applying dtype optimisation
-    to each chunk before joining. This caps peak RAM usage.
-    """
+    """Read a large CSV in chunks and concatenate, applying dtype optimisation"""
     kwargs.setdefault("low_memory", False)
     if hasattr(file, "seek"):
         file.seek(0)
 
+
     chunks = []
     rows_read = 0
+
 
     for chunk in pd.read_csv(file, chunksize=chunksize, **kwargs):
         chunk = optimize_dtypes(chunk)
@@ -167,35 +145,35 @@ def read_csv_chunked(
         if max_rows is not None and rows_read >= max_rows:
             break
 
+
     if not chunks:
         return pd.DataFrame()
+
 
     return pd.concat(chunks, ignore_index=True)
 
 
-# ── Lazy Excel helpers ────────────────────────────────────────────────────────
+
 
 def get_sheet_names(file) -> list[str]:
-    """
-    Return the list of sheet names without loading any cell data.
-    """
+    """Return the list of sheet names without loading any cell data."""
     if hasattr(file, "seek"):
         file.seek(0)
     with pd.ExcelFile(file) as xl:
         return xl.sheet_names
 
 
+
+
 def read_excel_sheet(file, sheet_name: Union[str, int] = 0) -> pd.DataFrame:
-    """
-    Read a SINGLE sheet from an Excel file with dtype optimisation.
-    """
+    """Read a SINGLE sheet from an Excel file with dtype optimisation."""
     if hasattr(file, "seek"):
         file.seek(0)
     df = pd.read_excel(file, sheet_name=sheet_name)
     return optimize_dtypes(df)
 
 
-# ── Cached pivot computation ──────────────────────────────────────────────────
+
 
 def _pivot_impl(df: pd.DataFrame, index: str, columns: str,
                 values: str, aggfunc: str) -> pd.DataFrame:
@@ -206,11 +184,15 @@ def _pivot_impl(df: pd.DataFrame, index: str, columns: str,
     )
 
 
+
+
 try:
     import streamlit as _st
     _pivot_impl = _st.cache_data(show_spinner=False, ttl=300)(_pivot_impl)
 except Exception:
-    pass  # Not running under Streamlit (tests/CLI)
+    pass
+
+
 
 
 def cached_pivot(
@@ -220,15 +202,15 @@ def cached_pivot(
     values: str,
     aggfunc: str,
 ) -> pd.DataFrame:
-    """
-    Cached pd.pivot_table wrapper.
-    """
+    """Cached pd.pivot_table wrapper."""
     return _pivot_impl(df, index, columns, values, aggfunc)
 
 
-# ── Distribution sampling ─────────────────────────────────────────────────────
+
 
 _HIST_SAMPLE = 50_000
+
+
 
 
 def sample_for_histogram(
@@ -236,15 +218,15 @@ def sample_for_histogram(
     n: int = _HIST_SAMPLE,
     random_state: int = 42,
 ) -> tuple[pd.DataFrame, bool]:
-    """
-    Sample for histogram / distribution charts.
-    """
+    """Sample for histogram / distribution charts."""
     return sample_for_plot(df, n=n, random_state=random_state)
 
 
-# ── Categorical sampling ──────────────────────────────────────────────────────
+
 
 _CAT_MAX_BARS = 50
+
+
 
 
 def top_n_with_other(
@@ -252,14 +234,12 @@ def top_n_with_other(
     n: int = _CAT_MAX_BARS,
     other_label: str = "Other",
 ) -> pd.Series:
-    """
-    Keep the top-n most frequent categories and replace the rest with 'Other'.
-    """
+    """Keep the top-n most frequent categories and replace the rest with 'Other'."""
     top = series.value_counts().nlargest(n).index
     return series.where(series.isin(top), other=other_label)
 
 
-# ── Render budget guard ───────────────────────────────────────────────────────
+
 
 RENDER_LIMITS = {
     "scatter":     8_000,
@@ -271,13 +251,13 @@ RENDER_LIMITS = {
 }
 
 
+
+
 def enforce_render_limit(
     df: pd.DataFrame,
     chart_type: str,
     random_state: int = 42,
 ) -> tuple[pd.DataFrame, bool]:
-    """
-    Sample df to the render budget for chart_type.
-    """
+    """Sample df to the render budget for chart_type."""
     limit = RENDER_LIMITS.get(chart_type, 50_000)
     return sample_for_plot(df, n=limit, random_state=random_state)

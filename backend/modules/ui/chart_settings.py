@@ -1,13 +1,8 @@
-"""
-modules/ui/chart_settings.py -- Shared chart setting schema and Plotly adapters.
+"""modules/ui/chart_settings.py -- Shared chart setting schema and Plotly adapters."""
 
-This module is the single place for dashboard/analysis chart presentation
-options.  Pages render the controls here; exporters and preview renderers call
-apply_chart_display_options() so saved metadata behaves consistently.
-
-"""
 
 from __future__ import annotations
+
 
 import copy
 import functools
@@ -15,20 +10,22 @@ import json
 import re
 from typing import Any
 
+
 import streamlit as st
+
 
 from modules.charts import clean_insight_text
 from modules.ui.font_manager import inject_font_preview_css, font_select
 
-# ── Colorscale catalogue ──────────────────────────────────────────────────────
+
 COLORSCALES_DIVERGING  = ["RdBu", "RdYlBu", "PRGn", "PiYG", "BrBG", "Spectral"]
 COLORSCALES_SEQUENTIAL = ["Blues", "Viridis", "Plasma", "Magma", "Cividis",
                            "YlOrRd", "YlGnBu", "Greens", "Oranges", "Purples"]
 COLORSCALES_ALL        = COLORSCALES_DIVERGING + COLORSCALES_SEQUENTIAL
 
 
-# ── Metric-Compatible CSS Font Stacks ─────────────────────────────────────────
-# Linux-friendly, open-source first selections with metric-compatible fallbacks.
+
+
 FONT_STACK_MAP: dict[str, str] = {
     "Inter": "Inter, 'Inter-Variable', 'Helvetica Neue', Arial, sans-serif",
     "Source Sans 3": "'Source Sans 3', 'Liberation Sans', Arimo, Arial, sans-serif",
@@ -66,12 +63,14 @@ FONT_STACK_MAP: dict[str, str] = {
 }
 
 
+
+
 def resolve_font_stack(font_name: str) -> str:
     """Resolve a clean font name to a highly compatible CSS system font stack."""
     return FONT_STACK_MAP.get(font_name, font_name)
 
 
-# ── Chart-type settings schema ────────────────────────────────────────────────
+
 
 CHART_TYPE_SETTINGS: dict[str, dict[str, Any]] = {
     "categorical": {
@@ -168,7 +167,7 @@ CHART_TYPE_SETTINGS: dict[str, dict[str, Any]] = {
 }
 
 
-# ── Helper functions for chart-type-based capability detection ─────────────────
+
 
 def get_chart_type_capabilities(chart_type: str) -> dict[str, Any]:
     return CHART_TYPE_SETTINGS.get(chart_type, {
@@ -178,12 +177,18 @@ def get_chart_type_capabilities(chart_type: str) -> dict[str, Any]:
     })
 
 
+
+
 def has_control(chart_type: str, control: str) -> bool:
     return control in get_chart_type_capabilities(chart_type).get("controls", [])
 
 
+
+
 def has_typography(chart_type: str, typo_category: str) -> bool:
     return typo_category in get_chart_type_capabilities(chart_type).get("typography", [])
+
+
 
 
 def compute_meta_hash(meta: dict | None) -> str:
@@ -197,12 +202,16 @@ def compute_meta_hash(meta: dict | None) -> str:
         if key in meta:
             relevant[key] = meta[key]
             
+
     if "text_style" in meta:
         ts = meta["text_style"]
         if isinstance(ts, dict):
             relevant["text_style"] = {k: v for k, v in ts.items()}
             
+
     return json.dumps(relevant, sort_keys=True, default=str)
+
+
 
 
 def default_text_style() -> dict:
@@ -227,6 +236,8 @@ def default_text_style() -> dict:
         "axis_tick_color":    "#94a3b8",
         "legend_bgcolor":     "rgba(0,0,0,0)",
     }
+
+
 
 
 def available_font_families() -> list[str]:
@@ -268,6 +279,8 @@ def available_font_families() -> list[str]:
     ]
 
 
+
+
 def _wrap_html_style(text: str, style: str) -> str:
     text = str(text or "")
     style = str(style or "").lower()
@@ -283,6 +296,8 @@ def _wrap_html_style(text: str, style: str) -> str:
     return text
 
 
+
+
 def merge_text_style(raw: dict | None) -> dict:
     style = default_text_style()
     if not isinstance(raw, dict):
@@ -291,6 +306,8 @@ def merge_text_style(raw: dict | None) -> dict:
         if key in style and value not in (None, ""):
             style[key] = value
     return style
+
+
 
 
 def trace_capabilities(fig, chart_type: str = "") -> dict[str, Any]:
@@ -312,12 +329,16 @@ def trace_capabilities(fig, chart_type: str = "") -> dict[str, Any]:
     }
 
 
+
+
 def _float_or_none(value) -> float | None:
     try:
         text = str(value).strip()
         return float(text) if text else None
     except Exception:
         return None
+
+
 
 
 def _option_index(options: list[str], value: str, default: str) -> int:
@@ -330,7 +351,7 @@ def _option_index(options: list[str], value: str, default: str) -> int:
             return 0
 
 
-# ── Apply ─────────────────────────────────────────────────────────────────────
+
 
 def apply_chart_display_options(
     fig,
@@ -345,14 +366,16 @@ def apply_chart_display_options(
         opts = {}
     f2 = fig if _inplace else copy.deepcopy(fig)
 
+
     try:
         text_style = meta.get("text_style", {})
         ts = merge_text_style(text_style)
         
-        # Resolve standard font choice to fully robust metric-compatible system stack
+
         _raw_family  = str(ts.get("family", "Inter"))
         _font_family = resolve_font_stack(_raw_family)
         _font_style  = str(ts.get("font_style", "Normal"))
+
 
         if "show_legend" in opts:
             f2.update_layout(showlegend=bool(opts["show_legend"]))
@@ -361,12 +384,15 @@ def apply_chart_display_options(
         if opts.get("bar_mode"):
             f2.update_layout(barmode=str(opts["bar_mode"]))
 
+
         show_labels = bool(opts.get("show_value_labels", False))
         label_pos   = opts.get("label_position", "outside")
+
 
         for tr in f2.data:
             ttype = str(getattr(tr, "type", "") or "").lower()
             mode  = str(getattr(tr, "mode", "") or "")
+
 
             if ttype == "bar":
                 tr.textposition = label_pos if show_labels else "none"
@@ -375,6 +401,7 @@ def apply_chart_display_options(
                         tr.textfont = dict(getattr(tr, "textfont", None) or {}, color=str(opts["value_label_color"]))
                     except Exception:
                         pass
+
 
             if ttype in ("scatter", "scattergl") and "lines" in mode:
                 if show_labels:
@@ -394,12 +421,14 @@ def apply_chart_display_options(
                         mode.replace("+text", "").replace("text+", "").replace("text", "")
                     ) or "lines"
 
+
             if ttype == "histogram":
                 nbins = opts.get("histogram_bins")
                 if nbins:
                     tr.nbinsx = int(nbins)
                 if opts.get("histogram_opacity") is not None:
                     tr.opacity = float(opts["histogram_opacity"])
+
 
             if ttype in ("scatter", "scattergl", "scattermap", "scattermapbox"):
                 if opts.get("marker_opacity") is not None and hasattr(tr, "marker"):
@@ -420,6 +449,7 @@ def apply_chart_display_options(
                             .replace("markers", "lines")
                     )
 
+
             if ttype in ("pie", "sunburst", "treemap"):
                 if opts.get("donut_hole") is not None and hasattr(tr, "hole"):
                     tr.hole = float(opts["donut_hole"])
@@ -431,7 +461,6 @@ def apply_chart_display_options(
                     tr.rotation = int(opts["pie_rotation"])
                 if opts.get("pie_direction") and hasattr(tr, "direction"):
                     tr.direction = str(opts["pie_direction"])
-                # Apply data label colour and size to pie inside/outside text
                 _pie_lbl_clr = opts.get("pie_label_color")
                 _pie_lbl_sz  = opts.get("pie_label_size")
                 if _pie_lbl_clr or _pie_lbl_sz:
@@ -452,6 +481,7 @@ def apply_chart_display_options(
                                             setattr(_pf, _k, _v)
                                 except Exception:
                                     pass
+
 
             if ttype in ("heatmap", "choropleth"):
                 if opts.get("heatmap_colorscale"):
@@ -541,6 +571,7 @@ def apply_chart_display_options(
                     if ann_color is not None: new_tf["color"] = ann_color
                     tr.textfont = new_tf
 
+
             if ttype == "table":
                 _hdr_vals = getattr(tr.header, "values", None) or []
                 _is_footer_trace = all(
@@ -550,6 +581,7 @@ def apply_chart_display_options(
                 if _is_footer_trace:
                     continue
 
+
                 cell_size    = int(opts.get("table_font_size", 11))
                 header_size  = int(opts.get("table_header_font_size", max(cell_size, 12)))
                 row_h        = int(opts.get("table_row_height", 26))
@@ -557,9 +589,11 @@ def apply_chart_display_options(
                 idx_align    = opts.get("table_index_align", "left")
                 data_align   = opts.get("table_data_align", "right")
                 
+
                 tr.cells.font = dict(size=cell_size, color=str(opts.get("table_font_color", "#f1f5f9")), family=_font_family)
                 tr.header.font = dict(size=header_size, color="white", family=_font_family)
                 
+
                 if hasattr(tr.header, "values") and tr.header.values:
                     tr.header.values = [_wrap_html_style(str(v), _font_style) for v in tr.header.values]
                 if hasattr(tr.cells, "values") and tr.cells.values:
@@ -567,6 +601,7 @@ def apply_chart_display_options(
                         [_wrap_html_style(str(v), _font_style) for v in col]
                         for col in tr.cells.values
                     ]
+
 
                 tr.cells.height  = row_h
                 tr.header.height = hdr_h
@@ -576,6 +611,7 @@ def apply_chart_display_options(
                         tr.cells.align  = [idx_align] + [data_align] * (n_hdr_cols - 1)
                         tr.header.align = [idx_align] + ["center"] * (n_hdr_cols - 1)
 
+
                 hdr_color = opts.get("table_header_color")
                 if hdr_color and hasattr(tr.header, "values"):
                     n_hdr = len(tr.header.values) if tr.header.values else 0
@@ -583,12 +619,14 @@ def apply_chart_display_options(
                         new_hdr_fills = [hdr_color] * n_hdr
                         tr.header.fill.color = new_hdr_fills
 
+
                 hdr_text_color = opts.get("table_header_text_color")
                 if hdr_text_color and hasattr(tr.header, "font"):
                     try:
                         tr.header.font.color = str(hdr_text_color)
                     except Exception:
                         pass
+
 
                 stripe_even = opts.get("table_stripe_even_color")
                 stripe_odd  = opts.get("table_stripe_odd_color")
@@ -606,16 +644,16 @@ def apply_chart_display_options(
                     flat_fills = ["#1e293b" if i % 2 == 0 else "#0f172a" ]
                     tr.cells.fill.color = [flat_fills] * len(tr.cells.values)
 
-            # Ensure all downstream canvas traces utilize the system stack
+
             if hasattr(tr, "textfont") and tr.textfont:
                 tr.textfont.family = _font_family
+
 
         _leg_title = meta.get("legend_title", "")
         if _leg_title:
             f2.update_layout(legend_title_text=_leg_title)
 
-        # ── Global layout overrides with dynamic stacks ───────────────────────
-        # Parse font_style into weight/style for Plotly SVG elements
+
         _fs_lower = _font_style.lower()
         _weight = "normal"
         _style = "normal"
@@ -625,6 +663,7 @@ def apply_chart_display_options(
             _style = "italic"
         _font_style_dict = dict(family=_font_family, weight=_weight, style=_style)
         
+
         f2.update_layout(
             font=_font_style_dict,
             title=dict(font=_font_style_dict),
@@ -634,7 +673,7 @@ def apply_chart_display_options(
             ),
         )
         
-        # Apply specifically to SVG Axes
+
         f2.update_xaxes(
             title=dict(font=_font_style_dict),
             tickfont=_font_style_dict,
@@ -643,6 +682,7 @@ def apply_chart_display_options(
             title=dict(font=_font_style_dict),
             tickfont=_font_style_dict,
         )
+
 
         show_footer  = opts.get("table_show_footer", True)
         table_traces = [
@@ -665,23 +705,25 @@ def apply_chart_display_options(
                     footer_tr.cells.height  = 28
                     footer_tr.header.height = 0
 
-        # ── Typography / text_style ──────────────────────────────────────────
+
         text_style = meta.get("text_style", {})
         if isinstance(text_style, dict) and text_style:
             ts = merge_text_style(text_style)
 
-            # Resolve individual scoped elements to system stacks
+
             _hdr_family_raw = str(ts.get("header_family", _raw_family))
             _hdr_family     = resolve_font_stack(_hdr_family_raw)
             _hdr_style      = str(ts.get("header_font_style", "Normal"))
             _hdr_size       = int(ts.get("header_size", 28))
             _hdr_color      = str(ts.get("header_color", "#6163df"))
 
+
             _sub_family_raw = str(ts.get("subtitle_family", _raw_family))
             _sub_family     = resolve_font_stack(_sub_family_raw)
             _sub_style      = str(ts.get("subtitle_font_style", "Normal"))
             _sub_size       = int(ts.get("subtitle_size", 11))
             _sub_color      = str(ts.get("subtitle_color", "#64748b"))
+
 
             _ax_title_size  = int(ts.get("axis_title_size", 12))
             _ax_title_color = str(ts.get("axis_title_color", "#cbd5e1"))
@@ -692,9 +734,9 @@ def apply_chart_display_options(
             _leg_item_size   = int(ts.get("legend_item_size", 11))
             _leg_item_color  = str(ts.get("legend_item_color", "#e2e8f0"))
 
+
             for tr in f2.data:
                 ttype = str(getattr(tr, "type", "") or "").lower()
-                # Tables manage their own header/cells font separately — skip
                 if ttype == "table":
                     continue
                 for font_attr in ("textfont", "insidetextfont", "outsidetextfont"):
@@ -710,8 +752,8 @@ def apply_chart_display_options(
                                 tr.text = [_wrap_html_style(str(v) if v is not None else "", tr_style) for v in txt]
                         setattr(tr, font_attr, new_font)
 
+
             try:
-                # Apply font style (bold/italic/underline) to header title text via HTML
                 _title_text = f2.layout.title.text if hasattr(f2.layout, "title") and f2.layout.title else ""
                 if _title_text and _hdr_style != "Normal":
                     _title_text = _wrap_html_style(str(_title_text), _hdr_style)
@@ -724,7 +766,6 @@ def apply_chart_display_options(
                         ),
                     ),
                 )
-                # Apply subtitle font style (bold/italic/underline) via re-setting the subtitle text
                 try:
                     _sub_obj = f2.layout.title.subtitle
                     if _sub_obj and hasattr(_sub_obj, "text") and _sub_obj.text:
@@ -736,6 +777,7 @@ def apply_chart_display_options(
             except Exception:
                 pass
 
+
             _is_map_chart = chart_type in ("map_plot",) or any(
                 str(getattr(t, "type", "")).lower() in ("choropleth", "scattermapbox", "scattermap")
                 for t in f2.data
@@ -746,6 +788,7 @@ def apply_chart_display_options(
                 f2.update_xaxes(title_font=axis_title_font, tickfont=axis_tick_font)
                 f2.update_yaxes(title_font=axis_title_font, tickfont=axis_tick_font)
 
+
             _leg_bgcolor = str(ts.get("legend_bgcolor", "rgba(0,0,0,0)"))
             f2.update_layout(
                 legend=dict(
@@ -755,9 +798,9 @@ def apply_chart_display_options(
                 )
             )
 
+
         if chart_type in ("matrix_heatmap", "correlation", "map_plot"):
             if chart_type == "map_plot":
-                # For map_plot, apply colorbar settings to both trace-level and coloraxis-level colorbars
                 cb_tick_sz   = int(opts.get("colorbar_tick_size", 10))
                 cb_tick_col  = str(opts.get("colorbar_tick_color", "#94a3b8"))
                 cb_title_sz  = int(opts.get("colorbar_title_size", 11))
@@ -765,7 +808,6 @@ def apply_chart_display_options(
                 cb_family    = resolve_font_stack(str(opts.get("colorbar_font_family", _raw_family)))
                 cb_title     = opts.get("colorbar_title", "")
                 _cb_font_suffix = dict(weight=_weight, style=_style)
-                # Apply to trace-level colorbars (for choropleth traces)
                 for tr in f2.data:
                     try:
                         tr.colorbar.tickfont = dict(
@@ -776,7 +818,6 @@ def apply_chart_display_options(
                             size=cb_title_sz, color=cb_title_col, family=cb_family, **_cb_font_suffix)
                     except Exception:
                         pass
-                # Apply to coloraxis-level colorbars (for scatter_map/scattermapbox)
                 try:
                     cb_kwargs = dict(
                         tickfont=dict(size=cb_tick_sz, color=cb_tick_col, family=cb_family, **_cb_font_suffix),
@@ -826,13 +867,15 @@ def apply_chart_display_options(
                     except Exception:
                         pass
 
+
     except Exception:
         return fig
+
 
     return f2
 
 
-# ── Typography controls ────────────────────────────────────────────────────────
+
 
 def render_typography_controls(
     uid: str,
@@ -851,7 +894,9 @@ def render_typography_controls(
     caps = trace_capabilities(fig, chart_type)
     _has_axes = any((caps.get(k) for k in ("has_bar", "has_scatter", "has_line", "has_histogram", "has_heatmap"))) or chart_type == "correlation"
 
+
     inject_font_preview_css()
+
 
     t1, t2 = st.columns(2)
     with t1:
@@ -861,6 +906,7 @@ def render_typography_controls(
             "Bold Italic", "Bold Underline", "Italic Underline",
             "Bold Italic Underline",
         ]
+
 
         current_family = str(text_style.get("family", "Inter"))
         text_style["family"] = font_select(
@@ -879,6 +925,7 @@ def render_typography_controls(
             key=f"{key_prefix}_font_style_{uid}",
             help="Choose a text style for axis labels, ticks, and legends.",
         )
+
 
         st.markdown("**Header (Title) Typography**")
         current_hdr_family = str(text_style.get("header_family", current_family))
@@ -899,6 +946,7 @@ def render_typography_controls(
         )
         text_style["header_size"]   = st.slider("Header size",   14, 40, int(text_style["header_size"]),   key=f"{key_prefix}_hsize_{uid}")
 
+
         st.markdown("**Subtitle Typography**")
         current_sub_family = str(text_style.get("subtitle_family", current_family))
         text_style["subtitle_family"] = font_select(
@@ -918,6 +966,7 @@ def render_typography_controls(
         )
         text_style["subtitle_size"] = st.slider("Subtitle size",  8, 24, int(text_style["subtitle_size"]), key=f"{key_prefix}_ssize_{uid}")
 
+
         _non_axis_types = ("map_plot", "matrix_table")
         _show_axis_typo = _has_axes and chart_type not in _non_axis_types
         _hide_legend_controls = chart_type in (
@@ -925,6 +974,7 @@ def render_typography_controls(
             "heatmap", "choropleth", "correlation",
         )
         _show_colorbar_typo = False
+
 
         if _show_axis_typo or not _hide_legend_controls:
             st.markdown("**Label Sizing**")
@@ -981,10 +1031,11 @@ def render_typography_controls(
                 key=f"{key_prefix}_cb_font_fam_{uid}",
             )
 
+
     return text_style
 
 
-# ── Render controls ───────────────────────────────────────────────────────────
+
 
 def render_chart_settings_controls(
     uid: str,
@@ -1003,6 +1054,7 @@ def render_chart_settings_controls(
         if isinstance(meta.get("display_options", {}), dict)
         else {}
     )
+
 
     nt = st.text_input(
         "Chart Title",
@@ -1023,6 +1075,7 @@ def render_chart_settings_controls(
             key=f"{key_prefix}_legend_show_{uid}",
             disabled=not _legend_applicable,
         )
+
 
     c, d = st.columns(2)
     _has_axes = any((caps.get(k) for k in ("has_bar", "has_scatter", "has_line", "has_histogram", "has_heatmap"))) or chart_type == "correlation"
@@ -1047,8 +1100,10 @@ def render_chart_settings_controls(
         xl = meta.get("x_label", "")
         yl = meta.get("y_label", "")
 
+
     st.markdown("**Chart-specific options**")
     s1, s2 = st.columns(2)
+
 
     with s1:
         if caps["has_bar"] and not caps["has_histogram"]:
@@ -1086,6 +1141,7 @@ def render_chart_settings_controls(
                 disabled=not has_multiple_bars,
             )
 
+
         if caps["has_histogram"]:
             opts["histogram_bins"] = st.slider(
                 "Bins", 5, 120, int(opts.get("histogram_bins", 35)),
@@ -1095,6 +1151,7 @@ def render_chart_settings_controls(
                 "Opacity", 0.15, 1.0, float(opts.get("histogram_opacity", 0.75)), 0.05,
                 key=f"{key_prefix}_hist_opacity_{uid}",
             )
+
 
         if caps["has_scatter"]:
             opts["marker_opacity"] = st.slider(
@@ -1106,6 +1163,7 @@ def render_chart_settings_controls(
                 "Marker size", 3, 28, int(opts.get("marker_size", 8)),
                 key=f"{key_prefix}_marker_size_{uid}",
             )
+
 
         if caps["has_heatmap"]:
             if chart_type == "matrix_heatmap":
@@ -1143,6 +1201,7 @@ def render_chart_settings_controls(
                 "Colour bar title", value=str(opts.get("colorbar_title", "")),
                 key=f"{key_prefix}_cb_title_{uid}",
             )
+
 
         if caps["has_table"]:
             opts["table_font_size"] = st.slider(
@@ -1214,6 +1273,7 @@ def render_chart_settings_controls(
                 key=f"{key_prefix}_table_num_fmt_{uid}",
             )
 
+
     with s2:
         if caps["has_line"]:
             opts["line_width"] = st.slider(
@@ -1240,6 +1300,7 @@ def render_chart_settings_controls(
                 format_func=lambda x: fill_labels.get(x, x),
                 key=f"{key_prefix}_line_fill_{uid}",
             )
+
 
         if caps["has_pie"]:
             opts["donut_hole"] = st.slider(
@@ -1282,6 +1343,7 @@ def render_chart_settings_controls(
                 "Label size", 8, 20, int(opts.get("pie_label_size", 11)),
                 key=f"{key_prefix}_pie_label_sz_{uid}",
             )
+
 
         if caps["has_heatmap"] and chart_type not in ("map_plot",):
             _has_existing_text = any(
@@ -1348,6 +1410,7 @@ def render_chart_settings_controls(
                 key=f"{key_prefix}_cb_family_{uid}",
             )
 
+
         if caps["has_table"]:
             opts["table_show_borders"] = st.checkbox(
                 "Show cell borders",
@@ -1360,6 +1423,7 @@ def render_chart_settings_controls(
                 key=f"{key_prefix}_table_grad_{uid}",
             )
 
+
     legend_inputs    = {}
     new_legend_title = meta.get("legend_title", "")
     trace_names, seen = [], set()
@@ -1368,6 +1432,7 @@ def render_chart_settings_controls(
         if raw is not None and str(raw) not in seen:
             seen.add(str(raw))
             trace_names.append(str(raw))
+
 
     if len(trace_names) > 1:
         st.markdown("**Legend labels**")
@@ -1383,6 +1448,7 @@ def render_chart_settings_controls(
                     f"Label for: {name}", value=saved_legend.get(name, ""),
                     placeholder=name, key=f"{key_prefix}_legend_{uid}_{i}",
                 )
+
 
     if chart_type != "map_plot":
         show_ai = st.checkbox(
@@ -1405,7 +1471,9 @@ def render_chart_settings_controls(
             ):
                 new_hidden.add(i)
 
+
     text_style = merge_text_style(meta.get("text_style", {}))
+
 
     return {
         "custom_title":       nt,

@@ -1,38 +1,5 @@
-"""
-modules/analysis/outlier.py -- Fast IQR outlier detection for the upload page.
-===============================================================================
+"""modules/analysis/outlier.py -- Fast IQR outlier detection for the upload page."""
 
-Architecture
-------------
-Outlier detection was moved from the analysis page (where it was blocking every
-rerun) to the upload / data-quality page so it runs once, on demand, before the
-user proceeds to chart generation.
-
-Performance model (why the old code froze):
-  The original run_outlier() was called inside the Streamlit render loop, meaning
-  it re-ran IQR calculations across every selected column on *every* rerun --
-  including reruns triggered by unrelated widget interactions.  For wide datasets
-  this produced noticeable UI freezes.
-
-New model:
-  - _compute_outliers() is only called when the user explicitly clicks
-    "Detect Outliers".  Results are stored in st.session_state keyed to a cheap
-    DataFrame fingerprint so they survive reruns without recomputation.
-  - When the DataFrame changes (rows deleted) the fingerprint changes and the
-    cached results are invalidated automatically.
-  - Rendering is separated from computation: displaying tables, expanders, and
-    delete buttons is pure Python/Streamlit widget work with no pandas overhead.
-
-Public API
-----------
-  run_outlier_upload(df)   -- Render the full interactive upload-page widget.
-                              Modifies st.session_state.df and .charts in-place.
-
-  run_outlier(df, ...)     -- Legacy runner for backwards compatibility.
-                              Kept so saved sessions with outlier charts still load.
-
-  OUTLIER_HELP             -- Markdown help string used on legacy chart cards.
-"""
 
 import uuid
 import json
@@ -40,22 +7,16 @@ import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 
+
 from modules.charts import chart_layout, COLORS, charts_to_json
 from modules.analysis.insights import outlier_insights
 from modules.database import log_activity, save_draft
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Internal helpers
-# ─────────────────────────────────────────────────────────────────────────────
 
-def _df_fingerprint(df: pd.DataFrame) -> str:  # O(1) fingerprint: changes when rows are added/deleted.
-    """
-    Cheap fingerprint that changes when rows are added or deleted.
 
-    Uses shape + first-row + last-row string so it runs in O(1) regardless of
-    dataset size.  Collision probability is negligible for normal editing patterns.
-    """
+def _df_fingerprint(df: pd.DataFrame) -> str:
+    """Cheap fingerprint that changes when rows are added or deleted."""
     try:
         parts = [str(df.shape), str(df.iloc[0].tolist()), str(df.iloc[-1].tolist())]
     except Exception:
@@ -63,25 +24,13 @@ def _df_fingerprint(df: pd.DataFrame) -> str:  # O(1) fingerprint: changes when 
     return str(hash("".join(parts)))
 
 
-def _compute_outliers(df: pd.DataFrame, cols: list, multiplier: float) -> dict:  # IQR-based outlier detection. multiplier=1.5 is standard; 3.0 is extreme.
-    """
-    Run IQR outlier detection on the given columns.
 
-    Args:
-        df:         Working DataFrame.
-        cols:       Numeric column names to analyse.
-        multiplier: IQR fence multiplier k (standard = 1.5, extreme = 3.0).
 
-    Returns:
-        dict mapping column name to {
-            "q1", "q3", "iqr", "lo", "hi",
-            "out_count",    -- number of outlier rows
-            "pct",          -- percentage of total rows
-            "out_indices",  -- list of DataFrame index values that are outliers
-        }
-    """
+def _compute_outliers(df: pd.DataFrame, cols: list, multiplier: float) -> dict:
+    """Run IQR outlier detection on the given columns."""
     results = {}
     num_available = set(df.select_dtypes(include="number").columns)
+
 
     for col in cols:
         if col not in num_available:
@@ -90,15 +39,18 @@ def _compute_outliers(df: pd.DataFrame, cols: list, multiplier: float) -> dict: 
         if len(s) == 0:
             continue
 
+
         q1  = s.quantile(0.25)
         q3  = s.quantile(0.75)
         iqr = q3 - q1
         lo  = q1 - multiplier * iqr
         hi  = q3 + multiplier * iqr
 
+
         out_mask  = (df[col] < lo) | (df[col] > hi)
         out_count = int(out_mask.sum())
         pct       = round(out_count / len(df) * 100, 2) if len(df) else 0.0
+
 
         results[col] = {
             "q1":          q1,
@@ -111,37 +63,28 @@ def _compute_outliers(df: pd.DataFrame, cols: list, multiplier: float) -> dict: 
             "out_indices": df.index[out_mask].tolist(),
         }
 
+
     return results
 
 
+
+
 def _make_outlier_fig(df: pd.DataFrame, col: str, info: dict) -> go.Figure:
-    """
-    Build a Plotly scatter figure visualising outliers for one column.
-
-    Normal points: small semi-transparent dots.
-    Outliers: large red x markers.
-    Dashed horizontal lines mark the IQR fences.
-
-    Performance: normal points are capped at _OUTLIER_NORMAL_MAX to prevent
-    browser freeze on large datasets.  ALL outlier points are always shown.
-    """
-    # Recompute mask against the live df -- rows may have been deleted since
-    # the info dict was computed.
+    """Build a Plotly scatter figure visualising outliers for one column."""
     live_mask = (df[col] < info["lo"]) | (df[col] > info["hi"])
     nrm = df[~live_mask]
     out = df[live_mask]
 
-    # ── Sampling: keep ALL outliers but cap normal points ─────────────────────
-    # Plotly serialises every point to JSON; 100K+ points freezes the browser.
-    # Outliers are rare and must all be visible; normal background dots can be
-    # safely sampled without changing the visual story.
+
     _OUTLIER_NORMAL_MAX = 8_000
     was_sampled = False
     if len(nrm) > _OUTLIER_NORMAL_MAX:
         nrm = nrm.sample(n=_OUTLIER_NORMAL_MAX, random_state=42)
         was_sampled = True
 
+
     fig = go.Figure()
+
 
     fig.add_trace(go.Scatter(
         x=nrm.index,
@@ -155,6 +98,7 @@ def _make_outlier_fig(df: pd.DataFrame, col: str, info: dict) -> go.Figure:
             "<extra>Normal</extra>"
         ),
     ))
+
 
     if len(out):
         fig.add_trace(go.Scatter(
@@ -170,6 +114,7 @@ def _make_outlier_fig(df: pd.DataFrame, col: str, info: dict) -> go.Figure:
             ),
         ))
 
+
     fig.add_hline(
         y=info["hi"], line_dash="dash", line_color="#f59e0b",
         annotation_text=f"Upper fence: {info['hi']:.4g}",
@@ -180,6 +125,7 @@ def _make_outlier_fig(df: pd.DataFrame, col: str, info: dict) -> go.Figure:
         annotation_text=f"Lower fence: {info['lo']:.4g}",
         annotation_position="bottom right",
     )
+
 
     n_out = int(live_mask.sum())
     _sample_note = (
@@ -196,28 +142,11 @@ def _make_outlier_fig(df: pd.DataFrame, col: str, info: dict) -> go.Figure:
     fig.update_yaxes(showgrid=False, zeroline=False)
     return fig
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Upload-page entry point
-# ─────────────────────────────────────────────────────────────────────────────
 
-def run_outlier_upload(df: pd.DataFrame) -> None:  # Full interactive upload-page widget: detect → view → delete outliers.
-    """
-    Render the full interactive outlier detection widget on the upload/data-quality page.
 
-    Performance contract:
-      - IQR computation ONLY runs when the user clicks "Detect Outliers".
-      - All subsequent reruns read from session_state cache -- zero pandas work.
-      - Cache is invalidated automatically when the DataFrame changes
-        (fingerprint change) or the multiplier is adjusted.
 
-    Side effects on st.session_state:
-      - .df             -- rows deleted by user action
-      - .charts         -- outlier chart appended via "Add to Dashboard"
-      - ._outlier_*     -- internal cache keys
-
-    Args:
-        df: The current working DataFrame (caller reads from session_state.df).
-    """
+def run_outlier_upload(df: pd.DataFrame) -> None:
+    """Render the full interactive outlier detection widget on the upload/data-quality page."""
     st.markdown("### 🚨 Outlier Detection")
     st.caption(
         "Detect statistical anomalies using the IQR method.  \n"
@@ -227,12 +156,13 @@ def run_outlier_upload(df: pd.DataFrame) -> None:  # Full interactive upload-pag
         "Remove them here before analysis to avoid skewed charts."
     )
 
+
     num_cols = df.select_dtypes(include="number").columns.tolist()
     if not num_cols:
         st.info("No numeric columns found — outlier detection requires at least one numeric column.")
         return
 
-    # ── Config widgets ────────────────────────────────────────────────────────
+
     cfg1, cfg2 = st.columns([3, 1])
     with cfg1:
         selected_cols = st.multiselect(
@@ -250,11 +180,12 @@ def run_outlier_upload(df: pd.DataFrame) -> None:  # Full interactive upload-pag
             help="Standard = 1.5. Use 3.0 for extreme-only detection.",
         )
 
+
     if not selected_cols:
         st.info("Select at least one column, then click Detect Outliers.")
         return
 
-    # ── Cache invalidation ────────────────────────────────────────────────────
+
     fp = _df_fingerprint(df)
     if (
         st.session_state.get("_outlier_fp") != fp
@@ -262,7 +193,7 @@ def run_outlier_upload(df: pd.DataFrame) -> None:  # Full interactive upload-pag
     ):
         st.session_state.pop("_outlier_results", None)
 
-    # ── Detect button -- only expensive step ──────────────────────────────────
+
     if st.button("🔍 Detect Outliers", key="outlier_detect_btn", type="primary"):
         with st.spinner(f"Analysing {len(selected_cols)} column(s)…"):
             results = _compute_outliers(df, selected_cols, multiplier)
@@ -271,29 +202,32 @@ def run_outlier_upload(df: pd.DataFrame) -> None:  # Full interactive upload-pag
         st.session_state["_outlier_k"]       = multiplier
         st.session_state["_outlier_cols"]    = selected_cols
 
-    # ── Show cached results (zero computation on reruns) ──────────────────────
+
     results = st.session_state.get("_outlier_results")
     if not results:
         return
 
-    # Restrict to user's current column selection
+
     results = {c: v for c, v in results.items() if c in selected_cols}
     if not results:
         return
 
+
     total_outliers     = sum(v["out_count"] for v in results.values())
     cols_with_outliers = [c for c, v in results.items() if v["out_count"] > 0]
+
 
     if total_outliers == 0:
         st.success("✅ No outliers detected in the selected columns!")
         return
+
 
     st.markdown(
         f"**{total_outliers:,} outlier value(s)** across "
         f"**{len(cols_with_outliers)}** column(s)"
     )
 
-    # ── Summary table ─────────────────────────────────────────────────────────
+
     summary_df = pd.DataFrame([
         {
             "Column":      col,
@@ -308,11 +242,12 @@ def run_outlier_upload(df: pd.DataFrame) -> None:  # Full interactive upload-pag
     ])
     st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
-    # ── Bulk delete across all columns ────────────────────────────────────────
+
     all_outlier_indices: set = set()
     for col in cols_with_outliers:
         mask = (df[col] < results[col]["lo"]) | (df[col] > results[col]["hi"])
         all_outlier_indices.update(df.index[mask].tolist())
+
 
     if all_outlier_indices:
         if st.button(
@@ -337,12 +272,14 @@ def run_outlier_upload(df: pd.DataFrame) -> None:  # Full interactive upload-pag
             )
             st.rerun()
 
+
     st.markdown("---")
 
-    # ── Per-column expanders ──────────────────────────────────────────────────
+
     for col, info in results.items():
         if info["out_count"] == 0:
             continue
+
 
         label = (
             f"📋 {col}  —  "
@@ -352,20 +289,23 @@ def run_outlier_upload(df: pd.DataFrame) -> None:  # Full interactive upload-pag
         )
         with st.expander(label, expanded=False):
 
-            # Recompute mask on live df so deleted rows don't show
+
             live_mask = (df[col] < info["lo"]) | (df[col] > info["hi"])
             out_rows  = df[live_mask].copy()
+
 
             if len(out_rows) == 0:
                 st.success("All outliers in this column have already been removed.")
                 continue
 
+
             st.dataframe(out_rows.head(500), use_container_width=True)
             if len(out_rows) > 500:
                 st.caption(f"Showing 500 of {len(out_rows):,} outlier rows.")
 
-            # ── Action row: delete-all | add-to-dashboard ─────────────────────
+
             act1, act2 = st.columns(2)
+
 
             with act1:
                 if st.button(
@@ -389,6 +329,7 @@ def run_outlier_upload(df: pd.DataFrame) -> None:  # Full interactive upload-pag
                     )
                     st.rerun()
 
+
             with act2:
                 if st.button(
                     f"📊 Add '{col}' outlier chart to dashboard",
@@ -402,11 +343,12 @@ def run_outlier_upload(df: pd.DataFrame) -> None:  # Full interactive upload-pag
                     uid   = uuid.uuid4().hex[:8]
                     title = f"Outliers: {col}"
 
+
                     charts = st.session_state.get("charts", [])
                     charts.append((uid, title, fig))
                     st.session_state.charts = charts
 
-                    # Metadata used by analysis/dashboard pages
+
                     st.session_state[f"chart_type_{uid}"]    = "outlier"
                     st.session_state[f"desc_{uid}"]          = (
                         f"IQR outlier analysis for '{col}'. "
@@ -437,7 +379,7 @@ def run_outlier_upload(df: pd.DataFrame) -> None:  # Full interactive upload-pag
                     )
                     st.success(f"✅ '{col}' outlier chart added to the dashboard!")
 
-            # ── Selective row deletion ────────────────────────────────────────
+
             st.markdown("**Delete specific rows by index:**")
             sel_indices = st.multiselect(
                 "Select row indices to remove",
@@ -468,32 +410,17 @@ def run_outlier_upload(df: pd.DataFrame) -> None:  # Full interactive upload-pag
                 st.rerun()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Legacy runner -- backwards compatibility with saved sessions
-# ─────────────────────────────────────────────────────────────────────────────
 
-def run_outlier(df, x_cols=None, y_cols=None, palette=None, **kwargs):  # Legacy runner — kept for backwards compatibility with saved sessions.
-    """
-    IQR outlier scatter plots -- legacy runner.
 
-    Kept in _RUNNERS so saved sessions containing outlier charts can still have
-    those charts regenerated from the Edit Chart panel.  New outlier work uses
-    run_outlier_upload() on the upload page.
-
-    Args:
-        df:      Working DataFrame.
-        x_cols:  Numeric columns to analyse.  Defaults to first 6 numeric cols.
-        palette: Colour list.
-        **kwargs: Silently ignored.
-
-    Returns:
-        list of (title: str, fig: go.Figure)
-    """
+def run_outlier(df, x_cols=None, y_cols=None, palette=None, **kwargs):
+    """IQR outlier scatter plots -- legacy runner."""
     from modules.charts import num_cols as _num_cols
+
 
     charts = []
     num    = x_cols or _num_cols()[:6]
     pal    = palette or COLORS
+
 
     for col in num:
         if col not in df.columns:
@@ -502,21 +429,24 @@ def run_outlier(df, x_cols=None, y_cols=None, palette=None, **kwargs):  # Legacy
         if len(s) == 0:
             continue
 
+
         q1  = s.quantile(0.25)
         q3  = s.quantile(0.75)
         iqr = q3 - q1
         lo  = q1 - 1.5 * iqr
         hi  = q3 + 1.5 * iqr
 
+
         out_mask = (df[col] < lo) | (df[col] > hi)
         out      = df[out_mask]
         nrm      = df[~out_mask]
 
-        # Sample normal background points; keep ALL outliers visible.
+
         _LEGACY_NORMAL_MAX = 8_000
         _was_sampled = len(nrm) > _LEGACY_NORMAL_MAX
         if _was_sampled:
             nrm = nrm.sample(n=_LEGACY_NORMAL_MAX, random_state=42)
+
 
         fig = go.Figure()
         fig.add_trace(go.Scatter(
@@ -547,6 +477,7 @@ def run_outlier(df, x_cols=None, y_cols=None, palette=None, **kwargs):  # Legacy
                       annotation_text=f"Lower IQR boundary: {lo:.2f}",
                       annotation_position="bottom right")
 
+
         n_out = int(out_mask.sum())
         _s_note = f"  ·  background sampled to {_LEGACY_NORMAL_MAX:,} pts" if _was_sampled else ""
         fig.update_layout(
@@ -559,12 +490,11 @@ def run_outlier(df, x_cols=None, y_cols=None, palette=None, **kwargs):  # Legacy
         fig.update_yaxes(showgrid=False, zeroline=False)
         charts.append((f"Outliers: {col}", fig))
 
+
     return charts
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Help text -- shown on legacy outlier chart cards
-# ─────────────────────────────────────────────────────────────────────────────
+
 
 OUTLIER_HELP = (
     "**📊 How to read Outlier charts:**  "

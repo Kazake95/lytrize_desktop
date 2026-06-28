@@ -38,7 +38,6 @@ LOGO_PATH   = Path(__file__).resolve().parents[2] / "assets" / "lytrize.ico"
 THEME_MODES = ("dark", "light")
 
 
-# ── Theme state (stored in session_state — no file I/O) ───────────────────────
 
 def get_theme_mode() -> str:
     try:
@@ -57,7 +56,6 @@ def set_theme_mode(mode: str) -> None:
         pass
 
 
-# ── Logo ──────────────────────────────────────────────────────────────────────
 
 @lru_cache(maxsize=1)
 def logo_data_uri() -> str:
@@ -68,14 +66,9 @@ def logo_data_uri() -> str:
         return ""
 
 
-# ── Google Fonts ──────────────────────────────────────────────────────────────
 
 @lru_cache(maxsize=1)
 def _font_link() -> str:
-    # Non-blocking font load via media=print swap.
-    # preconnect tags are intentionally OMITTED: they open real TCP connections
-    # immediately, regardless of media attribute — causing a DNS stall on every
-    # page load when the desktop app is used offline.
     return (
         "<link rel='stylesheet'"
         " href='https://fonts.googleapis.com/css2?"
@@ -92,7 +85,6 @@ def _font_link() -> str:
     )
 
 
-# ── Public injection entry point ──────────────────────────────────────────────
 
 def inject_css() -> None:
     """Inject fonts + full stylesheet into the Streamlit page."""
@@ -552,13 +544,74 @@ div[data-baseweb="notification"],
     height: auto !important;
 }
 
-/* Color picker popup */
-[data-baseweb="popover"] input[type="text"],
-[data-baseweb="popover"] input {
-    background: rgba(255,255,255,0.98) !important;
+/* Color picker popup — light mode fix
+   Streamlit renders st.color_picker in a baseweb popover that contains
+   a <canvas> (saturation/brightness picker) and <input> (hex field).
+   The popover inherits Streamlit's base dark theme even in light mode.
+   We target the popover that :has(canvas) to scope these rules strictly
+   to the color picker (avoids touching dropdown menus or tooltips). */
+
+/* Popup container */
+div[data-baseweb="popover"]:has(canvas) {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    border: 1px solid rgba(99,102,241,0.22) !important;
+    border-radius: 10px !important;
+    box-shadow: 0 8px 24px rgba(99,102,241,0.14) !important;
+}
+
+/* All child divs inside the popup (strip dark bg inherited from base theme) */
+div[data-baseweb="popover"]:has(canvas) > div,
+div[data-baseweb="popover"]:has(canvas) > div > div {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    border-radius: 10px !important;
+}
+
+/* The saturation/brightness canvas box wrapper */
+div[data-baseweb="popover"]:has(canvas) div:has(> canvas) {
+    background: transparent !important;
+    border-radius: 6px !important;
+    overflow: hidden !important;
+}
+
+/* Hue & opacity slider tracks */
+div[data-baseweb="popover"]:has(canvas) [class*="slider"],
+div[data-baseweb="popover"]:has(canvas) [class*="track"] {
+    background: transparent !important;
+}
+
+/* Hex input field */
+div[data-baseweb="popover"]:has(canvas) input[type="text"],
+div[data-baseweb="popover"]:has(canvas) input {
+    background: rgba(241,245,255,0.98) !important;
+    background-color: rgba(241,245,255,0.98) !important;
     color: #1e1b4b !important;
     -webkit-text-fill-color: #1e1b4b !important;
-    border: 1px solid rgba(99,102,241,0.22) !important;
+    border: 1px solid rgba(99,102,241,0.28) !important;
+    border-radius: 6px !important;
+}
+
+/* "HEX" label below the input */
+div[data-baseweb="popover"]:has(canvas) p,
+div[data-baseweb="popover"]:has(canvas) span:not([style*="background"]) {
+    color: #4b5563 !important;
+    -webkit-text-fill-color: #4b5563 !important;
+    background: transparent !important;
+}
+
+/* Number increment/decrement arrows beside the hex input */
+div[data-baseweb="popover"]:has(canvas) button,
+div[data-baseweb="popover"]:has(canvas) [role="button"] {
+    background: rgba(241,245,255,0.98) !important;
+    color: #1e1b4b !important;
+    -webkit-text-fill-color: #1e1b4b !important;
+    border-color: rgba(99,102,241,0.2) !important;
+}
+div[data-baseweb="popover"]:has(canvas) button svg,
+div[data-baseweb="popover"]:has(canvas) [role="button"] svg {
+    fill: #1e1b4b !important;
+    color: #1e1b4b !important;
 }
 
 /* Sliders */
@@ -697,7 +750,6 @@ div[data-baseweb="popover"]:not(:has([role="option"])):not(:has([role="tooltip"]
 """
 
 
-# ── CSS colour tokens ─────────────────────────────────────────────────────────
 
 def _theme_vars(_mode: str) -> str:
     """CSS custom-property block — dark or light palette."""
@@ -744,9 +796,6 @@ def _theme_vars(_mode: str) -> str:
 """
 
 
-# ═════════════════════════════════════════════════════════════════════════════=
-# Full stylesheet
-# ═════════════════════════════════════════════════════════════════════════════=
 
 def _build_css(theme_mode: str) -> str:
     vars_css = _theme_vars(theme_mode)
@@ -755,7 +804,6 @@ def _build_css(theme_mode: str) -> str:
 <style>
 
 /* Hide Streamlit chrome */
-#MainMenu, footer, header,
 .stDeployButton, .stAppDeployButton,
 .stStatusWidget, .stActionButton,
 [data-testid="stToolbar"],
@@ -869,7 +917,6 @@ div[data-testid="stVerticalBlock"]:has(#nav-target):not(:has(div[data-testid="st
     width:           auto           !important;
 }}
 
-#nav-target {{ display: none !important; }}
 
 /* All nav buttons — gradient style */
 div[data-testid="stVerticalBlock"]:has(#nav-target) [data-testid="stButton"] button {{
@@ -1267,7 +1314,6 @@ hr {{
 """
 
 
-# ── Logo ──────────────────────────────────────────────────────────────────────
 
 def render_logo() -> None:
     """
@@ -1281,7 +1327,6 @@ def render_logo() -> None:
         if logo_src else '<span style="font-size:.5rem">📊</span>'
     )
 
-    # Fixed top bar — brand name centred
     st.markdown(
         '<div style="height:0;overflow:visible;margin:0;padding:0;">'
         f'<div class="lytrize-topbar">'
@@ -1299,28 +1344,24 @@ def render_logo() -> None:
         unsafe_allow_html=True,
     )
 
-    # Top-right navigation — pinned by CSS selector on #nav-target
     is_guest   = st.session_state.get("is_guest", False)
     theme_mode = st.session_state.get("theme", "dark")
 
     with st.container():
         st.markdown('<div id="nav-target"></div>', unsafe_allow_html=True)
 
-        # Theme toggle — icon only, clean and compact
         _icon = "☀️" if theme_mode == "dark" else "🌙"
         _help = "Switch to light mode" if theme_mode == "dark" else "Switch to dark mode"
         if st.button(_icon, key="global_nav_theme", help=_help):
             set_theme_mode("light" if theme_mode == "dark" else "dark")
             st.rerun()
 
-        # Pipe divider (second)
         st.markdown(
             "<span style='color:rgba(148,163,184,0.45);font-size:1rem;"
             "line-height:1;pointer-events:none;user-select:none;margin:0 0.3rem;'>│</span>",
             unsafe_allow_html=True,
         )
 
-        # Sessions button
         if st.button(" Sessions ⚙️", key="global_nav_profile", help="Backup-Restore"):
             st.session_state.page = "profile"
             st.rerun()
@@ -1364,7 +1405,6 @@ def _do_logout() -> None:
     st.rerun()
 
 
-# ── Table layout standardizer for light-mode ─────────────────────────────────
 
 def inject_footer() -> None:
     """Render the fixed bottom footer bar."""

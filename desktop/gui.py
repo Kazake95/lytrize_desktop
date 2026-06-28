@@ -70,7 +70,6 @@ from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QFont
 from PySide6.QtCore import Qt, QThread, Signal, QPropertyAnimation, QEasingCurve, QTimer, Property
 
 
-# ── Paths ─────────────────────────────────────────────────────────────────────
 
 BASE       = Path(__file__).resolve().parent.parent
 DATA_DIR   = Path.home() / ".local" / "share" / "lytrize"
@@ -80,13 +79,10 @@ VENV_PY    = BASE / "venv" / "bin" / "python"
 APP_PY     = BASE / "backend" / "app.py"
 APP_URL    = "http://127.0.0.1:8501"
 
-# Isolated browser profile directories — kept outside the user's real profiles
-# so Lytrize never touches the user's bookmarks / history / settings.
 _PROFILE_ROOT = DATA_DIR / "browser-profiles"
 _CHROMIUM_PROFILE = _PROFILE_ROOT / "chromium"
 _FIREFOX_PROFILE  = _PROFILE_ROOT / "firefox"
 
-# Streamlit readiness polling parameters
 _POLL_INTERVAL_S = 0.5   # seconds between socket probes
 _POLL_MAX_TRIES  = 60    # 60 × 0.5 s = 30 s total timeout
 
@@ -104,7 +100,6 @@ def _find_icon() -> Path:
 ICON_PATH = _find_icon()
 
 
-# ── Preferences ───────────────────────────────────────────────────────────────
 
 def _load_prefs() -> dict:
     """
@@ -139,10 +134,7 @@ def _save_prefs(data: dict) -> None:
         pass
 
 
-# ── Browser detection ─────────────────────────────────────────────────────────
 
-# Each entry: (display_name, binary_name, is_chromium_based)
-# Listed in preference order — higher entries win when multiple entries
 _BROWSER_CANDIDATES: list[tuple[str, str, bool]] = [
     ("Google Chrome",  "google-chrome",        True),
     ("Google Chrome",  "google-chrome-stable", True),
@@ -191,7 +183,6 @@ def _detect_browsers() -> list[dict]:
     return found
 
 
-# ── App icon ──────────────────────────────────────────────────────────────────
 
 def _make_icon() -> QIcon:
     """
@@ -205,7 +196,6 @@ def _make_icon() -> QIcon:
         if not pixmap.isNull():
             return QIcon(pixmap)
 
-    # Fallback: draw a simple branded icon at runtime
     pixmap = QPixmap(64, 64)
     pixmap.fill(Qt.transparent)
     painter = QPainter(pixmap)
@@ -220,7 +210,6 @@ def _make_icon() -> QIcon:
     return QIcon(pixmap)
 
 
-# ── Worker threads ────────────────────────────────────────────────────────────
 
 class _WaitThread(QThread):
     """
@@ -239,8 +228,6 @@ class _WaitThread(QThread):
     def run(self) -> None:
         for _ in range(_POLL_MAX_TRIES):
             try:
-                # Use a context manager so the socket is always closed, even on
-                # KeyboardInterrupt or other exceptions — avoids fd leaks.
                 with socket.create_connection(("127.0.0.1", 8501), _POLL_INTERVAL_S):
                     pass
                 self.ready.emit()
@@ -303,7 +290,6 @@ def _ensure_firefox_profile(profile_dir: Path) -> None:
     except Exception:
         pass
 
-    # ── user.js — Firefox preference overrides ────────────────────────────
     user_js = profile_dir / "user.js"
     if not user_js.exists():
         user_js.write_text(
@@ -319,19 +305,11 @@ def _ensure_firefox_profile(profile_dir: Path) -> None:
             'user_pref("app.normandy.enabled",                    false);\n'
             'user_pref("extensions.formautofill.addresses.enabled", false);\n'
             'user_pref("browser.newtabpage.activity-stream.feeds.section.highlights", false);\n'
-            # Do not force fullscreen; use a normal resizable window.
             'user_pref("browser.startup.maximized",               false);\n'
-            # REQUIRED to allow userChrome.css to take effect.
             'user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);\n'
-            # Hide the tab bar — we only want a single-tab app window.
             'user_pref("browser.tabs.inTitlebar",                 0);\n'
         )
 
-    # ── userChrome.css — hide address bar + tab strip ─────────────────────
-    # This is the ONLY reliable way to give Firefox a webapp-style window
-    # (no address bar, no tab strip) without --kiosk.  The window still has
-    # a native OS title bar so the user can move, resize, minimise, and close
-    # it normally — just like a Chromium --app= window.
     chrome_dir = profile_dir / "chrome"
     chrome_dir.mkdir(exist_ok=True)
     user_chrome = chrome_dir / "userChrome.css"
@@ -355,7 +333,6 @@ def _ensure_firefox_profile(profile_dir: Path) -> None:
 
 
 
-# ── Animated pulsing dot widget ───────────────────────────────────────────────
 
 class _PulseDot(QWidget):
     """
@@ -382,7 +359,6 @@ class _PulseDot(QWidget):
         self._anim.setLoopCount(-1)          # loop forever
         self._anim.finished.connect(self._flip)  # ping-pong
 
-    # ── Qt property wiring ────────────────────────────────────────────────
 
     def _get_opacity(self) -> float:
         return self._opacity
@@ -393,7 +369,6 @@ class _PulseDot(QWidget):
 
     opacity = Property(float, _get_opacity, _set_opacity)
 
-    # ── Animation control ─────────────────────────────────────────────────
 
     def _flip(self) -> None:
         """Reverse direction for ping-pong effect."""
@@ -425,7 +400,6 @@ class _PulseDot(QWidget):
         p.drawEllipse(0, 0, self._size, self._size)
 
 
-# ── Launcher window ───────────────────────────────────────────────────────────
 
 class Launcher(QWidget):
     """
@@ -443,7 +417,6 @@ class Launcher(QWidget):
     and closes completely only when the user clicks "Stop & Quit".
     """
 
-    # ── Stylesheet ─────────────────────────────────────────────────────────
     _QSS = """
         /* ── Base ── */
         QWidget {
@@ -639,7 +612,6 @@ class Launcher(QWidget):
         self._icon         = _make_icon()
         self._crash_count  = 0
 
-        # Progress animation timer (used during startup polling)
         self._progress_timer = QTimer(self)
         self._progress_timer.setInterval(120)
         self._progress_timer.timeout.connect(self._tick_progress)
@@ -658,10 +630,8 @@ class Launcher(QWidget):
         self._connect_signals()
         self._apply_window_shadow()
 
-        # Drag-to-move support (frameless window)
         self._drag_pos = None
 
-    # ── Window drag (frameless) ───────────────────────────────────────────
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.LeftButton:
@@ -674,7 +644,6 @@ class Launcher(QWidget):
     def mouseReleaseEvent(self, event) -> None:
         self._drag_pos = None
 
-    # ── Visual depth ──────────────────────────────────────────────────────
 
     def _apply_window_shadow(self) -> None:
         shadow = QGraphicsDropShadowEffect(self)
@@ -683,17 +652,14 @@ class Launcher(QWidget):
         shadow.setColor(QColor(0, 0, 0, 160))
         self._card.setGraphicsEffect(shadow)
 
-    # ── UI construction ───────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
         """Construct and lay out all widgets inside a rounded card."""
 
-        # ── Card container (receives the QSS background + border) ─────────
         self._card = QWidget(self)
         self._card.setObjectName("card")
         self._card.setGeometry(10, 10, self.width() - 20, self.height() - 20)
 
-        # ── Logo + title row ──────────────────────────────────────────────
         lbl_icon = QLabel()
         lbl_icon.setPixmap(self._icon.pixmap(28, 28))
         lbl_icon.setAlignment(Qt.AlignCenter)
@@ -709,7 +675,6 @@ class Launcher(QWidget):
         title_col.addWidget(lbl_title)
         title_col.addWidget(lbl_sub)
 
-        # ── Close button (X) ──────────────────────────────────────────────
         self.close_btn = QPushButton("✕")
         self.close_btn.setObjectName("close_btn")
         self.close_btn.setFixedSize(24, 24)
@@ -724,7 +689,6 @@ class Launcher(QWidget):
         header.addStretch()
         header.addWidget(self.close_btn)
 
-        # ── Status row (pulsing dot + text) ──────────────────────────────
         self._dot = _PulseDot("#64748b", 9, self._card)
         self._dot.setFixedSize(9, 9)
 
@@ -738,7 +702,6 @@ class Launcher(QWidget):
         status_row.addWidget(self.lbl_status)
         status_row.addStretch()
 
-        # ── Progress bar (shown during startup) ──────────────────────────
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
@@ -746,13 +709,11 @@ class Launcher(QWidget):
         self.progress.setFixedHeight(4)
         self.progress.setVisible(False)
 
-        # ── Divider ───────────────────────────────────────────────────────
         divider = QFrame()
         divider.setObjectName("divider")
         divider.setFrameShape(QFrame.HLine)
         divider.setFixedHeight(1)
 
-        # ── Browser selector ──────────────────────────────────────────────
         prefs = _load_prefs()
         self.combo_browser: QComboBox | None = None
         if len(self._browsers) > 1:
@@ -767,7 +728,6 @@ class Launcher(QWidget):
                     selected_idx = i
             self.combo_browser.setCurrentIndex(selected_idx)
 
-        # ── Buttons ───────────────────────────────────────────────────────
         self.btn_start = QPushButton("▶  Start")
         self.btn_start.setObjectName("btn_start")
         self.btn_start.setFixedHeight(38)
@@ -783,13 +743,11 @@ class Launcher(QWidget):
         self.btn_open.setEnabled(False)
         self.btn_stop.setEnabled(False)
 
-        # ── Hint ─────────────────────────────────────────────────────────
         hint = QLabel("All data is stored locally on this device.")
         hint.setObjectName("hint")
         hint.setAlignment(Qt.AlignCenter)
         hint.setWordWrap(True)
 
-        # ── Card layout ───────────────────────────────────────────────────
         card_layout = QVBoxLayout(self._card)
         card_layout.setContentsMargins(24, 20, 24, 18)
         card_layout.setSpacing(10)
@@ -836,7 +794,6 @@ class Launcher(QWidget):
         if self.combo_browser is not None:
             self.combo_browser.currentIndexChanged.connect(self._on_browser_changed)
 
-    # ── Helpers ───────────────────────────────────────────────────────────
 
     def _set_status(self, text: str, dot_colour: str = "#64748b",
                     pulse: bool = False) -> None:
@@ -865,7 +822,6 @@ class Launcher(QWidget):
         prefs["browser_binary"] = self.combo_browser.itemData(idx)
         _save_prefs(prefs)
 
-    # ── Progress animation ─────────────────────────────────────────────────
 
     def _start_progress(self) -> None:
         """Show and animate the startup progress bar."""
@@ -888,7 +844,6 @@ class Launcher(QWidget):
         self.progress.setValue(100)
         QTimer.singleShot(500, lambda: self.progress.setVisible(False))
 
-    # ── Start / Stop ──────────────────────────────────────────────────────
 
     def _start(self) -> None:
         """
@@ -915,7 +870,6 @@ class Launcher(QWidget):
         except Exception:
             pass
 
-        # Cancel leftover threads from the previous run
         if self._wait_thread is not None:
             try:
                 self._wait_thread.ready.disconnect()
@@ -936,7 +890,6 @@ class Launcher(QWidget):
             self._watch_thread.wait(2000)
             self._watch_thread = None
 
-        # Build subprocess environment
         env = os.environ.copy()
         env["LYTRIZE_DB_PATH"] = str(DB_PATH)
 
@@ -954,20 +907,12 @@ class Launcher(QWidget):
 
         python = str(VENV_PY) if VENV_PY.exists() else "python3"
 
-        # Explicitly pin PYTHONPATH to the venv site-packages so imports
-        # succeed even when the target Python minor version differs from the
-        # build machine (e.g. built with 3.12, target has 3.13). glob finds
-        # the actual versioned lib/python3.X/site-packages directory.
         import glob as _glob
         _sp = _glob.glob("/opt/lytrize/venv/lib/python*/site-packages")
         if _sp:
             _existing = env.get("PYTHONPATH", "")
             env["PYTHONPATH"] = _sp[0] + (":" + _existing if _existing else "")
 
-        # Open a log file for the Streamlit backend so stdout/stderr are never
-        # inherited from the launcher (which would flood the terminal) and the
-        # OS pipe buffer can never fill and block the subprocess.
-        # The log is written to DATA_DIR/streamlit.log and truncated on each launch.
         _log_path = DATA_DIR / "streamlit.log"
         try:
             _log_fh = open(_log_path, "w", buffering=1)  # line-buffered
@@ -1044,7 +989,6 @@ class Launcher(QWidget):
                 4000,
             )
 
-    # ── Open browser ──────────────────────────────────────────────────────
 
     def _open_app(self) -> None:
         """Open the Lytrize web UI in the selected browser."""
@@ -1079,7 +1023,6 @@ class Launcher(QWidget):
                 stderr=_devnull,
             )
         else:
-            # Firefox / Gecko-based
             _ensure_firefox_profile(_FIREFOX_PROFILE)
             subprocess.Popen(
                 [
@@ -1095,7 +1038,6 @@ class Launcher(QWidget):
                 stderr=_devnull,
             )
 
-    # ── Stop ──────────────────────────────────────────────────────────────
 
     def _stop_and_quit(self) -> None:
         """
@@ -1132,7 +1074,6 @@ class Launcher(QWidget):
         self.tray.hide()
         QApplication.quit()
 
-    # ── System tray ───────────────────────────────────────────────────────
 
     def _tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason == QSystemTrayIcon.DoubleClick:
@@ -1143,7 +1084,6 @@ class Launcher(QWidget):
                 self.raise_()
                 self.activateWindow()
 
-    # ── Window close → minimise to tray ──────────────────────────────────
 
     def closeEvent(self, event) -> None:  # noqa: N802
         if self._is_running():
@@ -1159,7 +1099,6 @@ class Launcher(QWidget):
             event.accept()
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     QApplication.setApplicationName("Lytrize")
@@ -1168,7 +1107,6 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setApplicationDisplayName("Lytrize")
     app.setDesktopFileName("lytrize")
-    # Keep the process alive even when the launcher window is hidden (tray mode).
     app.setQuitOnLastWindowClosed(False)
 
     icon = _make_icon()

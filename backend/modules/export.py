@@ -1,35 +1,5 @@
-"""
-modules/export.py -- HTML export engine for Lytrize dashboards.
-===============================================================
+"""modules/export.py -- HTML export engine for Lytrize dashboards."""
 
-Generates a self-contained HTML dashboard. Open in any browser and use
-File → Print → Save as PDF for pixel-perfect export — no server dependencies.
-
-COLOUR CUSTOMISATION (new)
-──────────────────────────
-generate_html_report() accepts a `theme` dict that controls the visual
-appearance of the exported HTML. The dashboard page shows a colour picker
-panel before download so users can personalise their output.
-
-Theme keys (all optional — defaults used for any omitted key):
-    bg_color       : page background colour        default "#121a2e"
-    card_bg        : chart card background          default "#1b2245"
-    kpi_bg         : KPI card background            default "#1b2245"
-    accent_color   : heading, KPI value, accents    default "#6163df"
-    card_border    : card border colour             default "#2c3564"
-    text_color     : body text colour               default "#f5f7ff"
-    insight_bg     : insights panel background      default "#1a2441"
-    insight_border : insights left border colour    default "#6163df"
-    notes_bg       : notes panel background         default "#1a1732"
-    notes_border   : notes left border colour       default "#8566fc"
-    card_radius    : card corner radius in px        default 12
-    gap            : dashboard grid gap in px        default 24
-    body_padding   : page padding in px              default 32
-    chart_height   : chart height in px              default 400
-    max_width      : wrapper max width CSS value     default by orientation
-    show_meta      : show generated timestamp        default True
-    show_print_hint: show print helper text          default True
-"""
 
 import re
 import copy
@@ -38,7 +8,7 @@ from html import escape
 from modules.charts import clean_insight_text
 
 
-# ── HTML helpers ─────────────────────────────────────────────────────────────
+
 
 _EMOJI_RE = re.compile(
     "[\U0001F300-\U0001FFFF"
@@ -48,12 +18,15 @@ _EMOJI_RE = re.compile(
     "\u2700-\u27BF"
     "]+", flags=re.UNICODE)
 
+
 _ICON_MAP = {
     "💰": "$", "📊": "[chart]", "📐": "[med]", "🔢": "#",
     "⬇️": "v", "⬆️": "^", "📈": "%", "🔍": "[?]",
     "📅": "[dt]", "🏆": "1st", "📉": "[low]",
     "💡": "*", "📝": "Note:", "•": "-",
 }
+
+
 
 
 def _clean_pdf(text: str) -> str:
@@ -65,12 +38,15 @@ def _clean_pdf(text: str) -> str:
     return s.encode("latin-1", "replace").decode("latin-1")
 
 
+
+
 def _h(text) -> str:
     """HTML-escape a value."""
     return escape(str(text), quote=True)
 
 
-# ── Default export theme ──────────────────────────────────────────────────────
+
+
 def _default_text_style() -> dict:
     """Return the default typography settings used in exported charts."""
     return {
@@ -90,6 +66,8 @@ def _default_text_style() -> dict:
     }
 
 
+
+
 def _merge_text_style(raw: dict | None) -> dict:
     """Merge a stored text-style dict over the defaults."""
     style = _default_text_style()
@@ -103,7 +81,7 @@ def _merge_text_style(raw: dict | None) -> dict:
     return style
 
 
-# ── Default export theme ──────────────────────────────────────────────────────
+
 
 DEFAULT_THEME = {
     "bg_color":       "#121a2e",
@@ -140,6 +118,8 @@ DEFAULT_THEME = {
 }
 
 
+
+
 def _merge_theme(user_theme: dict) -> dict:
     """Merge user overrides into the default theme. Missing keys use defaults."""
     t = dict(DEFAULT_THEME)
@@ -148,7 +128,7 @@ def _merge_theme(user_theme: dict) -> dict:
     return t
 
 
-# ── HTML Export ───────────────────────────────────────────────────────────────
+
 
 def _apply_axes(fig, x_lbl, y_lbl, text_style: dict | None = None):
     """Apply axis titles and axis text styling to a chart copy."""
@@ -178,6 +158,8 @@ def _apply_axes(fig, x_lbl, y_lbl, text_style: dict | None = None):
         return f2
     except Exception:
         return fig
+
+
 
 
 def _apply_legend_names(fig, legend_names: dict, legend_title: str = "", text_style: dict | None = None):
@@ -214,16 +196,6 @@ def _apply_legend_names(fig, legend_names: dict, legend_title: str = "", text_st
         return fig
 
 
-# ── Offline Plotly JS injection ───────────────────────────────────────────────
-#
-# Plotly.js is embedded via fig.to_html(include_plotlyjs=True) on the FIRST
-# chart in every report. Plotly internally calls plotly.offline.get_plotlyjs()
-# which returns the full minified JS bundle from the INSTALLED package on disk —
-# no CDN, no network request.  Subsequent charts use include_plotlyjs=False so
-# the bundle is included exactly once.
-#
-# The exported HTML is therefore 100 % self-contained and works offline.
-#
 
 
 def generate_html_report(
@@ -233,41 +205,18 @@ def generate_html_report(
     kpis=None,
     dashboard_title="",
     grid_cols_n=2,
-    inline_plotly=True,   # always True — offline-first desktop app
+    inline_plotly=True,
     theme: dict = None,
 ) -> str:
-    """
-    Generate a fully self-contained HTML dashboard file.
-
-    All Plotly.js is embedded inline from the installed package (no CDN).
-    The file works completely offline once downloaded.
-
-    Parameters
-    ----------
-    charts       : list of (uid, title, fig, notes [, auto_insights, desc, meta])
-    session_name : fallback title if dashboard_title is empty
-    orientation  : "portrait" | "landscape"  controls max-width and grid columns
-    kpis         : list of KPI dicts (icon, label, value, prefix, suffix, change_pct)
-    dashboard_title : display title (overrides session_name)
-    grid_cols_n  : number of CSS grid columns (1 or 2)
-    inline_plotly: legacy param — kept for API compatibility, always treated as True
-    theme        : colour customisation dict (see module docstring)
-
-    Returns
-    -------
-    HTML string ready to be written to a file or returned via st.download_button.
-    """
-    inline_plotly = True  # enforce — never use CDN for an offline-first app
+    """Generate a fully self-contained HTML dashboard file."""
+    inline_plotly = True
     t            = _merge_theme(theme or {})
     is_landscape = orientation == "landscape"
-    # Use full available width with padding for a proper 1080p/1440p dashboard.
-    # max_width = 1fr of 1920px - 2×body_padding keeps the content edge-to-edge
-    # while still looking clean on smaller screens (wrapper shrinks to 100%).
     max_width    = t.get("max_width") or "1840px"
     grid_css     = f"repeat({grid_cols_n}, 1fr)"
     title        = dashboard_title or session_name
     safe_title   = _h(title)
-    now_str      = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    now_str      = datetime.datetime.now().strftime("%Y-%m-%d %I:%M %p")
     card_radius  = int(t.get("card_radius", 12))
     gap_px       = int(t.get("gap", 24))
     padding_px   = int(t.get("body_padding", 40))
@@ -276,16 +225,8 @@ def generate_html_report(
         f'<div class="meta">Generated by Lytrize &middot; {now_str}</div>'
         if t.get("show_meta", True) else ""
     )
-#     print_hint_html = (
-#         """
-#   <div class="print-hint">
-#     &#128438; To save as PDF: <strong>Ctrl+P &rarr; Print &rarr; Save as PDF.</strong>
-#     &nbsp;&middot;&nbsp; Keep <strong>Background graphics</strong> enabled for best results.
-#   </div>"""
-#         if t.get("show_print_hint", True) else ""
-#     )
 
-    # ── KPI strip ──────────────────────────────────────────────────────────────
+
     kpi_html = ""
     if kpis:
         def _change_style(k):
@@ -294,22 +235,23 @@ def generate_html_report(
             clr = "#10b981" if k.get("change_pct", 0) >= 0 else "#ef4444"
             return f"color:{clr};font-weight:700"
 
+
         def _arrow(k):
             if "change_pct" not in k:
                 return ""
             return "▲ " if k.get("change_pct", 0) >= 0 else "▼ "
 
+
         def _kpi_val_style(k, base):
             full = f'{k.get("prefix","")}{k.get("value","--")}{k.get("suffix","")}'
-            # Use theme-controlled font size as base; auto-shrink for very long values
             base_size = t.get("kpi_val_size", 14)
             size = f"{max(base_size - 4, 10)}px" if len(full) > 16 else (
                    f"{max(base_size - 2, 10)}px" if len(full) > 12 else f"{base_size}px")
             kpi_col = t.get("kpi_text_color", "#f5f7ff")
             wrap = "white-space:normal;word-break:break-word;overflow-wrap:anywhere;" if len(full) > 12 else ""
-            # base (from _change_style) overrides kpi_col for positive/negative changes
             colour_part = base if base else f"color:{kpi_col}"
             return f"font-size:{size};{wrap}{colour_part}"
+
 
         kpi_items = "".join(
             f'<div class="kpi-card">'
@@ -323,19 +265,20 @@ def generate_html_report(
         )
         kpi_html = f'<div class="kpi-row">{kpi_items}</div><hr>'
 
-    # ── Chart blocks ───────────────────────────────────────────────────────────
+
     chart_blocks = ""
     for idx, item in enumerate(charts):
         uid, chart_title, fig, notes = item[:4]
         auto_insights = item[4] if len(item) > 4 else []
         meta          = item[6] if len(item) > 6 else {}
 
+
         display_title = meta.get("custom_title") or chart_title
         subtitle      = meta.get("subtitle", "")
         col_span      = "grid-column: 1 / -1;" if meta.get("full_width") else ""
         text_style    = _merge_text_style(meta.get("text_style", {}))
 
-        # Clone figure — remove embedded title (shown as <h2> instead).
+
         fig_r = copy.deepcopy(fig)
         fig_r.update_layout(title_text="")
         fig_r = _apply_axes(fig_r, meta.get("x_label", ""), meta.get("y_label", ""), text_style)
@@ -353,35 +296,25 @@ def generate_html_report(
             fig_r.update_yaxes(automargin=True)
             fig_r.update_layout(margin=dict(l=30, r=30, t=20, b=80))
 
-        # Apply theme colours to chart paper/plot background.
+
         fig_r.update_layout(
             autosize=True, width=None, height=chart_height,
             paper_bgcolor=t["card_bg"],
             plot_bgcolor=t["card_bg"],
         )
 
-        # Always embed Plotly JS from the local package in the FIRST chart block.
-        # Subsequent charts get include_plotlyjs=False because Plotly is already
-        # loaded from the first block.  This produces one self-contained file with
-        # no external dependencies — works completely offline.
+
         include_js = True if idx == 0 else False
         chart_html = fig_r.to_html(
             full_html=False,
             include_plotlyjs=include_js,
             config={
-                # Show the modebar on hover in the interactive HTML view.
-                # In headless PNG screenshots the hover-suppression CSS
-                # (injected by playwright_renderer before the screenshot fires)
-                # hides .modebar via display:none, so it never appears in PNGs
-                # regardless of this setting -- giving a cleaner export.
                 "displayModeBar": "hover",
-                # Don't let Plotly try to resize to a non-existent viewport in
-                # headless mode; it renders at its own computed width instead.
                 "responsive": False,
             },
         )
 
-        # Insights panel
+
         insight_html = ""
         if auto_insights and meta.get("show_auto_insights", True):
             hidden  = set(meta.get("hidden_insights", []))
@@ -393,12 +326,13 @@ def generate_html_report(
                     f'<ul>{items}</ul></div>'
                 )
 
-        # Notes panel
+
         notes_str  = str(notes).strip() if notes else ""
         notes_html = (
             f'<div class="notes"><strong>Analysis Notes:</strong> {_h(notes_str)}</div>'
             if notes_str else ""
         )
+
 
         chart_blocks += (
             f'<div class="chart-card" style="{col_span}">'
@@ -413,13 +347,10 @@ def generate_html_report(
             + "</div>"
         )
 
-    # ── Plotly JS block (injected before </body> for fast first paint) ────────
-    # get_plotlyjs() is already embedded inline in the first chart's HTML via
-    # include_plotlyjs=True above.  This script block just adds the relayout
-    # helper that fires after the page loads.
-    plotly_guard = ""  # JS already embedded in first chart's HTML
 
-    # ── Full HTML document ────────────────────────────────────────────────────
+    plotly_guard = ""
+
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -437,6 +368,7 @@ def generate_html_report(
       font-weight: 100 900;
       src: local('Inter'), local('Inter-Regular');
     }}
+
 
     *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
     html, body {{ height: 100%; }}
@@ -457,9 +389,11 @@ def generate_html_report(
       box-sizing: border-box;
     }}
 
+
     .report-header {{ text-align: center; margin-bottom: 2rem; }}
     .report-header h1 {{ font-size: {t['title_size'] / 16:.2f}rem; font-weight: 800; color: {t['title_color']}; font-family: {t['title_font']}, 'DejaVu Sans', Arial, sans-serif; }}
-    .report-header .meta {{ font-size: 0.8rem; color: #64748b; margin-top: 0.4rem; }}
+    .report-header .meta {{ font-size: 0.8rem; color: {t['text_color']}; }}
+
 
     .print-hint {{
       text-align: center;
@@ -467,8 +401,9 @@ def generate_html_report(
       margin: 2rem auto 1.2rem;
       width: fit-content;
       font-size: 0.78rem;
-      color: #94a3b8;
+      color: {t['text_color']};
     }}
+
 
     /* ── KPI strip ── */
     .kpi-row {{
@@ -491,12 +426,14 @@ def generate_html_report(
       line-height: 1.2; overflow: visible;
     }}
     .kpi-label {{
-      font-size: 0.72rem; color: #64748b;
+      font-size: 0.72rem; color: {t['kpi_text_color']};
       margin-top: 0.2rem; font-weight: 600;
       text-transform: uppercase; letter-spacing: 0.06em;
     }}
 
+
     hr {{ border: none; border-top: 1px solid {t['card_border']}; margin: 1.5rem 0; }}
+
 
     /* ── Chart grid ── */
     .grid {{
@@ -517,12 +454,13 @@ def generate_html_report(
       font-size: 0.95rem; font-weight: 700;
       margin-bottom: 0.15rem; color: {t['text_color']};
     }}
-    .subtitle {{ font-size: 0.78rem; color: #64748b; margin-bottom: 0.6rem; }}
+    .subtitle {{ font-size: 0.78rem; color: {t['text_color']}; }}
     .chart-wrap {{ width: 100%; overflow: hidden; display: block; }}
     .chart-wrap .js-plotly-plot {{ width: 100% !important; display: block !important; }}
     .chart-wrap .plotly          {{ width: 100% !important; }}
     .chart-wrap .plot-container  {{ width: 100% !important; }}
     .chart-wrap svg.main-svg     {{ width: 100% !important; }}
+
 
     /* ── Insights ── */
     .insights {{
@@ -539,6 +477,7 @@ def generate_html_report(
     .insights ul {{ margin-left: 1rem; }}
     .insights li {{ margin-bottom: 0.2rem; line-height: 1.5; }}
 
+
     /* ── Notes ── */
     .notes {{
       background: {t['notes_bg']};
@@ -551,6 +490,7 @@ def generate_html_report(
       font-family: {t['notes_font']}, 'DejaVu Sans', Arial, sans-serif;
       font-style: italic;
     }}
+
 
     @page {{ margin: 12mm 10mm; }}
     @media print {{
@@ -618,13 +558,11 @@ def generate_html_report(
 <body>
   <div class="wrapper">
     <div class="report-header">
-      <h1>&#128202; {safe_title}</h1>
-      {meta_html}
+      <h1>{safe_title}</h1>
     </div>
     {kpi_html}
     <div class="grid">{chart_blocks}</div>
   </div>
-{print_hint_html}
   <script>
     /*
      * Plotly.js is already embedded inline above (no CDN required).
@@ -645,5 +583,6 @@ def generate_html_report(
     window.addEventListener('resize',      function() {{ setTimeout(relayoutAll,  80); }});
     window.addEventListener('beforeprint', function() {{ relayoutAll(); }});
   </script>
+  <div style="position:fixed; bottom:0; left:0; width:100%; text-align:center; padding: 1rem 0; background:{t['bg_color']}; color:{t['text_color']};">{meta_html}</div>
 </body>
 </html>"""

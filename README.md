@@ -29,7 +29,7 @@ Built for people who work with data regularly and want answers fast, without ope
 
 ---
 
-## Features
+## Current Features
 
 | | |
 |---|---|
@@ -37,11 +37,16 @@ Built for people who work with data regularly and want answers fast, without ope
 | **📊 10 chart types** | Bar, pie/donut, scatter, histogram, time series, correlation heatmap, matrix/pivot, geographic map, outlier, and data quality |
 | **🔍 Auto insights** | Automated plain-language observations generated for every chart |
 | **🗂️ Dashboard builder** | Arrange charts in a portrait or landscape grid, add KPI summary cards, set a title, and save |
-| **📤 Export** | Download as a self-contained HTML file (no server dependency) or render to PNG using your installed browser |
+| **📤 Export** | Download as a self-contained HTML file (no server dependency) — then use your browser's DevTools to save as PNG |
 | **🧹 Data tools** | Column rename, type cast, outlier flagging, and missing-value handling before analysis |
 | **💾 Session saving** | Analyses and dashboards persist locally — pick up exactly where you left off after a restart |
 | **🔄 Auto-save** | Every meaningful action writes an in-progress draft so nothing is lost to an accidental close |
 | **🔒 Fully offline** | No telemetry, no analytics, no outbound network requests |
+
+## Upcoming Features
+| | |
+|---|---|
+| **Chrome Extension** | To download dashboard html file as full page png file |
 
 ---
 
@@ -107,7 +112,7 @@ On the Analysis page, click any chart-type card — bar chart, time series, scat
 Generated charts collect in your session. Click **Proceed to Dashboard** to arrange them, add KPI summary cards, set a title, and choose a portrait (2-column) or landscape (3-column) layout.
 
 **5. Save and export**
-Your session saves automatically as you work. Use **Save Session** to lock in a named checkpoint visible on the home screen. Use **Export HTML** to download a standalone file you can open in any browser or share with a colleague. Use **Render PNG** to produce a flat image for presentations or reports.
+Your session saves automatically as you work. Use **Save Session** to lock in a named checkpoint visible on the home screen. Use **Download HTML** to download a standalone file you can open in any browser or share with a colleague. The downloaded HTML page can be saved as PNG using your browser's DevTools screenshot feature.
 
 ---
 
@@ -149,11 +154,10 @@ Run `lytrize` from a terminal to see live output. A launch log is also written t
 **Missing dependencies after install**
 Run `sudo apt-get install -f` (Debian/Ubuntu) or `sudo dnf install -f` (Fedora/RHEL) then try again.
 
-**PNG export produces no output**
-Render PNG uses your installed browser in headless mode. Install Chromium or Firefox if neither is present:
-```bash
-sudo apt install chromium-browser   # or: sudo apt install firefox
-```
+**Downloading as PNG / image**
+The app exports a standalone HTML file. To save that page as a PNG, use your browser's built-in screenshot tools:
+- **Chrome/Edge/Opera/Brave:** Open DevTools (`Ctrl+Shift+I`), then `Ctrl+Shift+P`, type "screenshot", choose **Capture full size screenshot**
+- **Firefox/LibreWolf:** `Ctrl+Shift+S` (or right-click → *Take Screenshot*)
 
 **The browser does not open automatically**
 If no supported browser is detected, copy `http://127.0.0.1:8501` into any browser while the launcher window shows "Running".

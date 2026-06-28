@@ -190,8 +190,15 @@ lytrize_desktop/
 2. Import the runner in `backend/modules/analysis/__init__.py` and add it to `_RUNNERS` and `ANALYSIS_OPTIONS`.
 3. Add a widget config branch in `render_config_panel()` and a collector branch in `_collect_kwargs()`.
 4. Add insight logic in `generate_chart_insights()` in `modules/charts.py` if the chart type needs custom insight generation.
+5. Add the chart card to `pages/analysis.py` — append to `_CARD_LAYOUT` dict with `aid`, label, icon, description.
 
 ---
+
+## Making UI changes
+
+- **CSS:** Edit `modules/ui/css.py` for app-wide styles. Per-page styling lives inline in `modules/pages/*.py`. Avoid external CSS frameworks.
+- **Streamlit widgets:** Use `st.columns()` for layout, `st.expander()` for grouped controls. Keep widget keys unique with per-page prefixes.
+- **New page:** Create file in `modules/pages/`, add route in `app.py` `page_dashboard()`, and set `st.session_state.page` to switch to it.
 
 ## Code style & conventions
 
@@ -282,10 +289,12 @@ commands. Automated test suite TBD.
 
 ## Known issues
 
-1. App UI is not as per modern industry standard design. 
-2. Few UI elements might missing for advace customisations on Data Cleaning, Charts editing and Dashboard building. 
-3. Need more optimisation based different pc specs because of running python backend libraries and venv in background
-
+1. No dedicated PNG download button — users must use browser DevTools to capture the exported HTML page as an image.
+2. Some CSS colour values in the generated HTML export lack fallback values when a theme key is missing.
+3. No automated test suite — manual smoke-testing is required after changes.
+4. Streamlit reruns trigger full-page refreshes, which can be slow for datasets over 100 MB.
+5. The PySide6 desktop launcher does not work on Wayland with some NVIDIA GPU configurations.
+6. In Light theme mode, Streamlit color-picker not rendering color scale as complete dark but working color select.
 ---
 
 ## License

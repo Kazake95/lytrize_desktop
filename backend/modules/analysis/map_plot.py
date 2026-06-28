@@ -1,69 +1,41 @@
-"""
-modules/analysis/map_plot.py -- Geographic scatter / choropleth runner.
-=======================================================================
-
-Supports two entirely separate rendering modes:
-
-  LAT/LON mode   (run_map_plot)
-    - Classic scatter map: needs numeric Latitude + Longitude columns.
-    - Size encoding, colour grouping (categorical or numeric gradient).
-    - Aggregation by location label before plotting.
-    - 5 K point cap with visible sample annotation.
-
-  GEO NAME mode  (run_map_plot, triggered when geo_col is set + no lat/lon)
-    - Accepts a column of *string* location names: country names / ISO codes,
-      US state names / abbreviations, or continent names.
-    - Resolves each name → ISO-3166-1 alpha-3 code (countries) or
-      ISO-3166-2 code (US states) using pycountry, then renders a filled
-      choropleth via px.choropleth (no token required).
-    - Value column required for choropleth fill (mandatory).
-    - Aggregation before plotting: sum / mean / count / median.
-    - Granular controls: projection, colorscale, show_borders, scope.
-
-Granular chart-settings controls added to render_config_panel (in __init__.py):
-  - Map style         (carto-positron, open-street-map, carto-darkmatter)
-  - Marker opacity    (0.3 → 1.0)
-  - Marker size range (min / max px when size column is used)
-  - Size aggregation  (same as value agg when loc+size col set)
-  - Value column      (numeric for hover tooltip)
-  - Aggregation func  (sum / mean / median / count / max / min)
-  - Choropleth: projection, scope, show borders, colorscale selector
-"""
+"""modules/analysis/map_plot.py -- Geographic scatter / choropleth runner."""
 from __future__ import annotations
+
 
 import re
 import unicodedata
 from functools import lru_cache
 from typing import Optional
 
+
 import numpy as np
 import pandas as pd
 import plotly.express as px
 
+
 from modules.charts import chart_layout, COLORS
 from modules.utils.perf import sample_for_plot
 
+
 _MAP_SAMPLE = 5_000
 
-# ---------------------------------------------------------------------------
-# Choropleth colorscale catalogue (reuse from chart_settings or local copy)
-# ---------------------------------------------------------------------------
+
 _CHOROPLETH_SCALES = [
     "Blues", "Viridis", "Plasma", "YlOrRd", "RdBu", "RdYlGn",
     "Cividis", "Magma", "Oranges", "Greens", "PuBu", "BuPu",
 ]
+
 
 _PROJECTIONS = [
     "natural earth", "mercator", "equirectangular",
     "orthographic", "kavrayskiy7", "robinson",
 ]
 
+
 _SCOPES = ["world", "usa", "europe", "asia", "africa", "north america", "south america"]
 
 
-# ---------------------------------------------------------------------------
-# Geo-name resolver
-# ---------------------------------------------------------------------------
+
 
 def _norm(s: str) -> str:
     """Lowercase + strip accents + collapse whitespace."""
@@ -72,12 +44,11 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", ascii_s).strip().lower()
 
 
+
+
 @lru_cache(maxsize=1)
 def _build_country_map() -> dict[str, str]:
-    """
-    Return {normalised_name_or_code: ISO-3166-1 alpha-3}.
-    Populated lazily and cached so pycountry is only imported once.
-    """
+    """Return {normalised_name_or_code: ISO-3166-1 alpha-3}."""
     try:
         import pycountry
     except ImportError:
@@ -93,7 +64,6 @@ def _build_country_map() -> dict[str, str]:
             mapping[_norm(c.official_name)] = a3
         if hasattr(c, "common_name"):
             mapping[_norm(c.common_name)]   = a3
-    # Manual aliases not in pycountry
     _ALIASES = {
         "usa": "USA", "us": "USA", "united states": "USA", "america": "USA",
         "uk": "GBR", "great britain": "GBR", "england": "GBR",
@@ -110,6 +80,8 @@ def _build_country_map() -> dict[str, str]:
     for alias, a3 in _ALIASES.items():
         mapping[alias] = a3
     return mapping
+
+
 
 
 @lru_cache(maxsize=1)
@@ -141,20 +113,12 @@ def _build_us_state_map() -> dict[str, str]:
     return mapping
 
 
-# ---------------------------------------------------------------------------
-# World sub-national regions / states (centroid lat/lon for scatter_geo fallback)
-# Used when Plotly choropleth doesn't support the region (non-US states)
-# ---------------------------------------------------------------------------
+
 
 @lru_cache(maxsize=1)
 def _build_world_regions_map() -> dict[str, tuple[float, float, str]]:
-    """
-    Return {normalised_region_name: (lat, lon, display_name)} for major world
-    sub-national regions (Indian states, Canadian provinces, Australian states, etc.).
-    Used as a fallback when Plotly choropleth locationmode doesn't support the region.
-    """
+    """Return {normalised_region_name: (lat, lon, display_name)} for major world"""
     _REGIONS: dict[str, tuple[float, float]] = {
-        # India – States & UTs
         "andhra pradesh": (15.9129, 79.7400), "arunachal pradesh": (28.2180, 94.7278),
         "assam": (26.2006, 92.9376), "bihar": (25.0961, 85.3131),
         "chhattisgarh": (21.2787, 81.8661), "goa": (15.2993, 74.1240),
@@ -171,7 +135,6 @@ def _build_world_regions_map() -> dict[str, tuple[float, float, str]]:
         "uttarakhand": (30.0668, 79.0193), "west bengal": (22.9868, 87.8550),
         "delhi": (28.7041, 77.1025), "jammu and kashmir": (33.7782, 76.5762),
         "ladakh": (34.2268, 77.5619), "puducherry": (11.9416, 79.8083),
-        # Canada – Provinces & Territories
         "ontario": (51.2538, -85.3232), "quebec": (53.0000, -70.0000),
         "british columbia": (53.7267, -127.6476), "alberta": (53.9333, -116.5765),
         "manitoba": (53.7609, -98.8139), "saskatchewan": (52.9399, -106.4509),
@@ -180,13 +143,11 @@ def _build_world_regions_map() -> dict[str, tuple[float, float, str]]:
         "prince edward island": (46.5107, -63.4168),
         "northwest territories": (64.8255, -124.8457),
         "nunavut": (70.2998, -83.1076), "yukon": (64.2823, -135.0000),
-        # Australia – States & Territories
         "new south wales": (-31.2532, 146.9211), "victoria": (-36.9848, 143.3906),
         "queensland": (-22.5750, 144.0848), "western australia": (-25.0000, 122.0000),
         "south australia": (-30.0002, 136.2092), "tasmania": (-42.0409, 146.8087),
         "northern territory": (-19.4914, 132.5510),
         "australian capital territory": (-35.4735, 149.0124),
-        # Germany – Bundesländer
         "bavaria": (48.7904, 11.4979), "north rhine-westphalia": (51.4332, 7.6616),
         "baden-wurttemberg": (48.6616, 9.3501), "lower saxony": (52.6367, 9.8451),
         "hesse": (50.6521, 9.1624), "saxony": (51.1045, 13.2017),
@@ -196,7 +157,6 @@ def _build_world_regions_map() -> dict[str, tuple[float, float, str]]:
         "mecklenburg-vorpommern": (53.6127, 12.4295),
         "brandenburg": (52.4125, 12.5316), "bremen": (53.0793, 8.8017),
         "saarland": (49.3964, 7.0228),
-        # China – Provinces
         "guangdong": (23.3790, 113.7633), "shandong": (36.6683, 117.0206),
         "henan": (33.8820, 113.6145), "sichuan": (30.6171, 102.7103),
         "jiangsu": (32.9711, 119.4550), "hebei": (38.0428, 114.5149),
@@ -213,7 +173,6 @@ def _build_world_regions_map() -> dict[str, tuple[float, float, str]]:
         "tianjin": (39.3434, 117.3616), "tibet": (29.6465, 91.1171),
         "hainan": (19.5697, 109.9497), "qinghai": (35.7452, 95.9956),
         "ningxia": (37.1987, 106.1582),
-        # Brazil – States
         "sao paulo": (-23.5505, -46.6333), "minas gerais": (-18.5122, -44.5550),
         "rio de janeiro": (-22.9068, -43.1729), "bahia": (-12.9714, -38.5014),
         "parana": (-25.4195, -49.2646), "rio grande do sul": (-30.0346, -51.2177),
@@ -221,7 +180,6 @@ def _build_world_regions_map() -> dict[str, tuple[float, float, str]]:
         "para": (-1.4558, -48.4902), "maranhao": (-2.5297, -44.3028),
         "amazonas": (-3.1190, -60.0217), "goias": (-16.6864, -49.2643),
         "espirito santo": (-20.3155, -40.3128), "mato grosso": (-12.6819, -56.9211),
-        # Mexico – States
         "jalisco": (20.6595, -103.3494), "nuevo leon": (25.5922, -99.9962),
         "estado de mexico": (19.2965, -99.6547), "chihuahua": (28.6353, -106.0889),
         "veracruz": (19.1738, -96.1342), "puebla": (19.0414, -98.2063),
@@ -230,7 +188,6 @@ def _build_world_regions_map() -> dict[str, tuple[float, float, str]]:
         "tamaulipas": (24.2669, -98.8363), "sinaloa": (25.1721, -107.4795),
         "coahuila": (27.0587, -101.7068), "michoacan": (19.5665, -101.7068),
         "guanajuato": (21.0190, -101.2574),
-        # UK – Countries & Regions
         "england": (52.3555, -1.1743), "scotland": (56.4907, -4.2026),
         "wales": (52.1307, -3.7837), "northern ireland": (54.7877, -6.4923),
         "london": (51.5074, -0.1278), "yorkshire": (53.9591, -1.0815),
@@ -238,22 +195,17 @@ def _build_world_regions_map() -> dict[str, tuple[float, float, str]]:
     }
     result: dict[str, tuple[float, float, str]] = {}
     for name, (lat, lon) in _REGIONS.items():
-        # Store original cased name for display
         display = name.title()
         result[_norm(name)] = (lat, lon, display)
-        # Also add without common suffixes
         for suffix in (" state", " province", " territory", " region"):
             if name.endswith(suffix):
                 result[_norm(name[: -len(suffix)])] = (lat, lon, display)
     return result
 
 
-# ---------------------------------------------------------------------------
-# City coordinates lookup (major world cities)
-# ---------------------------------------------------------------------------
+
 
 _CITY_COORDS: dict[str, tuple[float, float]] = {
-    # Asia
     "tokyo": (35.6762, 139.6503), "delhi": (28.7041, 77.1025),
     "new delhi": (28.6139, 77.2090), "shanghai": (31.2304, 121.4737),
     "beijing": (39.9042, 116.4074), "mumbai": (19.0760, 72.8777),
@@ -275,14 +227,12 @@ _CITY_COORDS: dict[str, tuple[float, float]] = {
     "colombo": (6.9271, 79.8612), "tashkent": (41.2995, 69.2401),
     "almaty": (43.2220, 76.8512), "baku": (40.4093, 49.8671),
     "tbilisi": (41.6938, 44.8015), "yerevan": (40.1872, 44.5152),
-    # South Asia
     "pune": (18.5204, 73.8567), "ahmedabad": (23.0225, 72.5714),
     "surat": (21.1702, 72.8311), "jaipur": (26.9124, 75.7873),
     "lucknow": (26.8467, 80.9462), "kanpur": (26.4499, 80.3319),
     "nagpur": (21.1458, 79.0882), "patna": (25.5941, 85.1376),
     "bhopal": (23.2599, 77.4126), "agra": (27.1767, 78.0081),
     "visakhapatnam": (17.6868, 83.2185), "kochi": (9.9312, 76.2673),
-    # East / Southeast Asia
     "wuhan": (30.5928, 114.3055), "hangzhou": (30.2741, 120.1551),
     "chengdu": (30.5723, 104.0665), "nanjing": (32.0603, 118.7969),
     "xi'an": (34.3416, 108.9398), "harbin": (45.8038, 126.5340),
@@ -295,7 +245,6 @@ _CITY_COORDS: dict[str, tuple[float, float]] = {
     "bandung": (6.9175, 107.6191), "palembang": (2.9761, 104.7754),
     "makassar": (5.1477, 119.4327), "yangon": (16.8661, 96.1951),
     "naypyidaw": (19.7633, 96.0785),
-    # Europe
     "london": (51.5074, -0.1278), "paris": (48.8566, 2.3522),
     "berlin": (52.5200, 13.4050), "madrid": (40.4168, -3.7038),
     "rome": (41.9028, 12.4964), "amsterdam": (52.3676, 4.9041),
@@ -318,7 +267,6 @@ _CITY_COORDS: dict[str, tuple[float, float]] = {
     "valencia": (39.4699, -0.3763), "dubrovnik": (42.6507, 18.0944),
     "luxembourg": (49.6117, 6.1319), "reykjavik": (64.1466, -21.9426),
     "dublin": (53.3498, -6.2603), "edinburgh": (55.9533, -3.1883),
-    # Americas
     "new york": (40.7128, -74.0060), "los angeles": (34.0522, -118.2437),
     "chicago": (41.8781, -87.6298), "houston": (29.7604, -95.3698),
     "phoenix": (33.4484, -112.0740), "philadelphia": (39.9526, -75.1652),
@@ -352,7 +300,6 @@ _CITY_COORDS: dict[str, tuple[float, float]] = {
     "la paz": (-16.5000, -68.1500), "asuncion": (-25.2637, -57.5759),
     "montevideo": (-34.9011, -56.1645), "havana": (23.1136, -82.3666),
     "kingston": (17.9970, -76.7936), "port-au-prince": (18.5425, -72.3386),
-    # Africa
     "cairo": (30.0444, 31.2357), "lagos": (6.5244, 3.3792),
     "kinshasa": (-4.4419, 15.2663), "luanda": (-8.8368, 13.2343),
     "dar es salaam": (-6.7924, 39.2083), "johannesburg": (-26.2041, 28.0473),
@@ -375,13 +322,11 @@ _CITY_COORDS: dict[str, tuple[float, float]] = {
     "monrovia": (6.2907, -10.7605), "abuja": (9.0579, 7.4951),
     "addis ababa": (9.0320, 38.7469), "asmara": (15.3229, 38.9251),
     "djibouti": (11.8251, 42.5903), "mogadishu": (2.0469, 45.3182),
-    # Oceania
     "sydney": (-33.8688, 151.2093), "melbourne": (-37.8136, 144.9631),
     "brisbane": (-27.4698, 153.0251), "perth": (-31.9505, 115.8605),
     "adelaide": (-34.9285, 138.6007), "auckland": (-36.8485, 174.7633),
     "wellington": (-41.2866, 174.7756), "christchurch": (-43.5321, 172.6362),
     "suva": (-18.1416, 178.4419), "port moresby": (-9.4438, 147.1803),
-    # Middle East
     "tel aviv": (32.0853, 34.7818), "jerusalem": (31.7683, 35.2137),
     "amman": (31.9554, 35.9453), "beirut": (33.8938, 35.5018),
     "damascus": (33.5138, 36.2765), "doha": (25.2854, 51.5310),
@@ -391,11 +336,10 @@ _CITY_COORDS: dict[str, tuple[float, float]] = {
 }
 
 
+
+
 def _resolve_cities(series: pd.Series) -> Optional[pd.DataFrame]:
-    """
-    Try to match a string Series to city coordinates.
-    Returns a DataFrame with lat/lon/display_name columns if ≥30% resolve, else None.
-    """
+    """Try to match a string Series to city coordinates."""
     hits, lats, lons, names = 0, [], [], []
     total = len(series.dropna())
     if total == 0:
@@ -407,7 +351,6 @@ def _resolve_cities(series: pd.Series) -> Optional[pd.DataFrame]:
         key = _norm(str(v))
         coord = _CITY_COORDS.get(key)
         if coord is None:
-            # Try prefix (e.g. "new york city" → "new york")
             words = key.split()
             for length in (3, 2):
                 if len(words) >= length:
@@ -425,11 +368,10 @@ def _resolve_cities(series: pd.Series) -> Optional[pd.DataFrame]:
     return pd.DataFrame({"_city_lat": lats, "_city_lon": lons, "_city_name": names})
 
 
+
+
 def _resolve_world_regions(series: pd.Series) -> Optional[pd.DataFrame]:
-    """
-    Try to match a string Series to world sub-national regions (non-US states).
-    Returns DataFrame with lat/lon/display_name columns if ≥30% resolve, else None.
-    """
+    """Try to match a string Series to world sub-national regions (non-US states)."""
     region_map = _build_world_regions_map()
     hits, lats, lons, names = 0, [], [], []
     total = len(series.dropna())
@@ -451,66 +393,53 @@ def _resolve_world_regions(series: pd.Series) -> Optional[pd.DataFrame]:
     return pd.DataFrame({"_region_lat": lats, "_region_lon": lons, "_region_name": names})
 
 
+
+
 def resolve_geo_names(
     series: pd.Series,
     col_name: str = "",
 ) -> tuple[pd.Series, str]:
-    """
-    Attempt to map a string Series to ISO codes.
-
-    Returns:
-        (mapped_series, geo_type)
-        where geo_type is "countries", "us_states", or "unknown".
-
-    Strategy:
-      1. Column-name hint: if the column is called 'state'/'province' try US
-         states first; if called 'country'/'nation'/'territory' try countries first.
-      2. Try country map — if ≥ 40 % of non-null values resolve → "countries".
-         Threshold lowered from 60% because real-world datasets often contain
-         a mix of known countries + custom region labels.
-      3. Try US state map — if ≥ 40 % resolve → "us_states".
-      4. Try fuzzy prefix match on country names for values like
-         "United States of America" vs pycountry's "United States".
-      5. Return original series with "unknown".
-    """
+    """Attempt to map a string Series to ISO codes."""
     country_map = _build_country_map()
     state_map   = _build_us_state_map()
+
 
     normed = series.dropna().astype(str).map(_norm)
     total  = max(len(normed), 1)
 
-    # ── Column-name hint ──────────────────────────────────────────────────────
+
     _cn = _norm(col_name)
     _prefer_state   = any(k in _cn for k in ("state", "province", "region"))
     _prefer_country = any(k in _cn for k in ("country", "nation", "territory", "geo"))
+
 
     def _try_country():
         hits = normed.map(country_map).notna().sum()
         return hits / total
 
+
     def _try_state():
         hits = normed.map(state_map).notna().sum()
         return hits / total
 
-    # Fuzzy-augmented country lookup: try stripping common suffixes / prefixes
-    # e.g. "United States of America" → strip " of america" → "united states"
+
     def _fuzzy_country_resolve(val: str) -> str | None:
         n = _norm(str(val))
         if n in country_map:
             return country_map[n]
-        # Try prefix match (first 2 words of the value against map keys)
         words = n.split()
         for length in (3, 2):
             if len(words) >= length:
                 prefix = " ".join(words[:length])
                 if prefix in country_map:
                     return country_map[prefix]
-        # Try suffix match (last word)
         if words and words[-1] in country_map:
             return country_map[words[-1]]
         return None
 
-    threshold = 0.40   # 40 % — real datasets always have some noise
+
+    threshold = 0.40
+
 
     if _prefer_state:
         sr = _try_state()
@@ -534,7 +463,10 @@ def resolve_geo_names(
         if sr >= threshold:
             return series.astype(str).map(lambda x: state_map.get(_norm(str(x)))), "us_states"
 
+
     return series, "unknown"
+
+
 
 
 def get_unresolved_values(series: pd.Series, col_name: str = "") -> list[str]:
@@ -549,12 +481,10 @@ def get_unresolved_values(series: pd.Series, col_name: str = "") -> list[str]:
     return sorted(unresolved)
 
 
+
+
 def detect_geo_column(df: pd.DataFrame) -> Optional[str]:
-    """
-    Heuristically find a likely geographic name column (string dtype, ≥ 10
-    unique values with high country/state resolution rate).
-    Returns column name or None.
-    """
+    """Heuristically find a likely geographic name column (string dtype, ≥ 10"""
     country_map = _build_country_map()
     for col in df.select_dtypes("object").columns:
         unique_vals = df[col].dropna().unique()
@@ -567,9 +497,7 @@ def detect_geo_column(df: pd.DataFrame) -> Optional[str]:
     return None
 
 
-# ---------------------------------------------------------------------------
-# Scatter map helpers (lat/lon mode)
-# ---------------------------------------------------------------------------
+
 
 def _auto_zoom(lats, lons) -> tuple:
     try:
@@ -586,11 +514,15 @@ def _auto_zoom(lats, lons) -> tuple:
         return 20.0, 0.0, 2
 
 
+
+
 def _normalise_size(series: pd.Series, lo: float, hi: float) -> pd.Series:
     mn, mx = series.min(), series.max()
     if mx == mn:
         return pd.Series([float(lo + (hi - lo) / 2)] * len(series), index=series.index)
     return lo + (series - mn) / (mx - mn) * (hi - lo)
+
+
 
 
 def _pal_to_continuous(colors, invert=False):
@@ -599,18 +531,13 @@ def _pal_to_continuous(colors, invert=False):
     return [[round(i / n, 4), col] for i, col in enumerate(c)]
 
 
-# ---------------------------------------------------------------------------
-# Main entry point
-# ---------------------------------------------------------------------------
+
 
 def run_map_plot(
     df,
-    # Lat / lon scatter mode
     lat_col=None,
     lon_col=None,
-    # Geo-name choropleth mode
     geo_col=None,
-    # Shared
     location_col=None,
     value_col=None,
     size_col=None,
@@ -618,29 +545,20 @@ def run_map_plot(
     agg_func=None,
     invert_colorscale=False,
     palette=None,
-    # New granular controls
     map_style: str = "carto-positron",
     marker_opacity: float = 0.82,
     marker_size_min: int = 4,
     marker_size_max: int = 22,
-    # Choropleth-specific
     choropleth_colorscale: str = "Blues",
     choropleth_projection: str = "natural earth",
     choropleth_scope: str = "world",
     choropleth_show_borders: bool = True,
     **kwargs,
 ):
-    """
-    Unified map runner.
-
-    Priority:
-      1. If geo_col is set (and no lat/lon) → choropleth mode.
-      2. If lat_col + lon_col are set → scatter map mode.
-      3. Auto-detect: try lat/lon columns by name, then try geo-name column.
-    """
+    """Unified map runner."""
     pal = palette or COLORS
 
-    # ── Route to choropleth when geo_col is explicitly set ────────────────────
+
     if geo_col and geo_col in df.columns and not (lat_col and lon_col):
         return _run_choropleth(
             df, geo_col=geo_col, value_col=value_col,
@@ -653,7 +571,7 @@ def run_map_plot(
             pal=pal,
         )
 
-    # ── Auto-detect columns if not explicitly provided ────────────────────────
+
     num_cols = [c for c in df.select_dtypes("number").columns]
     lat = lat_col or next((c for c in df.columns if "lat" in c.lower()), None)
     lon = lon_col or next(
@@ -663,7 +581,7 @@ def run_map_plot(
     lat = lat or (num_cols[0] if num_cols else None)
     lon = lon or (num_cols[1] if len(num_cols) > 1 else None)
 
-    # If still no lat/lon, try auto-detecting a geo name column → choropleth
+
     if (not lat or not lon or
             lat not in df.columns or lon not in df.columns or
             lat not in df.select_dtypes("number").columns):
@@ -681,7 +599,7 @@ def run_map_plot(
             )
         return []
 
-    # ── Scatter map mode ──────────────────────────────────────────────────────
+
     return _run_scatter_map(
         df, lat=lat, lon=lon,
         location_col=location_col, value_col=value_col,
@@ -694,9 +612,7 @@ def run_map_plot(
     )
 
 
-# ---------------------------------------------------------------------------
-# Scatter map (lat/lon)
-# ---------------------------------------------------------------------------
+
 
 def _run_scatter_map(
     df, lat, lon,
@@ -713,10 +629,12 @@ def _run_scatter_map(
     if clean_df.empty:
         return []
 
+
     agg_label = ""
     sampled   = False
     loc_col   = location_col if location_col and location_col in clean_df.columns else None
     val_col   = value_col    if value_col    and value_col    in clean_df.columns else None
+
 
     if loc_col and val_col:
         agg = agg_func or "mean"
@@ -727,7 +645,6 @@ def _run_scatter_map(
             agg_dict[size_col] = agg
         plot_df   = clean_df.groupby(loc_col, as_index=False).agg(agg_dict)
         agg_label = f" · {agg.upper()}({val_col})"
-        # Rename aggregated columns to include agg name for hover display
         if val_col in plot_df.columns:
             new_val_name = f"{agg}({val_col})"
             plot_df.rename(columns={val_col: new_val_name}, inplace=True)
@@ -739,15 +656,19 @@ def _run_scatter_map(
     else:
         plot_df, sampled = sample_for_plot(clean_df, n=_MAP_SAMPLE)
 
+
     if plot_df.empty:
         return []
+
 
     size  = size_col  if size_col  and size_col  in plot_df.columns else None
     color = color_col if color_col and color_col in plot_df.columns else None
     hover = loc_col   if loc_col   and loc_col   in plot_df.columns else None
 
+
     if color and plot_df[color].nunique() > 25:
         color = None
+
 
     if size:
         try:
@@ -764,6 +685,7 @@ def _run_scatter_map(
         except Exception:
             size = None
 
+
     lat_q = plot_df[lat].quantile([0.02, 0.98])
     lon_q = plot_df[lon].quantile([0.02, 0.98])
     _zoom_df = plot_df[
@@ -777,28 +699,29 @@ def _run_scatter_map(
     else:
         centre_lat, centre_lon, zoom = _auto_zoom(plot_df[lat], plot_df[lon])
 
+
     hover_data: dict = {}
-    # Show only explicitly selected data columns (not lat/lon/technical)
     for col in (val_col, size_col, color_col):
         if col and col in plot_df.columns and col != hover:
             hover_data[col] = True
-    # Exclude ALL other columns to prevent technical columns leaking into tooltip
     for col in plot_df.columns:
         if col not in (hover, val_col, size_col, color_col, lat, lon):
             hover_data[col] = False
-    # Always hide lat/lon from tooltip
     hover_data[lat] = False
     hover_data[lon] = False
+
 
     n_pts     = len(plot_df)
     loc_label = hover or "Locations"
     sample_str = f" ({n_pts:,} sample of {len(clean_df):,})" if sampled else f" ({n_pts:,} locations)"
     title     = f"Map: {loc_label}{agg_label}{sample_str}"
 
+
     color_is_numeric = (
         color is not None and color in plot_df.columns
         and pd.api.types.is_numeric_dtype(plot_df[color])
     )
+
 
     map_kwargs = dict(
         lat=lat, lon=lon,
@@ -819,6 +742,7 @@ def _run_scatter_map(
     if size and size in plot_df.columns:
         map_kwargs["size"] = size
 
+
     try:
         try:
             fig = px.scatter_map(plot_df, **map_kwargs, map_style=map_style)
@@ -829,6 +753,7 @@ def _run_scatter_map(
         import traceback
         print(f"[Lytrize] scatter map error: {e}\n{traceback.format_exc()}")
         return []
+
 
     if color_is_numeric:
         fig.update_coloraxes(
@@ -841,6 +766,7 @@ def _run_scatter_map(
                 borderwidth=0, x=1.01,
             )
         )
+
 
     layout = chart_layout(height=520)
     for key in ("plot_bgcolor", "bargap", "bargroupgap", "xaxis", "yaxis"):
@@ -855,6 +781,7 @@ def _run_scatter_map(
         ),
     )
 
+
     if sampled:
         fig.add_annotation(
             text=f"⚠ {n_pts:,}-point sample — zoom in for detail",
@@ -862,6 +789,7 @@ def _run_scatter_map(
             showarrow=False, xanchor="center", yanchor="bottom",
             font=dict(size=10, color="#f59e0b"),
         )
+
 
     fig._lytrize_meta = {
         "analysis_type": "map_plot",
@@ -875,15 +803,12 @@ def _run_scatter_map(
     return [(f"Map: {loc_label}", fig)]
 
 
-# ---------------------------------------------------------------------------
-# Choropleth (geo name / ISO code columns)
-# ---------------------------------------------------------------------------
+
 
 def _run_choropleth(
     df, geo_col, value_col, color_col, agg_func,
     colorscale, projection, scope, show_borders, invert, pal,
 ):
-    # ── Build aggregated plot_df ───────────────────────────────────────────────
     if not value_col or value_col not in df.columns:
         plot_df = df[[geo_col]].copy().dropna()
         plot_df["_count"] = 1
@@ -907,14 +832,15 @@ def _run_choropleth(
             )
             agg_label = "COUNT"
 
+
     if plot_df.empty:
         return []
 
-    # ── Resolve geo names → ISO codes (countries / US states) ────────────────
+
     resolved, geo_type = resolve_geo_names(plot_df[geo_col], col_name=geo_col)
     unresolved_count = resolved.isna().sum()
 
-    # ── Fallback 1: world sub-national regions (Indian states, etc.) ──────────
+
     if geo_type == "unknown":
         region_df = _resolve_world_regions(plot_df[geo_col])
         if region_df is not None:
@@ -929,7 +855,7 @@ def _run_choropleth(
                 show_borders=show_borders, projection=projection, scope=scope,
             )
 
-    # ── Fallback 2: cities ─────────────────────────────────────────────────────
+
     if geo_type == "unknown":
         city_df = _resolve_cities(plot_df[geo_col])
         if city_df is not None:
@@ -942,8 +868,8 @@ def _run_choropleth(
                 show_borders=show_borders, projection=projection, scope=scope,
             )
 
+
     if geo_type == "unknown":
-        # All fallbacks exhausted — show informative error
         import streamlit as _st
         _sample = ', '.join(str(v) for v in plot_df[geo_col].dropna().unique()[:6])
         _st.warning(
@@ -956,11 +882,12 @@ def _run_choropleth(
         )
         return []
 
-    # ── Standard Plotly choropleth (countries / US states) ────────────────────
+
     plot_df["_iso_code"] = resolved.values
     plot_df = plot_df.dropna(subset=["_iso_code"])
     if plot_df.empty:
         return []
+
 
     if geo_type == "us_states":
         locationmode = "USA-states"
@@ -970,17 +897,19 @@ def _run_choropleth(
         locationmode = "ISO-3"
         plot_df["_iso_code"] = plot_df["_iso_code"].apply(_ensure_alpha3)
 
+
     _cs = colorscale if colorscale in _CHOROPLETH_SCALES else "Blues"
     if invert:
         _cs = f"{_cs}_r"
 
+
     n_locs = len(plot_df)
-    # Keep original geo names for hover (not ISO codes)
     warning_text = (
         f"⚠ {unresolved_count} value(s) in '{geo_col}' could not be matched"
         if unresolved_count > 0 else ""
     )
     title = f"Choropleth: {agg_label}({value_col}) by {geo_col}  ({n_locs:,} locations)"
+
 
     try:
         fig = px.choropleth(
@@ -988,8 +917,8 @@ def _run_choropleth(
             locations="_iso_code",
             locationmode=locationmode,
             color=value_col,
-            hover_name=geo_col,            # ← always shows original name, not ISO code
-            hover_data={value_col: True, "_iso_code": False},  # hide ISO from tooltip
+            hover_name=geo_col,
+            hover_data={value_col: True, "_iso_code": False},
             color_continuous_scale=_cs,
             projection=projection if geo_type != "us_states" else "albers usa",
             scope=scope,
@@ -1000,6 +929,7 @@ def _run_choropleth(
         import traceback
         print(f"[Lytrize] choropleth error: {e}\n{traceback.format_exc()}")
         return []
+
 
     fig.update_traces(marker_line_width=0.5 if show_borders else 0)
     fig.update_geos(
@@ -1042,29 +972,31 @@ def _run_choropleth(
     return [(f"Choropleth: {geo_col}", fig)]
 
 
+
+
 def _render_scatter_geo(
     plot_df, geo_col, value_col, agg_label,
     lat_col, lon_col, coord_df, name_col,
     colorscale, invert, show_borders, projection, scope,
 ):
-    """
-    Render a scatter_geo for world regions / cities where Plotly choropleth
-    locationmode doesn't apply. Shows circles sized/coloured by value_col,
-    with hover showing the original name (not coordinates).
-    """
+    """Render a scatter_geo for world regions / cities where Plotly choropleth"""
     merged = pd.concat(
         [plot_df.reset_index(drop=True), coord_df.reset_index(drop=True)], axis=1
     ).dropna(subset=[lat_col, lon_col])
 
+
     if merged.empty:
         return []
+
 
     _cs = colorscale if colorscale in _CHOROPLETH_SCALES else "Blues"
     if invert:
         _cs = f"{_cs}_r"
 
+
     n_locs = len(merged)
     title = f"Map: {agg_label}({value_col}) by {geo_col}  ({n_locs:,} locations)"
+
 
     try:
         fig = px.scatter_geo(
@@ -1073,7 +1005,7 @@ def _render_scatter_geo(
             lon=lon_col,
             size=value_col,
             color=value_col,
-            hover_name=geo_col,           # ← shows original name (not coordinates)
+            hover_name=geo_col,
             hover_data={value_col: True, lat_col: False, lon_col: False,
                         name_col: False},
             color_continuous_scale=_cs,
@@ -1085,6 +1017,7 @@ def _render_scatter_geo(
         import traceback
         print(f"[Lytrize] scatter_geo error: {e}\n{traceback.format_exc()}")
         return []
+
 
     fig.update_traces(marker=dict(line=dict(width=0.5, color="rgba(255,255,255,0.3)")))
     fig.update_geos(
@@ -1119,6 +1052,8 @@ def _render_scatter_geo(
         "supports_legend_editing": False,
     }
     return [(f"Map: {geo_col}", fig)]
+
+
 
 
 def _ensure_alpha3(code: str) -> str:

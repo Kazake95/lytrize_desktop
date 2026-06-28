@@ -1,11 +1,9 @@
-"""Shared theme tokens for Lytrize.
+"""Shared theme tokens for Lytrize."""
 
-Centralises palette values so UI styling, charts and exports can stay aligned
-with the dark brand theme.
-"""
 
 BRAND_NAME = "Lytrize"
 BRAND_VERSION = "webapp-theme"
+
 
 BRAND_1 = "#4f6ef7"
 BRAND_2 = "#8b5cf6"
@@ -13,6 +11,7 @@ BRAND_3 = "#06b6d4"
 DANGER = "#ef4444"
 SUCCESS = "#10b981"
 WARN = "#f59e0b"
+
 
 DARK = {
     "text_primary": "#f1f5f9",
@@ -24,8 +23,10 @@ DARK = {
     "background": "#0f172a",
 }
 
+
 CHART_COLORS = [BRAND_1, BRAND_2, BRAND_3, WARN, DANGER, SUCCESS, "#ec4899", "#f97316"]
 DANGER_SCALE = ["#bbf7d0", "#fbbf24", DANGER]
+
 
 PALETTES = {
     "🔵 Default Blue-Purple": CHART_COLORS,
@@ -36,6 +37,7 @@ PALETTES = {
     "🌊 Ocean Blues": ["#03045e", "#0077b6", "#00b4d8", "#90e0ef", "#caf0f8", "#023e8a", "#0096c7", "#ade8f4"],
     "🟣 Monochrome Purple": ["#3c096c", "#5a189a", "#7b2fbe", "#9d4edd", "#c77dff", "#e0aaff", "#240046", "#10002b"],
 }
+
 
 EXPORT_DEFAULT_THEME = {
     "bg_color": DARK["background"],
@@ -49,6 +51,7 @@ EXPORT_DEFAULT_THEME = {
     "notes_bg": "#1e1a2e",
     "notes_border": BRAND_2,
 }
+
 
 EXPORT_DARK_THEME = {
     "bg_color": DARK["background"],
@@ -64,6 +67,8 @@ EXPORT_DARK_THEME = {
 }
 
 
+
+
 EXPORT_PURPLE_THEME = {
     "bg_color": "#1a0533",
     "card_bg": "#2d1b4e",
@@ -76,6 +81,7 @@ EXPORT_PURPLE_THEME = {
     "notes_bg": "#1e0030",
     "notes_border": "#e879f9",
 }
+
 
 EXPORT_CORPORATE_THEME = {
     "bg_color": "#f0fdf4",

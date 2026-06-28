@@ -1,29 +1,5 @@
-"""
-modules/charts.py -- Shared chart utilities, palettes, and the auto-insight engine.
-===================================================================================
+"""modules/charts.py -- Shared chart utilities, palettes, and the auto-insight engine."""
 
-This module is the central import point for all analysis runner modules.
-Import from here -- never reach into individual analysis files for these helpers.
-
-Contents
-────────
-  COLORS / DANGER          -- default colour lists
-  PALETTES                 -- named palette dict shown in the UI
-  chart_layout()           -- common Plotly layout dict (transparent bg, margins)
-  num_cols() / cat_cols() / dt_cols() -- column-type lists from session_state
-  clean_insight_text()     -- strip Markdown from auto-generated insight strings
-  clean_insights()         -- clean a list of insight strings
-  _fmt_num()               -- human-readable number formatter (1.2K, 3.4M, etc.)
-  _fmt_pct()               -- percentage string with sign
-  _plural()                -- singular/plural helper
-  _fmt_label()             -- smart date/string label formatter
-  _as_number_series()      -- coerce any value list to a numeric pd.Series
-  _as_list()               -- safely convert any value to a plain list
-  charts_to_json()         -- serialise the chart list to a JSON string for the DB
-  generate_chart_insights() -- auto-insight engine: reads a Plotly figure and
-                              produces plain-English observations
-
-"""
 
 import json
 import re
@@ -32,94 +8,105 @@ import pandas as pd
 import plotly.io as pio
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Colour constants
-# ─────────────────────────────────────────────────────────────────────────────
 
-# Default 8-colour palette -- used as a fallback when no palette is selected.
+
 COLORS = ["#6163df", "#8566fc", "#3390c8", "#f59e0b",
           "#ef4444", "#10b981", "#ec4899", "#f97316"]
 
-# Red-to-green gradient used for "danger" colour scales (e.g. missing % charts).
+
 DANGER = ["#bbf7d0", "#fbbf24", "#ef4444"]
 
-# Named palettes shown in the colour-palette selectbox on the analysis page.
-# Keys are display labels; values are ordered lists of 8 hex colours.
+
 PALETTES = {
     "🔵 Default Blue-Purple": [
         "#6163df", "#8566fc", "#3390c8", "#f59e0b",
         "#ef4444", "#10b981", "#ec4899", "#f97316"
     ],
 
+
     "🌈 Vibrant": [
         "#e63946", "#f4a261", "#2a9d8f", "#457b9d",
         "#e9c46a", "#264653", "#a8dadc", "#f1faee"
     ],
+
 
     "🍃 Nature Green": [
         "#2d6a4f", "#40916c", "#52b788", "#74c69d",
         "#95d5b2", "#b7e4c7", "#d8f3dc", "#1b4332"
     ],
 
+
     "🌅 Warm Sunset": [
         "#e76f51", "#f4a261", "#e9c46a", "#264653",
         "#2a9d8f", "#e63946", "#f1faee", "#457b9d"
     ],
+
 
     "🩷 Pink & Coral": [
         "#ff6b6b", "#feca57", "#48dbfb", "#ff9ff3",
         "#54a0ff", "#5f27cd", "#01abc6", "#ff9f43"
     ],
 
+
     "🌊 Ocean Blues": [
         "#03045e", "#0077b6", "#00b4d8", "#90e0ef",
         "#caf0f8", "#023e8a", "#0096c7", "#ade8f4"
     ],
+
 
     "🟣 Monochrome Purple": [
         "#3c096c", "#5a189a", "#7b2fbe", "#9d4edd",
         "#c77dff", "#e0aaff", "#240046", "#10002b"
     ],
 
+
     "🔆 Pastel Light": [
         "#ffadad", "#ffd6a5", "#fdffb6", "#caffbf",
         "#9bf6ff", "#a0c4ff", "#bdb2ff", "#ffc6ff"
     ],
+
 
     "✨ Neo Mint": [
         "#14b8a6", "#06b6d4", "#22c55e", "#a3e635",
         "#f59e0b", "#fb7185", "#818cf8", "#0f766e"
     ],
 
+
     "⚡ Tech Neon": [
         "#00d1ff", "#7c3aed", "#22c55e", "#f97316",
         "#eab308", "#ec4899", "#38bdf8", "#1d4ed8"
     ],
+
 
     "🏙️ Urban Slate": [
         "#0f172a", "#334155", "#475569", "#14b8a6",
         "#3b82f6", "#8b5cf6", "#f59e0b", "#f43f5e"
     ],
 
+
     "🌇 Sunset Pro": [
         "#f97316", "#fb7185", "#f59e0b", "#7c3aed",
         "#2563eb", "#14b8a6", "#e11d48", "#0f172a"
     ],
+
 
     "🌌 Aurora Glow": [
         "#22c55e", "#06b6d4", "#3b82f6", "#8b5cf6",
         "#ec4899", "#f43f5e", "#f59e0b", "#14b8a6"
     ],
 
+
     "💼 Luxe Indigo": [
         "#1e3a8a", "#4338ca", "#6366f1", "#0f766e",
         "#14b8a6", "#d97706", "#db2777", "#334155"
     ],
 
+
     "🍊 Tropical Punch": [
         "#f97316", "#f43f5e", "#22c55e", "#06b6d4",
         "#3b82f6", "#a855f7", "#eab308", "#14b8a6"
     ],
+
 
     "🎯 Executive Accent": [
         "#1d4ed8", "#0f766e", "#7c3aed", "#d97706",
@@ -128,70 +115,23 @@ PALETTES = {
 }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Chart layout defaults
-# ─────────────────────────────────────────────────────────────────────────────
+
 
 def chart_layout(height: int | None = None) -> dict:
-    """
-    Return a dict of Plotly layout kwargs used by every chart in Lytrize.
-
-    Apply with:  fig.update_layout(**chart_layout())
-               fig.update_layout(**chart_layout(height=520))
-
-    Args:
-        height: Optional fixed pixel height to include in the layout dict.
-                When None (default) no height key is set, allowing Plotly's
-                responsive sizing to fill the container width naturally.
-                Pass an int (e.g. 520) for charts that need a fixed height,
-                such as heatmaps, maps, and pivot tables.
-
-    Transparent backgrounds let charts blend with the glassmorphism UI.
-    Margins are kept tight; individual runners override them if needed
-    (e.g. horizontal bar charts need extra right margin for value labels).
-    """
+    """Return a dict of Plotly layout kwargs used by every chart in Lytrize."""
     layout = dict(
-        paper_bgcolor="rgba(0,0,0,0)",  # Transparent outer background.
-        plot_bgcolor="rgba(0,0,0,0)",   # Transparent inner plot area.
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
         margin=dict(l=20, r=20, t=48, b=20),
         bargap=0.28,
         bargroupgap=0.1,
-        # Gridlines off by default for every cartesian chart. Runners that build
-        # their own xaxis/yaxis dicts (scatter_plot.py, matrix_table.py heatmap
-        # view) set showgrid=False locally instead of relying on this default,
-        # since merging a literal xaxis=/yaxis= kwarg into the same update_layout()
-        # call as **chart_layout() would otherwise collide on those keys.
-        # Geo/mapbox runners (map_plot.py) already pop "xaxis"/"yaxis" before use.
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=True),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=True),
-        # ── Hover tooltip styling ──────────────────────────────────────────────
-        # Dark semi-opaque background so text is legible on any chart colour.
-        # namelength=-1 shows the full trace name instead of truncating it.
-        #
-        # IMPORTANT:
-        # Plotly renders the <extra> hover section as a separate tooltip badge.
-        # In dual-axis charts (especially bar + scatter combinations), Plotly
-        # applies its own default white background + coloured text styling to
-        # that extra section, bypassing our global hoverlabel theme.
-        #
-        # To keep ALL chart types visually consistent, every auto-generated
-        # hovertemplate below explicitly uses:
-        #
-        #     <extra></extra>
-        #
-        # instead of:
-        #
-        #     <extra></extra>
-        #
-        # This makes the hover render as a single themed tooltip everywhere,
-        # including future dual-axis charts and newly added trace combinations.
         hovermode="closest",
         hoverlabel=dict(
             bgcolor="rgba(18, 26, 45, 0.96)",
             bordercolor="rgba(133, 102, 252, 0.30)",
             font=dict(size=13, color="#f5f7ff", family="Inter, system-ui, sans-serif"),
-            # NOTE: hover_font_family is passed through from apply_lytrize_standard
-            # when non-default; default remains Inter for backward compatibility.
             namelength=-1,
         ),
     )
@@ -200,41 +140,34 @@ def chart_layout(height: int | None = None) -> dict:
     return layout
 
 
+
+
 def apply_hover_format(fig) -> None:
-    """
-    Apply K/M/B-formatted hovertemplates to every trace in a Plotly figure.
-
-    Called once in dashboard._render_chart() so it covers every chart type
-    without requiring each runner to set its own template.
-
-    Applies per trace type: bar, scatter, histogram, pie/sunburst, heatmap.
-    Traces with a customdata-driven template are skipped (preserved as-is).
-    Box/violin/other traces keep Plotly defaults.
-    """
+    """Apply K/M/B-formatted hovertemplates to every trace in a Plotly figure."""
     for trace in fig.data:
         existing = getattr(trace, "hovertemplate", None) or ""
-        # Preserve templates that reference customdata columns.
         if "customdata" in existing:
             continue
 
+
         ttype = type(trace).__name__.lower()
+
 
         if ttype == "bar":
             orient = getattr(trace, "orientation", "v") or "v"
             if orient == "h":
-                # Horizontal: x = value, y = category label
                 trace.hovertemplate = (
                     "<b>%{y}</b><br>"
                     "Value: <b>%{x:.3~s}</b>"
                     "<extra></extra>"
                 )
             else:
-                # Vertical: x = category label, y = value
                 trace.hovertemplate = (
                     "<b>%{x}</b><br>"
                     "Value: <b>%{y:.3~s}</b>"
                     "<extra></extra>"
                 )
+
 
         elif ttype == "scatter":
             trace.hovertemplate = (
@@ -243,12 +176,14 @@ def apply_hover_format(fig) -> None:
                 "<extra></extra>"
             )
 
+
         elif ttype == "histogram":
             trace.hovertemplate = (
                 "Range: <b>%{x}</b><br>"
                 "Count: <b>%{y:.3~s}</b>"
                 "<extra></extra>"
             )
+
 
         elif ttype in ("pie", "sunburst"):
             trace.hovertemplate = (
@@ -258,52 +193,43 @@ def apply_hover_format(fig) -> None:
                 "<extra></extra>"
             )
 
+
         elif ttype == "heatmap":
-            # Correlation matrices: keep full decimal precision, no SI units.
             trace.hovertemplate = (
                 "%{x} × %{y}<br>"
                 "r = <b>%{z:.3f}</b>"
                 "<extra></extra>"
             )
-        # box / violin / candlestick / choropleth / other: leave Plotly defaults
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Column-type accessors
-# ─────────────────────────────────────────────────────────────────────────────
-# These read from session_state which is populated by the column classifier
-# on the upload page (modules/ui/column_tools.py :: show_column_classifier()).
-# Use these helpers in runner modules -- never read session_state directly.
+
 
 def num_cols() -> list:
     """Return the list of numeric column names confirmed by the user."""
     return st.session_state.get("num_cols", [])
 
+
 def cat_cols() -> list:
     """Return the list of categorical column names confirmed by the user."""
     return st.session_state.get("cat_cols", [])
+
 
 def dt_cols() -> list:
     """Return the list of date/time column names confirmed by the user."""
     return st.session_state.get("dt_cols", [])
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Insight text utilities
-# ─────────────────────────────────────────────────────────────────────────────
+
 
 def clean_insight_text(text) -> str:
-    """
-    Strip Markdown formatting from an auto-generated insight string.
-
-    Removes **bold**, __underline__, and normalises separator spacing.
-    Used to produce plain text safe for both display and PDF export.
-    """
+    """Strip Markdown formatting from an auto-generated insight string."""
     s = str(text or "")
-    s = re.sub(r"\*\*(.*?)\*\*", r"\1", s)  # **bold** → bold
+    s = re.sub(r"\*\*(.*?)\*\*", r"\1", s)
     s = s.replace("__", "")
     s = s.replace("  ·  ", " · ")
     return s.strip()
+
+
 
 
 def clean_insights(insights) -> list:
@@ -311,20 +237,10 @@ def clean_insights(insights) -> list:
     return [s for s in (clean_insight_text(i) for i in (insights or [])) if s]
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Formatting helpers  (private -- used only within this module)
-# ─────────────────────────────────────────────────────────────────────────────
+
 
 def _fmt_num(value) -> str:
-    """
-    Format a number as a compact, human-readable string.
-
-    Examples:
-        1234567  → "1.2M"
-        98765    → "98.8K"
-        42.5     → "42.50"
-        42.0     → "42"
-    """
+    """Format a number as a compact, human-readable string."""
     try:
         v = float(value)
     except Exception:
@@ -340,6 +256,8 @@ def _fmt_num(value) -> str:
     return f"{v:,.2f}"
 
 
+
+
 def _fmt_pct(value) -> str:
     """Format a float as a percentage string with sign: 0.123 → '+12.3%'."""
     try:
@@ -348,19 +266,17 @@ def _fmt_pct(value) -> str:
         return "n/a"
 
 
+
+
 def _plural(count, singular: str, plural: str = None) -> str:
     """Return singular or plural noun based on count."""
     return singular if int(count) == 1 else (plural or f"{singular}s")
 
 
-def _fmt_label(value) -> str:
-    """
-    Format a value as a readable label, auto-detecting datetime strings.
 
-    Dates with time components → "15 Jan 2024 14:30"
-    Dates without               → "15 Jan 2024"
-    Everything else             → str(value)
-    """
+
+def _fmt_label(value) -> str:
+    """Format a value as a readable label, auto-detecting datetime strings."""
     try:
         ts = pd.to_datetime(value, errors="coerce")
         if pd.notna(ts):
@@ -372,9 +288,13 @@ def _fmt_label(value) -> str:
     return str(value)
 
 
+
+
 def _as_number_series(values) -> pd.Series:
     """Coerce any iterable of values to a numeric pd.Series, dropping non-numeric."""
     return pd.to_numeric(pd.Series(values), errors="coerce").dropna()
+
+
 
 
 def _as_list(values) -> list:
@@ -387,29 +307,10 @@ def _as_list(values) -> list:
         return []
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Chart serialisation
-# ─────────────────────────────────────────────────────────────────────────────
+
 
 def charts_to_json(charts: list) -> str:
-    """
-    Serialise the active chart list to a JSON string for database storage.
-
-    Each entry in `charts` must be a tuple of (uid, title, fig).
-    Additional per-chart metadata is read from session_state using the uid.
-
-    Session state keys read per chart:
-        desc_{uid}           -- user's free-text description
-        auto_insights_{uid}  -- list of auto-generated insight strings
-        chart_type_{uid}     -- analysis type string (e.g. "categorical")
-        chart_meta_{uid}     -- dict of arbitrary metadata
-
-    Args:
-        charts: List of (uid: str, title: str, fig: Figure) tuples.
-
-    Returns:
-        JSON string -- stored in the sessions and draft_sessions tables.
-    """
+    """Serialise the active chart list to a JSON string for database storage."""
     out = []
     for chart in charts:
         uid, title, fig = chart[:3]
@@ -421,49 +322,28 @@ def charts_to_json(charts: list) -> str:
             out.append({
                 "uid":           uid,
                 "title":         title,
-                "fig_json":      pio.to_json(fig),   # Full Plotly JSON spec.
+                "fig_json":      pio.to_json(fig),
                 "desc":          desc,
                 "auto_insights": auto_insights,
                 "chart_type":    chart_type,
                 "meta":          meta,
             })
         except Exception:
-            pass  # Skip serialisation failures -- damaged figures silently omitted.
+            pass
     return json.dumps(out)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Auto-insight engine
-# ─────────────────────────────────────────────────────────────────────────────
+
 
 def generate_chart_insights(chart_type: str, title: str, fig,
                              col_descriptions: dict = None) -> list:
-    """
-    Produce plain-English observations from a Plotly figure.
-
-    Called automatically after chart generation (pages/analysis.py).
-    Insights are stored in session_state[f"auto_insights_{uid}"] and
-    displayed below each chart card.
-
-    When the user has filled in column descriptions on the upload page,
-    those descriptions are woven directly into the insight text so each
-    observation reads like a business-analyst comment rather than a
-    generic statistical note.
-
-    Args:
-        chart_type:       Analysis type string (e.g. "distribution", "outlier").
-        title:            Chart title string used as a fallback match signal.
-        fig:              Plotly Figure object.
-        col_descriptions: Optional dict {column_name: description}.
-
-    Returns:
-        list of plain-text insight strings (Markdown stripped).
-    """
+    """Produce plain-English observations from a Plotly figure."""
     insights = []
     tl = title.lower()
     col_desc = col_descriptions or {}
 
-    # ── Helpers ───────────────────────────────────────────────────────────────
+
+
 
     def _named(col: str) -> str:
         """Return 'col (description)' when a description exists, else 'col'."""
@@ -473,36 +353,30 @@ def generate_chart_insights(chart_type: str, title: str, fig,
             return f"{col} ({short})"
         return col
 
+
     def _primary_col_from_title() -> str:
-        """
-        Extract the primary column name from known title prefixes.
-        e.g. "Dist: Revenue"  → "Revenue"
-             "TS: Sales"      → "Sales"
-             "Outliers: Price"→ "Price"
-        """
+        """Extract the primary column name from known title prefixes."""
         for prefix in ("Dist: ", "TS: ", "Outliers: ", "Trend: ",
                        "Counts: ", "Time Series: "):
             if title.startswith(prefix):
                 return title[len(prefix):]
         return ""
 
+
     def _cols_in_title() -> list:
         """Return all col_description keys whose name appears in the chart title."""
         return [c for c in col_desc if c and c.lower() in tl and col_desc[c].strip()]
 
+
     def _append_desc_context():
-        """
-        Append a short 'What these columns mean' footnote for any columns
-        referenced in the chart that have user-provided descriptions.
-        Only fires when descriptions haven't already been woven into the text.
-        """
+        """Append a short 'What these columns mean' footnote for any columns"""
         relevant = _cols_in_title()
         for col in relevant:
             desc = col_desc[col].strip()
             if desc and col not in " ".join(insights):
                 insights.append(f"Column context — {col}: {desc}")
 
-    # ── Distribution ──────────────────────────────────────────────────────────
+
     if chart_type == "distribution" or "dist:" in tl:
         try:
             arr = _as_number_series(fig.data[0].x)
@@ -512,14 +386,14 @@ def generate_chart_insights(chart_type: str, title: str, fig,
             mean, median, std = arr.mean(), arr.median(), arr.std()
             skew = float(arr.skew())
 
-            # Lead with the column's business meaning if available
+
             insights.append(
                 f"{_named(col)} centres around {_fmt_num(median)} "
                 f"(median). The average is {_fmt_num(mean)}, "
                 f"with a typical spread of ±{_fmt_num(std)}."
             )
 
-            # Plain-language skew interpretation
+
             if abs(skew) > 1.5:
                 if skew > 0:
                     insights.append(
@@ -543,7 +417,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                     "are close, making either a reliable summary."
                 )
 
-            # Outlier count
+
             q1, q3 = arr.quantile(0.25), arr.quantile(0.75)
             iqr = q3 - q1
             n_out = int(((arr < q1 - 1.5 * iqr) | (arr > q3 + 1.5 * iqr)).sum())
@@ -555,7 +429,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                     "check these before using totals or averages in reports."
                 )
 
-            # Percentile range for context
+
             p10, p90 = arr.quantile(0.10), arr.quantile(0.90)
             insights.append(
                 f"The middle 80% of records fall between "
@@ -564,7 +438,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
         except Exception:
             pass
 
-    # ── Correlation ───────────────────────────────────────────────────────────
+
     elif chart_type == "correlation" or "correlation" in tl:
         try:
             z        = fig.data[0].z
@@ -607,7 +481,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                         "The selected columns appear largely independent of each other."
                     )
 
-            # Count weak vs strong pairs for a summary
+
             try:
                 strong_pairs, total_pairs = 0, 0
                 for r, row in enumerate(z):
@@ -630,6 +504,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
             except Exception:
                 pass
 
+
             insights.append(
                 "Use this as a lead for deeper investigation, not as proof "
                 "that one column directly causes changes in another."
@@ -637,7 +512,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
         except Exception:
             pass
 
-    # ── Outlier detection ─────────────────────────────────────────────────────
+
     elif chart_type == "outlier" or "outlier" in tl:
         try:
             col = _primary_col_from_title() or "this column"
@@ -648,10 +523,12 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                 (t for t in fig.data
                  if "normal" in str(getattr(t, "name", "")).lower()), None)
 
+
             total_pts = sum(
                 len(getattr(t, "y", None) or []) for t in fig.data
                 if getattr(t, "y", None) is not None
             )
+
 
             if outlier_trace and len(getattr(outlier_trace, "y", []) or []) > 0:
                 n    = len(outlier_trace.y)
@@ -692,7 +569,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
         except Exception:
             pass
 
-    # ── Time series ───────────────────────────────────────────────────────────
+
     elif chart_type == "time_series" or "ts:" in tl or "trend" in tl:
         try:
             col = _primary_col_from_title() or "the metric"
@@ -709,7 +586,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                     f"({_fmt_pct(pct)} change from first to last period)."
                 )
 
-                # Peak and trough with labels
+
                 peak_i = int(y.reset_index(drop=True).idxmax())
                 low_i  = int(y.reset_index(drop=True).idxmin())
                 peak_x = f" at {_fmt_label(x_vals[peak_i])}" if peak_i < len(x_vals) else ""
@@ -720,7 +597,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                     f"The range spans {_fmt_num(y.max() - y.min())}."
                 )
 
-                # Volatility / consistency signal
+
                 cv = y.std() / abs(y.mean()) if y.mean() != 0 else 0
                 if cv > 0.5:
                     insights.append(
@@ -744,7 +621,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                 "seasonality or operating patterns."
             )
 
-    # ── Categorical & pie ─────────────────────────────────────────────────────
+
     elif (chart_type in ("categorical", "pie_chart")
           or any(k in tl for k in ("count", "bar", "pie", "donut"))):
         try:
@@ -765,6 +642,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                         if isinstance(v, (int, float))]
                 xs   = _as_list(getattr(data, "y", None))
 
+
             if vals:
                 vals    = [float(v) for v in vals]
                 total   = sum(v for v in vals if v)
@@ -774,7 +652,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                 bot_cat = xs[bot_i] if xs and bot_i < len(xs) else str(bot_i)
                 top_pct = (max(vals) / total * 100) if total else 0
 
-                # Top category with context if the column is described
+
                 cat_col = next((c for c in col_desc if c.lower() in tl), "")
                 cat_ctx = f" ({col_desc[cat_col].strip()[:50]})" if cat_col and col_desc.get(cat_col) else ""
                 insights.append(
@@ -782,10 +660,10 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                     f"representing {top_pct:.1f}% of the total."
                 )
 
+
                 n_cats = len(vals)
                 if n_cats > 1:
                     sorted_vals = sorted(vals, reverse=True)
-                    # Gap between #1 and #2
                     if len(sorted_vals) > 1 and sorted_vals[1]:
                         ratio = sorted_vals[0] / sorted_vals[1]
                         if ratio >= 2:
@@ -799,7 +677,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                                 "a meaningful but not extreme gap."
                             )
 
-                    # Concentration / balance
+
                     even_pct      = 100 / n_cats
                     concentration = max(vals) / total * 100
                     if concentration > 2.5 * even_pct:
@@ -814,7 +692,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                             "— no single category dominates."
                         )
 
-                    # Bottom performer
+
                     bot_pct = (min(vals) / total * 100) if total else 0
                     insights.append(
                         f"Lowest: {bot_cat} at {_fmt_num(min(vals))} ({bot_pct:.1f}%). "
@@ -823,18 +701,14 @@ def generate_chart_insights(chart_type: str, title: str, fig,
         except Exception:
             pass
 
-    # ── Scatter plot ──────────────────────────────────────────────────────────
+
     elif chart_type in ("scatter", "scatter_plot") or "scatter:" in tl:
         try:
-            # Column names from title: "Scatter: X vs Y"
             cols_match = re.search(r"Scatter:\s*(.+?)\s+vs\s+(.+?)(\s|$|·|—)", title)
             x_col = cols_match.group(1).strip() if cols_match else "X"
             y_col = cols_match.group(2).strip() if cols_match else "Y"
 
-            # ── Detect trendline type ─────────────────────────────────────────
-            # Plotly trendline traces are "scatter" mode="lines" with a name
-            # that contains "OLS" or the trendline equation.  LOWESS traces
-            # have no equation name.  Both have no marker attribute.
+
             has_ols    = False
             has_lowess = False
             ols_slope  = None
@@ -844,23 +718,22 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                 if "lines" in _mode and "markers" not in _mode:
                     if "ols" in _name or "=" in _name or "trendline" in _name:
                         has_ols = True
-                        # Try to extract slope from name like "y = 0.42x + 5.1"
                         _slope_m = re.search(r"y\s*=\s*([+-]?[\d.]+)x", _name)
                         if _slope_m:
                             try: ols_slope = float(_slope_m.group(1))
-                            except: pass
+                            except Exception: pass
                     else:
                         has_lowess = True
 
-            # ── Pearson r (from title annotation) ────────────────────────────
+
             r_match = re.search(r"r\s*=\s*([+-]?\d+\.\d+)", title)
             r_val   = float(r_match.group(1)) if r_match else None
 
-            # ── Scatter trace (for point count) ──────────────────────────────
+
             scatter_trace = next(
                 (t for t in fig.data if "markers" in str(getattr(t, "mode", ""))), None)
 
-            # ── Correlation insight ───────────────────────────────────────────
+
             if r_val is not None:
                 strength  = "strong" if abs(r_val) >= 0.7 else "moderate" if abs(r_val) >= 0.4 else "weak"
                 direction = "positive" if r_val > 0 else "negative"
@@ -885,7 +758,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                         "trendline option can reveal curved relationships."
                     )
 
-            # ── OLS trendline explanation ─────────────────────────────────────
+
             if has_ols:
                 if ols_slope is not None:
                     direction_word = "increases" if ols_slope > 0 else "decreases"
@@ -904,7 +777,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                     "that may disproportionately influence the model."
                 )
 
-            # ── LOWESS trendline explanation ──────────────────────────────────
+
             if has_lowess:
                 insights.append(
                     "LOWESS (Locally Weighted Smoothing) trendline fitted. Unlike OLS, LOWESS "
@@ -918,7 +791,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                     f"in {_lx_sat} — a potential saturation or threshold effect."
                 )
 
-            # ── No trendline ──────────────────────────────────────────────────
+
             if not has_ols and not has_lowess and r_val is None:
                 insights.append(
                     f"Explore the pattern between {_named(x_col)} and {_named(y_col)}. "
@@ -926,7 +799,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                     "to reveal curved or non-linear patterns."
                 )
 
-            # ── Point count ───────────────────────────────────────────────────
+
             if scatter_trace:
                 n_pts = len(getattr(scatter_trace, "x", []) or [])
                 if n_pts:
@@ -937,8 +810,10 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                             "Try colouring by a category column to separate groups."
                         )
 
+
         except Exception:
             pass
+
 
         if not insights:
             insights.append(
@@ -946,7 +821,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                 "X and Y axes — add a trendline to quantify the pattern."
             )
 
-    # ── Map plot ───────────────────────────────────────────────────────────────
+
     elif chart_type == "map_plot" or "map:" in tl:
         try:
             map_trace = fig.data[0] if fig.data else None
@@ -955,8 +830,10 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                 lons = _as_number_series(getattr(map_trace, "lon", []) or [])
                 n_pts = len(lats)
 
+
                 if n_pts:
                     insights.append(f"Map shows {n_pts:,} location point(s).")
+
 
                 if len(lats) >= 2:
                     lat_spread = float(lats.max() - lats.min())
@@ -972,7 +849,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                             "consider filtering by region for more focused analysis."
                         )
 
-                # Hover for colour column context
+
                 color_col = next(
                     (c for c in col_desc if c.lower() in tl.lower()), None)
                 if color_col and col_desc.get(color_col):
@@ -983,7 +860,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
         except Exception:
             pass
 
-    # ── Matrix Heatmap ─────────────────────────────────────────────────────────
+
     elif chart_type in ("matrix_heatmap", "matrix_table") or "matrix" in tl:
         try:
             heat_trace = next(
@@ -992,6 +869,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
             tbl_trace  = next(
                 (t for t in fig.data
                  if type(t).__name__.lower() == "table"), None)
+
 
             if heat_trace:
                 z = heat_trace.z
@@ -1006,7 +884,6 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                             f"Values range from {_fmt_num(vmin)} to {_fmt_num(vmax)}. "
                             "The darkest cells show the highest aggregated values."
                         )
-                        # Find the hottest cell coordinates
                         x_labels = _as_list(getattr(heat_trace, "x", None))
                         y_labels = _as_list(getattr(heat_trace, "y", None))
                         best_r, best_c, best_v = None, None, None
@@ -1022,7 +899,6 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                                 f"Hotspot: {row_lbl} × {col_lbl} = {_fmt_num(best_v)} — "
                                 "highest aggregated value in the matrix."
                             )
-                        # Blank / sparse warning
                         n_total = sum(len(row or []) for row in z)
                         n_blank = sum(
                             1 for row in z for v in (row or [])
@@ -1034,6 +910,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                                 "sparse combinations might need more data or broader groupings."
                             )
 
+
             elif tbl_trace:
                 n_rows_t = len((tbl_trace.cells.values[0] or []) if tbl_trace.cells else [])
                 insights.append(
@@ -1043,7 +920,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
         except Exception:
             pass
 
-    # ── Statistical ───────────────────────────────────────────────────────────
+
     elif (chart_type == "statistical"
           or any(k in tl for k in ("mean", "std", "min", "max"))):
         try:
@@ -1075,7 +952,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                 "they usually explain the main story."
             )
 
-    # ── Data quality ──────────────────────────────────────────────────────────
+
     elif (chart_type == "data_quality"
           or any(k in tl for k in ("missing", "duplicate", "quality"))):
         try:
@@ -1096,12 +973,12 @@ def generate_chart_insights(chart_type: str, title: str, fig,
             "Resolve missing or duplicate rows before using these charts for decisions."
         )
 
-    # ── Column description footnotes (for any chart type) ─────────────────────
-    # Only appended when the description hasn't already been woven into the text above.
+
     if col_desc:
         mentioned = " ".join(insights).lower()
         for col, desc in col_desc.items():
             if col and desc.strip() and col.lower() in tl and desc.strip().lower() not in mentioned:
                 insights.append(f"Column context — {col}: {desc.strip()}")
+
 
     return clean_insights(insights)

@@ -1,18 +1,10 @@
-"""
-modules/analysis/__init__.py -- Analysis registry & configuration layer.
+"""modules/analysis/__init__.py -- Analysis registry & configuration layer."""
 
-Owns three things:
-  1. ANALYSIS_OPTIONS  -- analysis cards shown on the analysis page (order = render order).
-  2. _RUNNERS          -- maps each analysis ID → its runner function.
-  3. render_config_panel / _collect_kwargs -- config UI: draws widgets, reads them back.
-
-"""
 
 import uuid
 import streamlit as st
 
-# ── Individual runner imports ─────────────────────────────────────────────────
-# Each module lives in modules/analysis/<name>.py
+
 from modules.analysis.descriptive  import run_descriptive
 from modules.analysis.statistical  import run_statistical
 from modules.analysis.distribution import run_distribution
@@ -24,19 +16,14 @@ from modules.analysis.outlier       import run_outlier, OUTLIER_HELP
 from modules.analysis.scatter_plot  import run_scatter_plot
 from modules.analysis.matrix_table  import run_matrix_table
 from modules.analysis.map_plot      import run_map_plot
-from modules.analysis.insights      import generate_insights  
-# run_data_quality is imported directly in pages/upload.py
+from modules.analysis.insights      import generate_insights
 
-# Column-list helpers -- read from session_state (set during upload/classify)
+
 from modules.charts import PALETTES, num_cols as _num_cols, cat_cols as _cat_cols, dt_cols as _dt_cols
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Analysis registry
-# ─────────────────────────────────────────────────────────────────────────────
 
-# ANALYSIS_OPTIONS drives the card grid on the analysis page.
-# To add a new analysis: append a dict here AND add an entry to _RUNNERS below.
+
 ANALYSIS_OPTIONS = [
     {"id": "descriptive",  "icon": "🗂️", "name": "Descriptive",      "desc": "Summary statistics"},
     {"id": "statistical",  "icon": "📐", "name": "Statistical",       "desc": "Mean, std, min, max"},
@@ -63,14 +50,14 @@ _RUNNERS = {
     "map_plot":     run_map_plot,
 }
 
-# Analyses that need axis/column selection via the config panel.
+
 _NEEDS_AXES = {"statistical", "distribution", "correlation", "categorical",
                "pie_chart", "time_series", "scatter_plot", "matrix_table", "map_plot"}
 
-# Reserved for future analyses that must bypass the standard st.form() wrapper.
+
 _NO_FORM = set()
 
-# ── Aggregation function labels → pandas method strings ───────────────────────
+
 _AGG_FUNCS = {
     "Avg": "mean",
     "Sum":        "sum",
@@ -80,59 +67,46 @@ _AGG_FUNCS = {
     "Max":        "max",
 }
 
-# ── Date-part grouping labels → pandas period/alias strings ───────────────────
-# None means "use the raw date column without any grouping".
+
 _DATE_PARTS = {
     "None":           None,
     "Year":           "Y",
     "Quarter":        "Q",
     "Month (number)": "M",
-    "Month Name":     "month_name",    # special-cased in time_series.py
-    "Weekday Name":   "weekday_name",  # special-cased in time_series.py
+    "Month Name":     "month_name",
+    "Weekday Name":   "weekday_name",
     "Day":            "D",
     "Hour":           "H",
 }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Session-state helpers
-# ─────────────────────────────────────────────────────────────────────────────
+
 
 def _sk(aid: str, key: str) -> str:
-    """
-    Build a namespaced session_state key for a widget inside analysis `aid`.
-
-    Using a consistent naming scheme prevents key collisions between different
-    analysis types sharing widget names like "x" or "palette".
-
-    Example: _sk("categorical", "top_n")  →  "_cfg_categorical_top_n"
-    """
+    """Build a namespaced session_state key for a widget inside analysis `aid`."""
     return f"_cfg_{aid}_{key}"
 
 
-def _g(aid: str, key: str, default=None):
-    """
-    Read a widget value from session_state, falling back to `default`.
 
-    Args:
-        aid:     Analysis ID (e.g. "categorical").
-        key:     Widget key suffix (e.g. "top_n").
-        default: Value returned when the key is not yet in session_state.
-    """
+
+def _g(aid: str, key: str, default=None):
+    """Read a widget value from session_state, falling back to `default`."""
     return st.session_state.get(_sk(aid, key), default)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Scoped helpers -- per-chart-uid key prefix so multiple panels never collide
-# ─────────────────────────────────────────────────────────────────────────────
+
 
 def _sk_uid(uid: str, aid: str, key: str) -> str:
     """Namespaced key scoped to a specific chart uid for the regenerate panel."""
     return f"_edit_{uid}_{aid}_{key}"
 
 
+
+
 def _g_uid(uid: str, aid: str, key: str, default=None):
     return st.session_state.get(_sk_uid(uid, aid, key), default)
+
+
 
 
 def _ensure_single_choice_state(key: str, options, default):
@@ -145,6 +119,8 @@ def _ensure_single_choice_state(key: str, options, default):
     st.session_state[key] = current
 
 
+
+
 def _single_choice_value(value, default=None):
     """Return a scalar value or None from selectbox/multiselect-compatible state."""
     if isinstance(value, list):
@@ -152,20 +128,19 @@ def _single_choice_value(value, default=None):
     return None if value in (None, "") else value
 
 
+
+
 def render_config_panel_scoped(uid: str, aid: str, df) -> None:
-    """
-    Same as render_config_panel() but every widget key is scoped to `uid` so
-    multiple charts can have independent regeneration panels without collision.
-    """
+    """Same as render_config_panel() but every widget key is scoped to `uid` so"""
     num, cat, dt, all_cols = _num_cols(), _cat_cols(), _dt_cols(), df.columns.tolist()
     NONE = "None"
-    sk = lambda key: _sk_uid(uid, aid, key)   # noqa: E731
+    sk = lambda key: _sk_uid(uid, aid, key)
 
-    # Colour Palette — not relevant for matrix_table (uses per-element colours)
-    # or map_plot (uses colourscale, not a discrete palette).
+
     if aid not in ("matrix_table", "map_plot"):
         st.selectbox("🎨 Colour Palette", list(PALETTES.keys()), key=sk("palette"))
     st.markdown("---")
+
 
     if aid == "statistical":
         c1, c2, c3 = st.columns(3)
@@ -175,6 +150,7 @@ def render_config_panel_scoped(uid: str, aid: str, df) -> None:
         with c2: st.multiselect("Metrics", num, default=num[:4], key=sk("y"))
         with c3: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=sk("agg"))
 
+
     elif aid == "distribution":
         c1, c2 = st.columns(2)
         with c1: st.multiselect("Numeric columns", num, default=num[:4], key=sk("x"))
@@ -182,10 +158,12 @@ def render_config_panel_scoped(uid: str, aid: str, df) -> None:
             _ensure_single_choice_state(sk("color"), [NONE] + cat, NONE)
             st.selectbox("Colour by (optional)", [NONE] + cat, key=sk("color"))
 
+
     elif aid == "correlation":
         c1, c2 = st.columns(2)
         with c1: st.multiselect("Columns", num, default=num, key=sk("x"))
         with c2: st.multiselect("Additional (optional)", num, key=sk("y"))
+
 
     elif aid in ("categorical", "pie_chart"):
         c1, c2, c3, c4 = st.columns(4)
@@ -213,6 +191,7 @@ def render_config_panel_scoped(uid: str, aid: str, df) -> None:
                              list(_AGG_FUNCS.keys()), key=sk("dual_y_agg"),
                              help="Independent aggregation for the secondary Y-axis metric.")
 
+
     elif aid == "time_series":
         dt_candidates = dt if dt else all_cols
         c1, c2, c3, c4 = st.columns(4)
@@ -233,6 +212,7 @@ def render_config_panel_scoped(uid: str, aid: str, df) -> None:
                          list(_AGG_FUNCS.keys()), key=sk("dual_y_agg"),
                          help="Independent aggregation for the secondary Y-axis metric.")
 
+
     elif aid == "scatter_plot":
         sp1, sp2 = st.columns(2)
         with sp1: st.selectbox("X Axis (numeric)", [NONE] + num, key=sk("x_col"))
@@ -241,6 +221,7 @@ def render_config_panel_scoped(uid: str, aid: str, df) -> None:
         with sp3: st.selectbox("Colour by (optional)", [NONE] + cat, key=sk("color_col"))
         with sp4: st.selectbox("Size by (optional)", [NONE] + num, key=sk("size_col"))
         st.selectbox("Trendline", ["None", "ols", "lowess"], key=sk("trendline"))
+
 
     elif aid == "matrix_table":
         mt1, mt2, mt3 = st.columns(3)
@@ -257,12 +238,10 @@ def render_config_panel_scoped(uid: str, aid: str, df) -> None:
                                   step=5, value=0, key=sk("top_n_rows"),
                                   help="Limit to the top N rows after sorting. 0 shows all rows.")
 
+
     elif aid == "map_plot":
         from modules.analysis.map_plot import _CHOROPLETH_SCALES, _PROJECTIONS, _SCOPES, detect_geo_column
-        # ── Mode selector ─────────────────────────────────────────────────
         _map_mode_opts = ["Scatter (Lat/Lon)", "Choropleth (Location Names)"]
-        # Cache detect_geo_column per df (identified by shape+columns hash) so it
-        # doesn't re-scan pycountry lookups on every widget interaction rerun.
         _df_sig = f"{df.shape}_{list(df.columns)}"
         _geo_cache_key = "_detected_geo_col"
         _geo_sig_key   = "_detected_geo_sig"
@@ -313,18 +292,22 @@ def render_config_panel_scoped(uid: str, aid: str, df) -> None:
             st.checkbox("🔄 Invert colour scale", key=sk("invert_colorscale"))
 
 
+
+
 def _collect_kwargs_scoped(uid: str, aid: str, df) -> dict:
     """Same as _collect_kwargs() but reads from uid-scoped widget keys."""
     num, cat, dt, all_cols = _num_cols(), _cat_cols(), _dt_cols(), df.columns.tolist()
     NONE = "None"
-    g = lambda key, default=None: _g_uid(uid, aid, key, default)   # noqa: E731
+    g = lambda key, default=None: _g_uid(uid, aid, key, default)
     _sort_map = {
         "Value ↓": "Value (Desc)", "Value ↑": "Value (Asc)",
         "Category A→Z": "Category (A-Z)", "Category Z→A": "Category (Z-A)",
     }
 
+
     pal_label = g("palette", list(PALETTES.keys())[0])
     kwargs = {"palette": PALETTES.get(pal_label, list(PALETTES.values())[0])}
+
 
     if aid == "statistical":
         kwargs.update(x_cols=_single_choice_value(g("x", NONE), NONE), y_cols=g("y", num[:4]) or num,
@@ -363,6 +346,7 @@ def _collect_kwargs_scoped(uid: str, aid: str, df) -> dict:
         kwargs.update(x_cols=None if x in (NONE, None, "") else [x], y_cols=y, agg=agg,
                       date_part=date_part, dual_y_col=dual_y, dual_y_agg=dual_y_agg)
 
+
     elif aid == "scatter_plot":
         def _sp_r(key):
             v = g(key, NONE)
@@ -372,6 +356,7 @@ def _collect_kwargs_scoped(uid: str, aid: str, df) -> dict:
             color_col=_sp_r("color_col"), size_col=_sp_r("size_col"),
             trendline=g("trendline", "None"),
         )
+
 
     elif aid == "matrix_table":
         def _mt_r(key):
@@ -390,6 +375,7 @@ def _collect_kwargs_scoped(uid: str, aid: str, df) -> dict:
             sort_rows=_mt_sort_map.get(g("sort_rows", "Value ↓"), "value_desc"),
             top_n_rows=_mt_top_n_v if _mt_top_n_v > 0 else None,
         )
+
 
     elif aid == "map_plot":
         def _mp_r(key):
@@ -418,45 +404,27 @@ def _collect_kwargs_scoped(uid: str, aid: str, df) -> dict:
                 marker_opacity=float(g("marker_opacity", 0.82)),
             )
 
+
     return kwargs
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Configuration panel -- widget rendering
-# ─────────────────────────────────────────────────────────────────────────────
+
 
 def render_config_panel(aid: str, df) -> None:
-    """
-    Render configuration widgets for the analysis identified by `aid`.
-
-    Design rules:
-      - ALL widgets are ALWAYS visible -- no show/hide conditionals that react
-        to other widget values during the same rerun. This avoids the Streamlit
-        "missing key" crash caused by widgets appearing/disappearing mid-rerun.
-      - Every widget uses _sk(aid, key) as its Streamlit key so values persist
-        across reruns and are accessible via _collect_kwargs().
-      - This function returns nothing; the caller reads config via _collect_kwargs().
-
-    Args:
-        aid: Analysis ID string (e.g. "categorical", "time_series").
-        df:  The working DataFrame from st.session_state.df.
-    """
+    """Render configuration widgets for the analysis identified by `aid`."""
     num, cat, dt, all_cols = _num_cols(), _cat_cols(), _dt_cols(), df.columns.tolist()
-    NONE = "None"  # Sentinel string used in "no secondary column" selectboxes.
+    NONE = "None"
 
-    # Colour palette selector — not relevant for matrix_table (per-element colours)
-    # or map_plot (uses colourscale not a discrete palette).
+
     if aid not in ("matrix_table", "map_plot"):
         st.selectbox("🎨 Colour Palette", list(PALETTES.keys()), key=_sk(aid, "palette"))
     st.markdown("---")
 
-    # ── Descriptive ───────────────────────────────────────────────────────────
-    # No configuration needed -- the runner outputs a full pandas describe() table.
+
     if aid == "descriptive":
         st.info("No configuration needed -- outputs a full stats table.")
 
-    # ── Statistical ───────────────────────────────────────────────────────────
-    # Aggregates numeric metrics, optionally grouped by one categorical column.
+
     elif aid == "statistical":
         c1, c2, c3 = st.columns(3)
         with c1:
@@ -465,8 +433,7 @@ def render_config_panel(aid: str, df) -> None:
         with c2: st.multiselect("Metrics", num, default=num[:4], key=_sk(aid, "y"))
         with c3: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=_sk(aid, "agg"))
 
-    # ── Distribution ──────────────────────────────────────────────────────────
-    # Histograms with box-plot marginals for each selected numeric column.
+
     elif aid == "distribution":
         c1, c2 = st.columns(2)
         with c1: st.multiselect("Numeric columns", num, default=num[:4], key=_sk(aid, "x"))
@@ -474,17 +441,13 @@ def render_config_panel(aid: str, df) -> None:
             _ensure_single_choice_state(_sk(aid, "color"), [NONE] + cat, NONE)
             st.selectbox("Colour by (optional)", [NONE] + cat, key=_sk(aid, "color"))
 
-    # ── Correlation ───────────────────────────────────────────────────────────
-    # Pearson correlation heatmap. Requires at least 2 numeric columns.
+
     elif aid == "correlation":
         c1, c2 = st.columns(2)
         with c1: st.multiselect("Columns", num, default=num, key=_sk(aid, "x"))
         with c2: st.multiselect("Additional (optional)", num, key=_sk(aid, "y"))
 
-    # ── Categorical Bar & Pie / Donut ─────────────────────────────────────────
-    # Both share dimension / metric / aggregation / sort selectors.
-    # Categorical adds direction (vertical/horizontal) and dual Y-axis.
-    # Pie adds "Other" grouping for categories beyond Top N.
+
     elif aid in ("categorical", "pie_chart"):
         c1, c2, c3, c4 = st.columns(4)
         with c1: st.multiselect("Dimension columns", cat, default=cat[:2], key=_sk(aid, "x"))
@@ -495,7 +458,7 @@ def render_config_panel(aid: str, df) -> None:
             key=_sk(aid, "sort"))
         st.markdown("---")
 
-        # Categorical-only: chart orientation toggle.
+
         if aid == "categorical":
             st.selectbox(
                 "📊 Chart Direction",
@@ -503,8 +466,7 @@ def render_config_panel(aid: str, df) -> None:
                 key=_sk(aid, "direction"),
                 help="Vertical = column chart. Horizontal = bar chart with values outside tips.")
 
-        # Top-N -- always a number_input (0 = show all).
-        # Using number_input instead of a conditional checkbox avoids key-missing crashes.
+
         st.markdown("**🔝 Top N Categories**")
         st.caption("Enter how many top categories to show. Set to 0 to show all categories.")
         st.number_input(
@@ -512,7 +474,7 @@ def render_config_panel(aid: str, df) -> None:
             key=_sk(aid, "top_n"),
             help="0 = no limit. e.g. 10 = show only the 10 highest-value categories.")
 
-        # Dual Y-axis -- categorical only; selectbox with "None" sentinel.
+
         if aid == "categorical":
             st.markdown("---")
             st.markdown("**📊 Dual Y-Axis (Secondary metric as line overlay)**")
@@ -531,7 +493,7 @@ def render_config_panel(aid: str, df) -> None:
 
 
 
-    # ── Scatter Plot ──────────────────────────────────────────────────────────
+
     elif aid == "scatter_plot":
         sp1, sp2 = st.columns(2)
         with sp1: st.selectbox("X Axis (numeric)", [NONE] + num, key=_sk(aid, "x_col"))
@@ -542,7 +504,7 @@ def render_config_panel(aid: str, df) -> None:
         st.selectbox("Trendline", ["None", "ols", "lowess"], key=_sk(aid, "trendline"),
                      help="ols = linear regression line  ·  lowess = smoothed curve")
 
-    # ── Matrix Heatmap / Pivot Table ──────────────────────────────────────────
+
     elif aid == "matrix_table":
         mt1, mt2, mt3 = st.columns(3)
         with mt1: st.selectbox("Row (Index column)", [NONE] + cat, key=_sk(aid, "index_col"))
@@ -558,11 +520,10 @@ def render_config_panel(aid: str, df) -> None:
                                   step=5, value=0, key=_sk(aid, "top_n_rows"),
                                   help="Limit to the top N rows after sorting. 0 shows all rows.")
 
-    # ── Map Plot ──────────────────────────────────────────────────────────────
+
     elif aid == "map_plot":
         from modules.analysis.map_plot import _CHOROPLETH_SCALES, _PROJECTIONS, _SCOPES, detect_geo_column
         _map_mode_opts = ["Scatter (Lat/Lon)", "Choropleth (Location Names)"]
-        # Reuse cached result to avoid re-running pycountry scan on every widget rerun.
         _df_sig_s = f"{df.shape}_{list(df.columns)}"
         if st.session_state.get("_detected_geo_sig") != _df_sig_s or "_detected_geo_col" not in st.session_state:
             st.session_state["_detected_geo_col"] = detect_geo_column(df)
@@ -614,8 +575,7 @@ def render_config_panel(aid: str, df) -> None:
             with cg6: st.checkbox("Show borders", value=True, key=_sk(aid, "choropleth_show_borders"))
             st.checkbox("🔄 Invert colour scale", key=_sk(aid, "invert_colorscale"))
 
-    # ── Time Series ───────────────────────────────────────────────────────────
-    # Line charts over time with optional date-part grouping and dual Y-axis.
+
     elif aid == "time_series":
         dt_candidates = dt if dt else all_cols
         c1, c2, c3, c4 = st.columns(4)
@@ -628,7 +588,7 @@ def render_config_panel(aid: str, df) -> None:
         with c4: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=_sk(aid, "agg"))
         st.markdown("---")
 
-        # Dual Y -- always-visible selectbox with "None" sentinel.
+
         st.markdown("**📊 Dual Y-Axis (Secondary metric as dashed line)**")
         st.caption("Choose a secondary metric on the right Y-axis. Select 'None' to disable.")
         dual_opts_ts = [NONE] + list(num)
@@ -645,33 +605,18 @@ def render_config_panel(aid: str, df) -> None:
 
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Configuration collection -- reading widget values → kwargs dict
-# ─────────────────────────────────────────────────────────────────────────────
 
 def _collect_kwargs(aid: str, df) -> dict:
-    """
-    Read widget values from session_state and return a kwargs dict for the runner.
-
-    Called immediately before _run() to translate the user's configuration
-    choices into typed Python arguments understood by each analysis runner.
-
-    Args:
-        aid: Analysis ID (e.g. "categorical").
-        df:  The working DataFrame (used to infer defaults when selection is empty).
-
-    Returns:
-        dict of keyword arguments passed to the runner via **kwargs.
-    """
+    """Read widget values from session_state and return a kwargs dict for the runner."""
     num, cat, dt, all_cols = _num_cols(), _cat_cols(), _dt_cols(), df.columns.tolist()
     NONE = "None"
 
-    # Resolve palette -- always present because the selectbox is shown for all analyses.
+
     pal_label = _g(aid, "palette", list(PALETTES.keys())[0])
     palette   = PALETTES.get(pal_label, list(PALETTES.values())[0])
     kwargs    = {"palette": palette}
 
-    # Sort label → internal sort key used by categorical / pie runners.
+
     _sort_map = {
         "Value ↓":       "Value (Desc)",
         "Value ↑":       "Value (Asc)",
@@ -679,26 +624,26 @@ def _collect_kwargs(aid: str, df) -> dict:
         "Category Z→A":  "Category (Z-A)",
     }
 
-    # ── Statistical ───────────────────────────────────────────────────────────
+
     if aid == "statistical":
         x   = _single_choice_value(_g(aid, "x", NONE), NONE)
         y   = _g(aid, "y", num[:4]) or num
         agg = _AGG_FUNCS.get(_g(aid, "agg", "Avg"), "mean")
         kwargs.update(x_cols=None if x is None else [x], y_cols=y, agg=agg)
 
-    # ── Distribution ──────────────────────────────────────────────────────────
+
     elif aid == "distribution":
         x     = _g(aid, "x", num[:4]) or num[:4]
         color = _single_choice_value(_g(aid, "color", NONE), NONE)
         kwargs.update(x_cols=x, y_cols=None if color is None else [color])
 
-    # ── Correlation ───────────────────────────────────────────────────────────
+
     elif aid == "correlation":
         x = _g(aid, "x", num) or num
         y = _g(aid, "y", [])
         kwargs.update(x_cols=x, y_cols=y or None)
 
-    # ── Categorical & Pie ─────────────────────────────────────────────────────
+
     elif aid in ("categorical", "pie_chart"):
         x        = _g(aid, "x", cat[:2]) or cat[:2]
         y        = _g(aid, "y", []) or None
@@ -706,20 +651,20 @@ def _collect_kwargs(aid: str, df) -> dict:
         raw_sort = _g(aid, "sort", "Value ↓")
         sort_by  = _sort_map.get(raw_sort, "Value (Desc)")
         top_n_v  = int(_g(aid, "top_n", 0) or 0)
-        top_n    = top_n_v if top_n_v > 0 else None  # 0 → None means "show all"
+        top_n    = top_n_v if top_n_v > 0 else None
         kwargs.update(x_cols=x, y_cols=y, agg=agg, sort_by=sort_by, top_n=top_n)
+
 
         if aid == "categorical":
             direction = _g(aid, "direction", "Vertical (Column chart)")
             raw_dual  = _g(aid, "dual_y", NONE)
             dual_y    = None if (not raw_dual or raw_dual == NONE) else raw_dual
-            # Prevent the secondary metric from being the same as the primary.
             if dual_y and y and dual_y in (y if isinstance(y, list) else [y]):
                 dual_y = None
             dual_y_agg = _AGG_FUNCS.get(_g(aid, "dual_y_agg", "Avg"), "mean") if dual_y else None
             kwargs.update(direction=direction, dual_y_col=dual_y, dual_y_agg=dual_y_agg)
 
-    # ── Scatter Plot ──────────────────────────────────────────────────────────
+
     elif aid == "scatter_plot":
         def _sp_resolve(key):
             v = _g(aid, key, NONE)
@@ -732,7 +677,7 @@ def _collect_kwargs(aid: str, df) -> dict:
             trendline=_g(aid, "trendline", "None"),
         )
 
-    # ── Matrix Heatmap / Pivot Table ──────────────────────────────────────────
+
     elif aid == "matrix_table":
         def _mt_resolve(key):
             v = _g(aid, key, NONE)
@@ -752,7 +697,7 @@ def _collect_kwargs(aid: str, df) -> dict:
             top_n_rows=_mt_top_n_v2 if _mt_top_n_v2 > 0 else None,
         )
 
-    # ── Map Plot ──────────────────────────────────────────────────────────────
+
     elif aid == "map_plot":
         def _mp_resolve(key):
             v = _g(aid, key, NONE)
@@ -783,7 +728,7 @@ def _collect_kwargs(aid: str, df) -> dict:
                 marker_opacity=float(_g(aid, "marker_opacity", 0.82)),
             )
 
-    # ── Time Series ───────────────────────────────────────────────────────────
+
     elif aid == "time_series":
         x         = _g(aid, "x", NONE)
         y         = _g(aid, "y", num[:2]) or num[:2]
@@ -792,75 +737,42 @@ def _collect_kwargs(aid: str, df) -> dict:
         x_cols    = None if x in (NONE, None, "") else [x]
         raw_dual  = _g(aid, "dual_y_ts", NONE)
         dual_y    = None if (not raw_dual or raw_dual == NONE) else raw_dual
-        # Prevent secondary from being the same column as any primary metric.
         if dual_y and dual_y in (y if isinstance(y, list) else [y]):
             dual_y = None
         dual_y_agg = _AGG_FUNCS.get(_g(aid, "dual_y_agg", "Avg"), "mean") if dual_y else None
         kwargs.update(x_cols=None if x in (NONE, None, "") else [x], y_cols=y, agg=agg,
                       date_part=date_part, dual_y_col=dual_y, dual_y_agg=dual_y_agg)
 
+
     return kwargs
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Runner dispatcher
-# ─────────────────────────────────────────────────────────────────────────────
+
 
 def _run(aid: str, df, **kwargs):
-    """
-    Dispatch to the correct runner and return a list of (uid, title, fig) tuples.
-
-    Sequence per chart produced by the runner:
-        1. Assign a fresh 8-character UID.
-        2. Call generate_insights() to populate st.session_state[f"auto_insights_{uid}"].
-        3. Append (uid, title, fig) to the result list.
-
-    Insight generation is wrapped in its own try/except inside generate_insights()
-    so a bad dataset (e.g. all-NaN column) can never prevent the chart from rendering.
-
-    Args:
-        aid:      Analysis ID (must be a key in _RUNNERS, e.g. "correlation").
-        df:       The full working DataFrame from session_state.
-        **kwargs: Collected from _collect_kwargs() / _collect_kwargs_scoped();
-                  forwarded unchanged to both the runner and the insight generator.
-
-    Returns:
-        list of (uid: str, title: str, fig: Figure) — ready to append to charts.
-        Returns None if the runner itself raises an error (caller shows st.error).
-        Returns []  if aid is not registered.
-
-    Notes:
-        - descriptive and data_quality runners only accept df (no kwargs).
-          All others receive **kwargs.
-        - UIDs are 8-character hex strings; short enough to be readable in
-          session_state keys but unique enough for typical session sizes (~100 charts).
-        - generate_insights() uses the same **kwargs as the runner, so it has access
-          to x_col, y_cols, agg, top_n, date_part, etc. without any extra plumbing.
-    """
+    """Dispatch to the correct runner and return a list of (uid, title, fig) tuples."""
     fn = _RUNNERS.get(aid)
     if not fn:
         return []
 
+
     try:
-        # ── Step 1: Run the analysis / chart builder ───────────────────────────
-        # descriptive and data_quality render inline (no Plotly figures returned).
-        # All other runners receive the full kwargs dict.
         raw = fn(df) if aid in ("descriptive", "data_quality") else fn(df, **kwargs)
 
-        # ── Step 2: Assign UIDs + generate insights per chart ─────────────────
+
         results = []
         for title, fig in raw:
             uid = str(uuid.uuid4())[:8]
 
-            # Populate st.session_state[f"auto_insights_{uid}"] with plain-English
-            # insights derived from df and the runner's configuration kwargs.
-            # generate_insights() swallows all exceptions internally — it will
-            # never break the chart pipeline.
+
             generate_insights(aid, df, uid, **kwargs)
+
 
             results.append((uid, title, fig))
 
+
         return results
+
 
     except Exception as e:
         st.error(f"Analysis error ({aid}): {e}")

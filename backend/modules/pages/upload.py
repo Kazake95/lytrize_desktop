@@ -1,10 +1,10 @@
-"""
-modules/pages/upload.py -- File upload and column classification page.
-"""
+"""modules/pages/upload.py -- File upload and column classification page."""
+
 
 import streamlit as st
 import pandas as pd
 from html import escape
+
 
 from modules.ui.column_manager import show_column_manager
 from modules.ui.column_tools   import show_dtype_transformer, show_column_classifier
@@ -16,22 +16,27 @@ from modules.analysis.data_quality import run_data_quality
 from modules.analysis.outlier import run_outlier_upload
 
 
+
+
 def _is_excel(name: str) -> bool:
     """Return True when the filename has an Excel extension."""
     return name.lower().endswith((".xlsx", ".xls"))
 
 
+
+
 def _uploaded_signature(uploaded) -> str:
-    """
-    Return a stable string that uniquely identifies this upload within a session.
-    """
+    """Return a stable string that uniquely identifies this upload within a session."""
     import hashlib
+
 
     file_id = getattr(uploaded, "file_id", None)
     size    = getattr(uploaded, "size", 0) or 0
 
+
     if file_id:
         return f"{uploaded.name}:{size}:{file_id}"
+
 
     content_suffix = ""
     if size > 0 and size < 10_000_000:
@@ -47,28 +52,30 @@ def _uploaded_signature(uploaded) -> str:
         finally:
             uploaded.seek(0)
 
+
     return f"{uploaded.name}:{size}{content_suffix}"
 
 
-# Streamlit cache_resource completely bypasses pickling loops.
-# max_entries=1 frees RAM when switching files.
+
+
 @st.cache_resource(show_spinner=False, max_entries=1)
 def _read_csv_cached(file_sig: str, _uploaded_file) -> pd.DataFrame:
-    """
-    Parse and dtype-optimise a CSV file.
-    Using st.cache_resource instead of st.cache_data avoids unpickling/copying
-    the entire dataframe on every rerun.
-    """
+    """Parse and dtype-optimise a CSV file."""
     import io
     _uploaded_file.seek(0)
     file_bytes = _uploaded_file.read()
     return read_csv_fast(io.BytesIO(file_bytes))
 
 
+
+
 def page_upload():
     render_logo()
 
+
     st.session_state["_last_viewed_page"] = "upload"
+
+
 
 
     if st.button("← Home"):
@@ -77,7 +84,9 @@ def page_upload():
         st.session_state.pop("_resume_upload", None)
         st.rerun()
 
+
     st.markdown("## 📂 Upload Dataset")
+
 
     if "editing_session_id" in st.session_state:
         fname = st.session_state.get("editing_file_name", "the original file")
@@ -95,19 +104,23 @@ def page_upload():
                 f"✏️ **Edit mode** — Remember to re-upload the same file **{fname}** to add more charts to the saved session."
             )
 
+
     uploaded = st.file_uploader(
         "CSV or Excel (single or multi-sheet) — up to 500 MB",
         type=["csv", "xlsx", "xls"],
         key="main_file_uploader",
     )
 
+
     if (not uploaded) and ("df" in st.session_state) and st.session_state.get("df") is not None:
         _resumed_name = st.session_state.get("file_name") or "your dataset"
         
-        if st.session_state.get("_resume_upload"):
+
+        if st.session_state.get("_resume_upload") or st.session_state.get("_last_viewed_page") == "upload":
             _show_analysis_pipeline(st.session_state["df"], _resumed_name)
             inject_footer()
             return
+
 
         st.info(
             f"📂 **{_resumed_name}** is still loaded from your last session. "
@@ -130,9 +143,11 @@ def page_upload():
         inject_footer()
         return
 
+
     if not uploaded:
         inject_footer()
         return
+
 
     is_excel     = _is_excel(uploaded.name)
     file_sig     = _uploaded_signature(uploaded)
@@ -141,6 +156,7 @@ def page_upload():
         st.session_state.get("file_signature") != file_sig
     )
     st.session_state.pop("_resume_upload", None)
+
 
     if not is_excel:
         if "df" not in st.session_state or file_changed:
@@ -164,6 +180,7 @@ def page_upload():
             st.session_state.file_name      = uploaded.name
             st.session_state.file_signature = file_sig
 
+
         if "df" not in st.session_state:
             df = show_excel_loader(uploaded)
             if df is not None:
@@ -177,17 +194,18 @@ def page_upload():
             _show_analysis_pipeline(st.session_state.df, uploaded.name)
 
 
+
+
 def _save_upload_snapshot(df, file_name: str) -> None:
     """Persist df parquet + minimal draft immediately after upload if modified."""
     uid = st.session_state.get("user_id")
     if not uid:
         return
     try:
-        # Include id(df) so snapshot changes are tracked by memory reference,
-        # preventing redundant disk writes when only config or description changes.
         df_sig = (id(df), df.shape, tuple(df.columns))
         sig_changed = st.session_state.get("_df_snapshot_sig") != df_sig
         
+
         draft_cache_key = ("_draft_upload_cache", file_name, df_sig)
         if st.session_state.get("_last_draft_upload_cache") != draft_cache_key or sig_changed:
             from modules.utils.session_cache import save_df_snapshot
@@ -195,9 +213,8 @@ def _save_upload_snapshot(df, file_name: str) -> None:
             import json as _json
             import threading
             
+
             if sig_changed:
-                # Run the heavy disk-write operation on a background thread
-                # so the frontend interface is not blocked while waiting on the disk I/O.
                 threading.Thread(
                     target=save_df_snapshot,
                     args=(uid,),
@@ -205,6 +222,7 @@ def _save_upload_snapshot(df, file_name: str) -> None:
                 ).start()
                 st.session_state["_df_snapshot_sig"] = df_sig
                 
+
             save_draft(
                 user_id               = uid,
                 page                  = "upload",
@@ -219,12 +237,15 @@ def _save_upload_snapshot(df, file_name: str) -> None:
         pass
 
 
+
+
 def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
     _save_upload_snapshot(df, file_name)
     st.markdown("---")
     _n_rows = df.shape[0]
     _n_cols = df.shape[1]
     st.success(f"✅ **{file_name}** — {_n_rows:,} rows × {_n_cols} columns")
+
 
     with st.expander("📋 Data Preview", expanded=True):
         _pb1, _pb2, _pb3, _pb4 = st.columns([1, 1, 1, 4])
@@ -247,6 +268,7 @@ def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
                 f"📅 {_dt_c} datetime  ·  ⚠️ {_null}% missing"
             )
 
+
         _ul_mode = st.session_state.get("_ul_preview_mode", "top")
         try:
             if _ul_mode == "bottom":
@@ -262,8 +284,10 @@ def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
             _prev_df = df.head(10)
             _lbl = "Top 10 rows"
 
+
         st.caption(f"*{_lbl}*")
         st.dataframe(_prev_df, use_container_width=True, height=min(380, 38 + len(_prev_df) * 35))
+
 
     with st.expander("📖 Describe Your Columns (optional)", expanded=False):
         st.markdown("Describe what each column means for better auto-insights.")
@@ -279,17 +303,18 @@ def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
             st.session_state.col_descriptions = col_descs
             st.success("✅ Saved.")
 
+
     with st.expander("🧹 Data Quality Summary", expanded=False):
         st.info("Check the box below to run a data quality analysis.")
         if st.checkbox("🔍 Enable Data Quality Diagnostics", key="_enable_dq_run"):
             with st.spinner("Analyzing data quality metrics..."):
-                # Safety sample of 100,000 rows to ensure instant UI loading
                 if len(df) > 100_000:
                     st.warning("⚠️ Large dataset detected. Analyzing a representative 100,000-row sample for speed.")
                     dq_df = df.sample(n=100_000, random_state=42)
                 else:
                     dq_df = df
                 dq_charts = run_data_quality(dq_df)
+
 
                 if dq_charts:
                     st.markdown("#### Data Quality Summaries")
@@ -306,11 +331,11 @@ def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
                 else:
                     st.info("No data quality issues were detected.")
 
+
     with st.expander("🔍 Outlier Detection", expanded=False):
         st.info("Check the box below to run outlier analysis across numeric columns.")
         if st.checkbox("📊 Enable Outlier Scanners", key="_enable_outlier_run"):
             with st.spinner("Calculating outlier boundaries..."):
-                # Safety sample of 100,000 rows to prevent execution freeze
                 if len(df) > 100_000:
                     st.warning("⚠️ Large dataset detected. Scanning a representative 100,000-row sample for speed.")
                     outlier_df = df.sample(n=100_000, random_state=42)
@@ -318,20 +343,26 @@ def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
                     outlier_df = df
                 run_outlier_upload(outlier_df)
 
+
     with st.expander("🧩 Column Manager", expanded=False):
         df = show_column_manager(df)
+
 
     with st.expander("🔢 Data-type Transformer", expanded=False):
         df = show_dtype_transformer(df)
 
+
     with st.expander("🧼 Data Cleaner", expanded=False):
         df = show_data_cleaner(df)
+
 
     with st.expander("💾 Save Cleaned Data as CSV", expanded=False):
         st.caption("Download the current (cleaned) dataset as a CSV file.")
         
+
         if st.checkbox("⚙️ Prepare CSV Download File", key="_enable_csv_export"):
             import io as _io, datetime as _dt
+
 
             _csv_col1, _csv_col2 = st.columns([2, 1])
             with _csv_col1:
@@ -356,6 +387,7 @@ def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
                     key="csv_export_index",
                 )
 
+
             _fname = (_csv_filename.strip() or "cleaned_data").rstrip(".csv") + ".csv"
             _use_col_as_idx = (
                 _csv_index_choice
@@ -363,9 +395,11 @@ def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
                 else None
             )
 
+
             with st.spinner("Generating export file (this can take a moment for large datasets)..."):
                 _export_df = df.set_index(_use_col_as_idx) if _use_col_as_idx else df
                 _csv_bytes = _export_df.to_csv(index=bool(_use_col_as_idx)).encode("utf-8")
+
 
             st.download_button(
                 label="⬇️ Download",
@@ -382,8 +416,11 @@ def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
         else:
             st.info("Check the box above to generate the download link for your dataset.")
 
+
     with st.expander("🧠 Classify Columns & Proceed to Analysis", expanded=False):
         show_column_classifier(df)
+
+
 
 
 def _clear_excel_state(new_file_name: str = "") -> None:

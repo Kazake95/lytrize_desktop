@@ -1,6 +1,5 @@
-"""
-modules/pages/analysis.py -- Analysis selection and chart generation page.
-"""
+"""modules/pages/analysis.py -- Analysis selection and chart generation page."""
+
 
 import uuid, json
 import streamlit as st
@@ -27,10 +26,10 @@ from modules.ui.chart_settings import (
 )
 
 
+
+
 def _shadow_notes_sync() -> None:
-    """
-    Copy all live desc_{uid} widget values into st.session_state._notes_shadow.
-    """
+    """Copy all live desc_{uid} widget values into st.session_state._notes_shadow."""
     shadow = st.session_state.setdefault("_notes_shadow", {})
     for k, v in list(st.session_state.items()):
         if k.startswith("desc_") and k not in ("desc_add", "desc_close"):
@@ -41,6 +40,8 @@ def _shadow_notes_sync() -> None:
             st.session_state[key] = note
 
 
+
+
 def _sync_one_note(uid: str) -> None:
     """on_change callback for a single notes text_area."""
     val = st.session_state.get(f"desc_{uid}", "")
@@ -49,11 +50,10 @@ def _sync_one_note(uid: str) -> None:
     st.session_state[f"desc_{uid}"] = val
 
 
+
+
 def _autosave() -> None:
-    """
-    Persist the current chart/notes state to the database on every meaningful
-    user action.
-    """
+    """Persist the current chart/notes state to the database on every meaningful"""
     _shadow_notes_sync()
     _persist_draft()
     eid  = st.session_state.get("editing_session_id")
@@ -74,6 +74,7 @@ def _autosave() -> None:
                     kpis_json = "[]"
                 st.session_state["_cached_kpis_json"] = kpis_json
 
+
             update_session_db(
                 eid, name,
                 charts_to_json(st.session_state.get("charts", [])),
@@ -93,10 +94,10 @@ def _autosave() -> None:
             pass
 
 
+
+
 def _restore_edit_notes() -> None:
-    """
-    Re-seed desc_{uid} keys for all charts in the current editing session.
-    """
+    """Re-seed desc_{uid} keys for all charts in the current editing session."""
     if st.session_state.get("_analysis_notes_loaded"):
         shadow = st.session_state.get("_notes_shadow", {})
         for uid, note in shadow.items():
@@ -104,6 +105,7 @@ def _restore_edit_notes() -> None:
             if note and not st.session_state.get(key):
                 st.session_state[key] = note
         return
+
 
     eid = st.session_state.get("editing_session_id")
     uid = st.session_state.get("user_id")
@@ -125,23 +127,25 @@ def _restore_edit_notes() -> None:
     st.session_state["_analysis_notes_loaded"] = True
 
 
+
+
 def _persist_draft(page="analysis"):
     uid = st.session_state.get("user_id")
     if not uid:
         return
 
-    # Using id(df) prevents expensive parquet snapshot rewrites on simple
-    # setting changes, note interactions, and sidebar visualizations.
+
     df = st.session_state.get("df")
     if df is not None:
         try:
-            df_sig = (id(df), df.shape, tuple(df.columns))
+            df_sig = (id(df), df.shape, tuple(df.columns), hash(tuple(df.columns.tolist())))
             if st.session_state.get("_df_snapshot_sig") != df_sig:
                 from modules.utils.session_cache import save_df_snapshot
                 save_df_snapshot(uid)
                 st.session_state["_df_snapshot_sig"] = df_sig
         except Exception:
             pass
+
 
     charts = st.session_state.get("charts", [])
     chart_sig = tuple(uid_t for uid_t, _, _ in charts)
@@ -155,6 +159,7 @@ def _persist_draft(page="analysis"):
         charts_json = charts_to_json(charts)
         st.session_state["_charts_json_cache_val"] = charts_json
         st.session_state["_charts_json_cache_sig"] = cache_key
+
 
     chart_meta_raw = {}
     for _k in list(st.session_state.keys()):
@@ -179,6 +184,7 @@ def _persist_draft(page="analysis"):
                 chart_meta_raw[_k] = str(_v)
     chart_meta_json = json.dumps(chart_meta_raw, ensure_ascii=False)
 
+
     save_draft(
         user_id              = uid,
         page                 = page,
@@ -194,6 +200,8 @@ def _persist_draft(page="analysis"):
             st.session_state.get("col_descriptions", {})
         ),
     )
+
+
 
 
 def _add_charts(new_charts, active):
@@ -216,20 +224,26 @@ def _add_charts(new_charts, active):
     _persist_draft()
 
 
+
+
 def page_analysis():
     if "user_id" not in st.session_state:
         st.session_state.page = "profile"
         st.rerun()
 
+
     df         = st.session_state.get("df")
     is_editing = "editing_session_id" in st.session_state
 
+
     render_logo()
+
 
     if not st.session_state.get("_analysis_page_ready"):
         st.session_state["_analysis_page_ready"] = True
         with st.spinner("Loading analysis workspace…"):
             import time as _t; _t.sleep(0.05)
+
 
     if df is None and is_editing:
         _restore_edit_notes()
@@ -237,15 +251,18 @@ def page_analysis():
         fname  = st.session_state.get("editing_file_name",    "the original file")
         charts = st.session_state.get("charts", [])
 
+
         if st.button("← Home"):
             for k in ["editing_session_id","editing_session_name","editing_file_name"]:
                 st.session_state.pop(k, None)
             st.session_state.page = "home"; st.rerun()
 
+
         st.markdown(f"## ✏️ Editing: **{sname}**")
         st.info(
             f"📂 **Re-upload needed to run new analyses.** "
             f"Upload **{fname}** to add more charts, or go to Dashboard to save what you have.")
+
 
         c1, c2 = st.columns(2)
         with c1:
@@ -258,15 +275,19 @@ def page_analysis():
                 _autosave()
                 st.session_state.page = "dashboard"; st.rerun()
 
+
         _render_chart_list(charts, edit_mode=True)
         inject_footer()
         return
 
+
     if df is None:
         st.session_state.page = "upload"; st.rerun()
 
+
     if "charts"            not in st.session_state: st.session_state.charts            = []
     if "selected_analyses" not in st.session_state: st.session_state.selected_analyses = []
+
 
     _nav_c1, _nav_c2, _nav_spacer = st.columns([1, 1, 6])
     with _nav_c1:
@@ -281,11 +302,13 @@ def page_analysis():
             st.session_state.pop("_analysis_page_ready", None)
             st.session_state.page = "upload"; st.rerun()
 
+
     if is_editing:
         _restore_edit_notes()
         sname = st.session_state.get("editing_session_name", "Session")
         st.info(f"✏️ Edit mode -- adding charts to **{sname}**. "
                 f"Click **Proceed to Dashboard** when done.")
+
 
     regen_uid  = st.session_state.get("_regen_uid")
     regen_type = st.session_state.get("_regen_type", "")
@@ -300,7 +323,9 @@ def page_analysis():
             st.markdown(f"### 🔄 Regenerate Chart — *{regen_title}* ({type_label})")
             st.caption("Adjust options below then click **Apply Changes** to replace the chart.")
 
+
             render_config_panel_scoped(regen_uid, regen_type, df)
+
 
             ra, rb, _ = st.columns([1, 1, 5])
             with ra:
@@ -311,6 +336,7 @@ def page_analysis():
                     if new_charts:
                         st.session_state.pop(f"_fig_cache_{regen_uid}", None)
                         st.session_state.pop(f"_fig_cache_meta_{regen_uid}", None)
+
 
                         new_fig   = new_charts[0][2]
                         new_title = new_charts[0][1]
@@ -332,11 +358,14 @@ def page_analysis():
                     _shadow_notes_sync()
                     st.rerun()
 
+
             st.markdown("---")
+
 
     _fname   = st.session_state.get("file_name", "dataset")
     _n_rows  = len(df)
     _n_cols  = len(df.columns)
+
 
     with st.expander(
         f"📋 Data Preview — {_fname}  ({_n_rows:,} rows × {_n_cols} columns)",
@@ -359,6 +388,7 @@ def page_analysis():
                 f"{'…' if _n_cols > 8 else ''}**"
             )
 
+
         _mode = st.session_state.get("_analysis_preview_mode", "top")
         try:
             if _mode == "bottom":
@@ -374,12 +404,14 @@ def page_analysis():
             _prev_df = df.head(10)
             _label   = "Top 10 rows"
 
+
         st.caption(f"*{_label}*")
         st.dataframe(
             _prev_df,
             use_container_width=True,
             height=min(380, 38 + len(_prev_df) * 35),
         )
+
 
         _num_count = len(df.select_dtypes("number").columns)
         _cat_count = len(df.select_dtypes("object").columns)
@@ -390,9 +422,12 @@ def page_analysis():
             f"📅 {_dt_count} datetime  ·  ⚠️ {_null_pct}% missing values"
         )
 
+
     st.markdown("## 🔬 Select Analysis Type")
 
+
     active = st.session_state.get("_active_analysis")
+
 
     cols   = st.columns([1,1,1,1,1], gap="small")
     for i, opt in enumerate(ANALYSIS_OPTIONS):
@@ -412,6 +447,7 @@ def page_analysis():
                 _shadow_notes_sync()
                 st.rerun()
 
+
     if active:
         analysis_name = next(o["name"] for o in ANALYSIS_OPTIONS if o["id"] == active)
         st.markdown("---")
@@ -427,6 +463,7 @@ def page_analysis():
         }, 150);
         </script>""", height=0)
 
+
         if active == "descriptive":
             st.markdown("### 🗂️ Descriptive Statistics")
             run_descriptive(df)
@@ -435,11 +472,14 @@ def page_analysis():
                 _shadow_notes_sync()
                 st.rerun()
 
+
         else:
             st.markdown(f"### ⚙️ Configure -- {analysis_name}")
             st.caption("Adjust options below. All selections are live -- no submit needed until Generate.")
 
+
             render_config_panel(active, df)
+
 
             st.write("")
             g1, g2, _ = st.columns([1, 1, 5])
@@ -452,10 +492,12 @@ def page_analysis():
                     "✕ Close", key=f"close_{active}",
                     use_container_width=True)
 
+
             if close_clicked:
                 st.session_state["_active_analysis"] = None
                 _shadow_notes_sync()
                 st.rerun()
+
 
             if generate_clicked:
                 kwargs = _collect_kwargs(active, df)
@@ -466,6 +508,7 @@ def page_analysis():
                     st.session_state["_active_analysis"] = None
                     _autosave()
                     st.rerun()
+
 
     if st.session_state.charts:
         st.markdown("---")
@@ -482,7 +525,9 @@ def page_analysis():
                 _autosave()
                 st.rerun()
 
+
         _render_chart_list(st.session_state.charts, edit_mode=is_editing)
+
 
         st.write("")
         if st.button("🎯 Proceed to Dashboard →", type="primary"):
@@ -492,7 +537,10 @@ def page_analysis():
                 _autosave()
             st.session_state.page = "dashboard"; st.rerun()
 
+
     inject_footer()
+
+
 
 
 def _chart_meta(uid) -> dict:
@@ -503,6 +551,8 @@ def _chart_meta(uid) -> dict:
     return st.session_state[k]
 
 
+
+
 def _set_chart_meta(uid, **kw) -> None:
     """Write chart meta to session_state."""
     k = f"chart_meta_{uid}"
@@ -511,11 +561,14 @@ def _set_chart_meta(uid, **kw) -> None:
     st.session_state[k].update(kw)
 
 
+
+
 def _render_chart_list(charts, edit_mode=False):
     """Render chart cards with full settings, insights, and notes in edit mode."""
     col_descs = st.session_state.get("col_descriptions", {})
     for uid, title, fig in charts:
         meta = _chart_meta(uid)
+
 
         _ctype_apply   = st.session_state.get(f"chart_type_{uid}", "")
         _meta_view     = meta.get("_matrix_view", "")
@@ -526,27 +579,33 @@ def _render_chart_list(charts, edit_mode=False):
                 _set_chart_meta(uid, _matrix_view=_meta_view)
                 meta = st.session_state.get(f"chart_meta_{uid}", {})
 
+
         display_title = meta.get("custom_title") or title
         df_available  = st.session_state.get("df") is not None
         _ts          = meta.get("text_style") or {}
         
+
         _hdr_size   = int(st.session_state.get(f"analysis_hsize_{uid}", _ts.get("header_size", 28)))
         _hdr_color  = str(st.session_state.get(f"analysis_hcolor_{uid}", _ts.get("header_color", "#6163df")))
         _hdr_family = str(st.session_state.get(f"analysis_hfont_{uid}", _ts.get("header_family", "Inter, system-ui, sans-serif")))
         _hdr_style  = str(st.session_state.get(f"analysis_hfont_style_{uid}", _ts.get("header_font_style", "Normal"))).lower()
+
 
         _sub_size   = int(st.session_state.get(f"analysis_ssize_{uid}", _ts.get("subtitle_size", 11)))
         _sub_color  = str(st.session_state.get(f"analysis_scolor_{uid}", _ts.get("subtitle_color", "#64748b")))
         _sub_family = str(st.session_state.get(f"analysis_subfont_{uid}", _ts.get("subtitle_family", "Inter, system-ui, sans-serif")))
         _sub_style  = str(st.session_state.get(f"analysis_subfont_style_{uid}", _ts.get("subtitle_font_style", "Normal"))).lower()
 
+
         _hdr_weight = "700" if "bold" in _hdr_style or _hdr_style == "normal" else "normal"
         _hdr_italic = "italic" if "italic" in _hdr_style else "normal"
         _hdr_decor  = "underline" if "underline" in _hdr_style else "none"
 
+
         _sub_weight = "bold" if "bold" in _sub_style else "normal"
         _sub_italic = "italic" if "italic" in _sub_style else "normal"
         _sub_decor  = "underline" if "underline" in _sub_style else "none"
+
 
         ctrl = st.columns([9, 2, 1])
         with ctrl[0]:
@@ -587,16 +646,19 @@ def _render_chart_list(charts, edit_mode=False):
                 _autosave()
                 st.rerun()
 
+
         _cache_key       = f"_fig_cache_{uid}"
         _cache_meta_key  = f"_fig_cache_meta_{uid}"
         _cached_fig      = st.session_state.get(_cache_key)
         _cached_hash = st.session_state.get(_cache_meta_key, "")
+
 
         chart_type    = st.session_state.get(f"chart_type_{uid}", "")
         auto_insights = st.session_state.get(f"auto_insights_{uid}")
         if auto_insights is None:
             auto_insights = generate_chart_insights(chart_type, title, fig, col_descs)
             st.session_state[f"auto_insights_{uid}"] = auto_insights
+
 
         _settings_col, _chart_col = st.columns([1, 2])
         with _settings_col:
@@ -620,6 +682,7 @@ def _render_chart_list(charts, edit_mode=False):
                         for c in st.session_state.get("charts", [])
                     ]
 
+
             from modules.ui.chart_settings import render_typography_controls
             with st.expander("🎨 Typography", expanded=False):
                 text_style = render_typography_controls(
@@ -628,19 +691,24 @@ def _render_chart_list(charts, edit_mode=False):
                 )
                 _set_chart_meta(uid, text_style=text_style)
 
+
         meta       = _chart_meta(uid)
         _post_hash = compute_meta_hash(meta)
 
+
         _need_rebuild = (_cached_fig is None or _cached_hash != _post_hash)
+
 
         with _chart_col:
             _chart_type_for_opts = _ctype_apply
             if _ctype_apply == "matrix_table" and _meta_view == "heatmap":
                 _chart_type_for_opts = "matrix_heatmap"
 
+
             if _need_rebuild:
                 import copy as _acopy
                 fig_show = _acopy.deepcopy(fig)
+
 
                 xl = meta.get("x_label", "")
                 yl = meta.get("y_label", "")
@@ -662,7 +730,9 @@ def _render_chart_list(charts, edit_mode=False):
                     if xl: fig_show.update_xaxes(title_text=xl)
                     if yl: fig_show.update_yaxes(title_text=yl)
 
+
                 fig_show.update_layout(title_text="")
+
 
                 stored_legend    = meta.get("legend_names", {})
                 stored_trace_idx = meta.get("trace_names", {})
@@ -674,16 +744,20 @@ def _render_chart_list(charts, edit_mode=False):
                     if renamed:
                         _trace.name = renamed
 
+
                 _leg_title = meta.get("legend_title", "")
                 if _leg_title:
                     fig_show.update_layout(legend_title_text=_leg_title)
 
+
                 fig_show = apply_chart_display_options(fig_show, meta, _chart_type_for_opts, _inplace=True)
+
 
                 st.session_state[_cache_key]     = fig_show
                 st.session_state[_cache_meta_key] = _post_hash
             else:
                 fig_show = _cached_fig
+
 
             is_horiz = any(getattr(t, "orientation", "v") == "h"
                            for t in fig_show.data if hasattr(t, "orientation"))
@@ -697,7 +771,9 @@ def _render_chart_list(charts, edit_mode=False):
                     fig_show.update_yaxes(automargin=True)
                     fig_show.update_layout(margin=dict(l=20, r=20, t=28, b=80))
 
+
             apply_hover_format(fig_show)
+
 
             _chart_type_now = st.session_state.get(f"chart_type_{uid}", "")
             _is_table = _chart_type_now == "matrix_table" and _meta_view != "heatmap"
@@ -721,11 +797,13 @@ def _render_chart_list(charts, edit_mode=False):
             if _is_table:
                 st.markdown("</div>", unsafe_allow_html=True)
 
+
         st.markdown("---")
         if auto_insights:
             with st.expander("💡 Auto-Insights", expanded=False):
                 for ins in auto_insights:
                     st.markdown(f"- {clean_insight_text(ins)}")
+
 
         if f"desc_{uid}" not in st.session_state:
             st.session_state[f"desc_{uid}"] = (
@@ -736,5 +814,6 @@ def _render_chart_list(charts, edit_mode=False):
             on_change=_sync_one_note,
             args=(uid,),
             placeholder="Add your findings or observations here…")
+
 
         st.markdown("---")

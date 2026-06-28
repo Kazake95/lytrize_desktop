@@ -1,29 +1,5 @@
-"""
-modules/database.py -- All database operations for Lytrize.
+"""modules/database.py -- All database operations for Lytrize."""
 
-Handles: schema creation, authentication, session CRUD, token management,
-activity logging, and draft session persistence.
-
-DATABASE BACKEND
-  Default : SQLite at ~/.local/share/lytrize/lytrize.db (or $LYTRIZE_DB_PATH)
-
-SCHEMA
-  users          -- registered accounts (no password_hash is ever sent remotely)
-  sessions       -- saved analysis dashboards
-  user_activity  -- append-only audit log
-  login_tokens   -- 7-day persistent login tokens
-  draft_sessions -- auto-saved in-progress work (one row per user)
-
-PASSWORD SECURITY
-  PBKDF2-HMAC-SHA256, 260 000 iterations, random per-user salt.
-  Stored as "<salt>$<hex-digest>".
-  Legacy bare-SHA-256 hashes are still verified but upgraded on next login.
-
-AUTH RATE LIMITING
-  Five failed login attempts within five minutes locks the account in memory
-  for the remainder of that window. The lock is per-process and resets on
-  app restart — sufficient for the local desktop threat model.
-"""
 
 import json
 import re
@@ -38,29 +14,29 @@ from collections import defaultdict
 from contextlib import contextmanager
 from typing import Optional
 
+
 import streamlit as st
+
 
 log = logging.getLogger(__name__)
 
-# ── Environment ───────────────────────────────────────────────────────────────
+
+
 
 import pathlib as _pathlib
-# Use 'or' so that an empty string in LYTRIZE_DB_PATH (e.g. from a blank
-# .env entry) falls through to the proper user-data default, just like an
-# unset variable would.  os.environ.get(key, default) does NOT do this —
-# it returns the empty string because the key exists in the environment.
 _default_db = str(
     _pathlib.Path.home() / ".local" / "share" / "lytrize" / "lytrize.db"
 )
 DB_PATH = os.environ.get("LYTRIZE_DB_PATH") or _default_db
 
-# ── In-memory login rate limiter ──────────────────────────────────────────────
-# Maps username → list of failed-attempt timestamps (UTC epoch seconds).
-# Resets when the process restarts; suitable for a local desktop app.
+
+
 
 _FAILED_ATTEMPTS: dict[str, list[float]] = defaultdict(list)
 _MAX_ATTEMPTS    = 5
-_WINDOW_SECONDS  = 300  # 5 minutes
+_WINDOW_SECONDS  = 300
+
+
 
 
 def _check_rate_limit(username: str) -> bool:
@@ -71,9 +47,13 @@ def _check_rate_limit(username: str) -> bool:
     return len(attempts) < _MAX_ATTEMPTS
 
 
+
+
 def _record_failed_attempt(username: str) -> None:
     """Record one failed login attempt for rate-limit tracking."""
     _FAILED_ATTEMPTS[username].append(time.time())
+
+
 
 
 def _clear_attempts(username: str) -> None:
@@ -81,32 +61,27 @@ def _clear_attempts(username: str) -> None:
     _FAILED_ATTEMPTS.pop(username, None)
 
 
-# ── Connection helpers ────────────────────────────────────────────────────────
+
 
 def _connect():
     """Return a fresh SQLite DB connection."""
     import sqlite3
     db_path = _pathlib.Path(DB_PATH)
 
-    # Ensure the parent directory exists before opening the DB file.
-    # Required on first launch or after a clean install where
-    # ~/.local/share/lytrize/ may not yet exist.
+
     try:
         db_path.parent.mkdir(parents=True, exist_ok=True)
     except Exception:
         log.exception("_connect: failed to create parent directory %s", db_path.parent)
 
-    # Verify the directory actually exists now — mkdir can silently fail on
-    # read-only filesystems or when a path component is a non-directory.
+
     if not db_path.parent.is_dir():
         raise OSError(
             f"Database parent directory does not exist or is not a directory: "
             f"{db_path.parent}"
         )
 
-    # If DB_PATH itself is a directory (e.g. a stray folder from a previous
-    # install or packaging quirk), remove it so sqlite3.connect can create
-    # a regular file at that path.
+
     if db_path.is_dir():
         try:
             import shutil
@@ -116,28 +91,21 @@ def _connect():
             log.exception("_connect: failed to remove stale directory at %s", db_path)
             raise
 
+
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    # WAL mode: readers never block writers and writers never block readers —
-    # essential on desktop where the Streamlit server and potential background
-    # sync both hit the DB.  These PRAGMAs persist for the connection lifetime.
     conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")   # safe with WAL, ~3× faster than FULL
-    conn.execute("PRAGMA cache_size=-8000")     # 8 MB page cache (negative = KiB)
-    conn.execute("PRAGMA temp_store=MEMORY")    # temp tables / indices in RAM
-    conn.execute("PRAGMA mmap_size=134217728")  # 128 MB memory-mapped I/O
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA cache_size=-8000")
+    conn.execute("PRAGMA temp_store=MEMORY")
+    conn.execute("PRAGMA mmap_size=134217728")
     return conn
+
+
 
 
 @contextmanager
 def _db():
-    """
-    Context manager that opens a connection, commits on success, and
-    rolls back + closes on any exception. Prevents connection leaks.
-
-    Usage:
-        with _db() as conn:
-            _execute(conn, "INSERT ...", params)
-    """
+    """Context manager that opens a connection, commits on success, and"""
     conn = _connect()
     try:
         yield conn
@@ -152,9 +120,13 @@ def _db():
         conn.close()
 
 
+
+
 def _ph(sql: str) -> str:
     """SQLite placeholder passthrough (kept for call-site compatibility)."""
     return sql
+
+
 
 
 def _last_id(cursor) -> int:
@@ -162,10 +134,14 @@ def _last_id(cursor) -> int:
     return cursor.lastrowid
 
 
+
+
 def _execute(conn, query: str, params=()):
     cur = conn.cursor()
     cur.execute(_ph(query), params)
     return cur
+
+
 
 
 def _execute_fetchone(conn, query: str, params=()):
@@ -176,6 +152,8 @@ def _execute_fetchone(conn, query: str, params=()):
     return row
 
 
+
+
 def _execute_fetchall(conn, query: str, params=()):
     cur = conn.cursor()
     cur.execute(_ph(query), params)
@@ -184,16 +162,18 @@ def _execute_fetchall(conn, query: str, params=()):
     return rows
 
 
-# ── Schema helpers ────────────────────────────────────────────────────────────
+
 
 _GUEST_USERNAME = "__lytrize_guest__"
 _GUEST_EMAIL    = "guest@local.invalid"
 
-# Allowlist for dynamic column selection — never allow user-supplied column names.
+
 _ALLOWED_USER_COLS = frozenset({
     "id", "username", "email", "password_hash",
     "created_at", "is_guest", "uuid",
 })
+
+
 
 
 def _column_exists(conn, table: str, column: str) -> bool:
@@ -206,11 +186,15 @@ def _column_exists(conn, table: str, column: str) -> bool:
         return False
 
 
+
+
 def _ensure_index(conn, index_sql: str) -> None:
     try:
         conn.cursor().execute(index_sql)
     except Exception:
         pass
+
+
 
 
 def _guest_row_id(conn) -> Optional[int]:
@@ -226,17 +210,14 @@ def _guest_row_id(conn) -> Optional[int]:
     return row[0] if row else None
 
 
-# ── Schema: CREATE IF NOT EXISTS ──────────────────────────────────────────────
+
 
 def init_db() -> None:
-    """
-    Create all required tables. Safe to call every startup (IF NOT EXISTS).
-    For SQLite, also runs ALTER TABLE migrations for columns added in later
-    versions so existing databases are upgraded automatically.
-    """
+    """Create all required tables. Safe to call every startup (IF NOT EXISTS)."""
     conn = _connect()
     try:
         c = conn.cursor()
+
 
         c.execute("""CREATE TABLE IF NOT EXISTS users (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -247,6 +228,7 @@ def init_db() -> None:
             is_guest      INTEGER DEFAULT 0,
             uuid          TEXT UNIQUE
         )""")
+
 
         c.execute("""CREATE TABLE IF NOT EXISTS sessions (
             id                  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -269,6 +251,7 @@ def init_db() -> None:
             FOREIGN KEY (user_id) REFERENCES users(id)
         )""")
 
+
         c.execute("""CREATE TABLE IF NOT EXISTS user_activity (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id       INTEGER NOT NULL,
@@ -278,12 +261,14 @@ def init_db() -> None:
             ts            TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )""")
 
+
         c.execute("""CREATE TABLE IF NOT EXISTS login_tokens (
             token      TEXT PRIMARY KEY,
             user_id    INTEGER NOT NULL,
             username   TEXT NOT NULL,
             expires_at TIMESTAMP NOT NULL
         )""")
+
 
         c.execute("""CREATE TABLE IF NOT EXISTS draft_sessions (
             user_id              INTEGER PRIMARY KEY,
@@ -301,12 +286,7 @@ def init_db() -> None:
             FOREIGN KEY (user_id) REFERENCES users(id)
         )""")
 
-        # Migrations: add columns introduced in later schema versions.
-        # Each ALTER TABLE is wrapped in try/except so it silently no-ops when the
-        # column already exists (SQLite raises OperationalError in that case).
-        # IMPORTANT: grid_order_json and grid_fullwidth_json are now also in the
-        # base CREATE TABLE above, but we keep them here so pre-existing databases
-        # (created before those columns were added) are upgraded automatically.
+
         for ddl in [
             "ALTER TABLE users    ADD COLUMN is_guest     INTEGER DEFAULT 0",
             "ALTER TABLE users    ADD COLUMN uuid         TEXT",
@@ -331,10 +311,7 @@ def init_db() -> None:
             except Exception:
                 pass
 
-        # Safety net: verify the two columns that caused the OperationalError exist.
-        # Handles edge cases where both CREATE TABLE and ALTER TABLE above could not
-        # add them (e.g. ancient schema lock, mid-migration crash, or a stale
-        # @st.cache_resource preventing init_db from re-running after a code update).
+
         try:
             existing = {row[1] for row in c.execute("PRAGMA table_info(sessions)")}
             for col, typedef in [
@@ -346,7 +323,7 @@ def init_db() -> None:
         except Exception:
             pass
 
-        # Seed permanent guest account if missing.
+
         try:
             c.execute("SELECT COUNT(*) FROM users WHERE username=?", (_GUEST_USERNAME,))
             if c.fetchone()[0] == 0:
@@ -359,7 +336,7 @@ def init_db() -> None:
         except Exception:
             log.exception("init_db: failed to seed guest user")
 
-        # Backfill session UUIDs for legacy rows that have none.
+
         try:
             c.execute(
                 "SELECT id, session_name, created_at FROM sessions "
@@ -374,10 +351,7 @@ def init_db() -> None:
         except Exception:
             log.exception("init_db: failed to backfill session UUIDs")
 
-        # Final verification: ensure the critical tables actually exist.
-        # Catches edge cases where CREATE TABLE was silently skipped due to
-        # an I/O error, disk-full, or similar condition that left the file
-        # but no valid schema.
+
         try:
             c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
             if not c.fetchone():
@@ -402,41 +376,33 @@ def init_db() -> None:
             except Exception:
                 log.exception("init_db: unrecoverable — 'users' table could not be created")
 
+
         conn.commit()
     finally:
         conn.close()
 
 
-# ── Password hashing ──────────────────────────────────────────────────────────
+
 
 def _hash(pw: str, salt: Optional[str] = None) -> str:
-    """
-    Hash a password with PBKDF2-HMAC-SHA256, 260 000 iterations, random salt.
-
-    Returns "<salt>$<hex-digest>" for storage in users.password_hash.
-    Pass an existing salt to reproduce the hash for verification.
-    """
+    """Hash a password with PBKDF2-HMAC-SHA256, 260 000 iterations, random salt."""
     if salt is None:
         salt = uuid.uuid4().hex
     dk = hashlib.pbkdf2_hmac("sha256", pw.encode(), salt.encode(), 260_000)
     return f"{salt}${dk.hex()}"
 
 
-def _verify(pw: str, stored: str) -> bool:
-    """
-    Verify a plain-text password against a stored hash in constant time.
 
-    Accepts both the new salted format ("salt$hash") and the legacy bare
-    SHA-256 format so old accounts can still log in.
-    """
+
+def _verify(pw: str, stored: str) -> bool:
+    """Verify a plain-text password against a stored hash in constant time."""
     if "$" in stored:
         salt, _ = stored.split("$", 1)
         return hmac.compare_digest(_hash(pw, salt), stored)
-    # Legacy bare SHA-256 — still accepted, upgraded on successful login.
     return hmac.compare_digest(hashlib.sha256(pw.encode()).hexdigest(), stored)
 
 
-# ── Activity logging ──────────────────────────────────────────────────────────
+
 
 def log_activity(
     user_id: int,
@@ -444,11 +410,7 @@ def log_activity(
     detail: str = "",
     session_id=None,
 ) -> None:
-    """
-    Append an event to the audit log. Never raises — silently no-ops on error
-    so logging failures never crash the app.
-    Detail is truncated to 1 000 characters.
-    """
+    """Append an event to the audit log. Never raises — silently no-ops on error"""
     try:
         with _db() as conn:
             _execute(
@@ -462,15 +424,12 @@ def log_activity(
         pass
 
 
-# ── Authentication ────────────────────────────────────────────────────────────
+
 
 def _validate_registration_inputs(
     username: str, email: str, password: str
 ) -> Optional[str]:
-    """
-    Validate registration inputs. Returns an error message, or None if valid.
-    All checks are done before touching the database.
-    """
+    """Validate registration inputs. Returns an error message, or None if valid."""
     if not 3 <= len(username) <= 40:
         return "Username must be 3–40 characters."
     if not re.match(r"^[A-Za-z0-9_.\-]+$", username):
@@ -486,27 +445,18 @@ def _validate_registration_inputs(
     return None
 
 
+
+
 def register_user(username: str, email: str, password: str) -> tuple:
-    """
-    Create a new user account.
-
-    Returns (True, "Account created!") on success,
-            (False, "<reason>")        on failure.
-
-    Validates all inputs before writing to the database.
-    Raw DB errors are never returned to the caller.
-
-    The uniqueness check and INSERT are performed in a single transaction to
-    avoid a TOCTOU race between the pre-check SELECT and the INSERT.
-    """
+    """Create a new user account."""
     err = _validate_registration_inputs(username, email, password)
     if err:
         return False, err
 
+
     try:
         with _db() as conn:
             c = conn.cursor()
-            # Check uniqueness and insert in one transaction — no TOCTOU gap.
             c.execute(_ph("SELECT 1 FROM users WHERE username=? LIMIT 1"), (username,))
             if c.fetchone():
                 return False, "Username already taken."
@@ -528,20 +478,14 @@ def register_user(username: str, email: str, password: str) -> tuple:
         return False, "Registration failed — please try again."
 
 
+
+
 def login_user(username: str, password: str) -> Optional[tuple]:
-    """
-    Validate login credentials with rate limiting.
-
-    Returns (user_id, username, email) on success, None on failure.
-
-    After five failed attempts within five minutes the account is locked for
-    the remainder of that window (in-process only; resets on app restart).
-
-    Upgrades legacy bare-SHA-256 hashes to PBKDF2 silently on success.
-    """
+    """Validate login credentials with rate limiting."""
     if not _check_rate_limit(username):
         log.warning("login_user: rate limit hit for '%s'", username)
         return None
+
 
     try:
         conn = _connect()
@@ -560,19 +504,23 @@ def login_user(username: str, password: str) -> Optional[tuple]:
         except Exception:
             pass
 
+
     if not row:
         _record_failed_attempt(username)
         return None
 
+
     uid, uname, email, stored_hash = row
+
 
     if not _verify(password, stored_hash):
         _record_failed_attempt(username)
         return None
 
+
     _clear_attempts(username)
 
-    # Silently upgrade bare SHA-256 legacy hashes to PBKDF2.
+
     if "$" not in stored_hash:
         try:
             with _db() as conn:
@@ -581,13 +529,14 @@ def login_user(username: str, password: str) -> Optional[tuple]:
         except Exception:
             pass
 
+
     return uid, uname, email
 
 
+
+
 def update_local_password(user_id: int, new_password: str) -> bool:
-    """
-    Update the local PBKDF2 password hash for a user.
-    """
+    """Update the local PBKDF2 password hash for a user."""
     try:
         with _db() as conn:
             _execute(
@@ -595,27 +544,21 @@ def update_local_password(user_id: int, new_password: str) -> bool:
                 _ph("UPDATE users SET password_hash=? WHERE id=?"),
                 (_hash(new_password), user_id),
             )
-            # NOTE: do NOT call conn.commit() here — the _db() context manager
-            # commits on a clean exit.  A second commit is a no-op on SQLite but
-            # raises an error on some Postgres drivers and is misleading to readers.
         return True
     except Exception as e:
         log.warning("update_local_password: %s", e)
         return False
 
 
-# ── Login tokens ──────────────────────────────────────────────────────────────
+
 
 def create_token(user_id: int, username: str) -> str:
-    """
-    Create a 7-day persistent login token and store it in login_tokens.
-    Returns the 32-char hex token string.
-    The token is stored on disk by auth.py — it is never written to the URL.
-    """
+    """Create a 7-day persistent login token and store it in login_tokens."""
     token   = uuid.uuid4().hex
     expires = (
         datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=7)
     ).isoformat()
+
 
     with _db() as conn:
         _execute(
@@ -625,16 +568,17 @@ def create_token(user_id: int, username: str) -> str:
                 (token, user_id, username, expires),
             )
 
+
     return token
 
 
+
+
 def validate_token(token: str) -> Optional[tuple]:
-    """
-    Validate a login token. Returns (user_id, username) if valid and
-    unexpired, None otherwise. Handles both string and datetime expiry fields.
-    """
+    """Validate a login token. Returns (user_id, username) if valid and"""
     if not token:
         return None
+
 
     conn = None
     try:
@@ -654,8 +598,10 @@ def validate_token(token: str) -> Optional[tuple]:
             except Exception:
                 pass
 
+
     if not row:
         return None
+
 
     expires_raw = row[2]
     if isinstance(expires_raw, datetime.datetime):
@@ -673,10 +619,14 @@ def validate_token(token: str) -> Optional[tuple]:
         if expires_dt.tzinfo is None:
             expires_dt = expires_dt.replace(tzinfo=datetime.timezone.utc)
 
+
     if datetime.datetime.now(datetime.timezone.utc) >= expires_dt:
         return None
 
+
     return row[0], row[1]
+
+
 
 
 def revoke_token(token: str) -> None:
@@ -690,12 +640,10 @@ def revoke_token(token: str) -> None:
         pass
 
 
-def cleanup_expired_tokens() -> None:
-    """Delete all login_tokens rows that have already expired.
 
-    Called opportunistically at startup by app.py so the table does not
-    grow unboundedly on long-lived installations. Never raises.
-    """
+
+def cleanup_expired_tokens() -> None:
+    """Delete all login_tokens rows that have already expired."""
     try:
         now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
         with _db() as conn:
@@ -704,7 +652,7 @@ def cleanup_expired_tokens() -> None:
         pass
 
 
-# ── Guest user ────────────────────────────────────────────────────────────────
+
 
 def get_or_create_guest_user() -> dict:
     """Return the permanent local guest user row, creating it if needed."""
@@ -714,8 +662,6 @@ def get_or_create_guest_user() -> dict:
         try:
             uid = _guest_row_id(conn)
         except sqlite3.OperationalError:
-            # Schema missing — trigger recovery and obtain a fresh connection
-            # against the (hopefully) initialised database.
             try:
                 conn.close()
             except Exception:
@@ -730,12 +676,14 @@ def get_or_create_guest_user() -> dict:
             except sqlite3.OperationalError:
                 uid = None
 
+
         if uid:
             c = conn.cursor()
             c.execute(_ph("SELECT id, username FROM users WHERE id=?"), (uid,))
             row = c.fetchone()
             if row:
                 return {"id": row[0], "username": row[1], "is_guest": True}
+
 
         c    = conn.cursor()
         cols = {"username": _GUEST_USERNAME, "email": _GUEST_EMAIL,
@@ -745,6 +693,7 @@ def get_or_create_guest_user() -> dict:
         if _column_exists(conn, "users", "uuid"):
             cols["uuid"] = uuid.uuid4().hex
 
+
         keys = ", ".join(cols.keys())
         phs  = ", ".join(["?"] * len(cols))
         try:
@@ -752,6 +701,7 @@ def get_or_create_guest_user() -> dict:
             conn.commit()
         except Exception:
             conn.rollback()
+
 
         uid = _guest_row_id(conn)
         if uid:
@@ -762,7 +712,7 @@ def get_or_create_guest_user() -> dict:
     finally:
         conn.close()
 
-    # Last-ditch fallback: try a direct SELECT in case INSERT raced with another process.
+
     try:
         conn2 = _connect()
         uid2  = _guest_row_id(conn2)
@@ -772,53 +722,31 @@ def get_or_create_guest_user() -> dict:
     except Exception:
         pass
     log.error("get_or_create_guest_user: failed to obtain a valid guest user_id")
-    # Return a stable sentinel that callers can guard with `if user_id is None`.
     return {"id": None, "username": _GUEST_USERNAME, "is_guest": True}
 
 
+
+
 def merge_user_data(source_user_id: int, target_user_id: int) -> None:
-    """Reassign local data from a guest account to a newly signed-in account.
-
-    Called immediately after sign-in or registration so any analysis work done
-    as a guest is visible under the real account.
-
-    draft_sessions has user_id as PRIMARY KEY (one row per user), so a plain
-    UPDATE SET user_id=target WHERE user_id=source would hit a UNIQUE constraint
-    if the target already has a draft (e.g. the user signed in on this device
-    before, generating a draft, then signed out and continued as guest).
-    The fix: use a SAVEPOINT so the source draft is never lost if the merge
-    fails partway through.
-
-    Steps within the savepoint:
-      1. Delete the target's stale draft.
-      2. Reassign the source (guest) draft to the target user.
-
-    On failure, the savepoint is rolled back, preserving both drafts.
-    """
+    """Reassign local data from a guest account to a newly signed-in account."""
     if not source_user_id or not target_user_id or source_user_id == target_user_id:
         return
     try:
         with _db() as conn:
             cur = conn.cursor()
-            # sessions and user_activity: safe bulk reassignment (no PK collision risk).
             for table in ("sessions", "user_activity"):
                 cur.execute(
                     f"UPDATE {table} SET user_id=? WHERE user_id=?",
                     (target_user_id, source_user_id),
                 )
 
-            # draft_sessions: user_id IS the PRIMARY KEY — use a savepoint so we
-            # never lose the source draft if the operation fails partway through.
+
             cur.execute("SAVEPOINT draft_merge")
             try:
-                # Delete target's stale draft first (safe to lose — it reflects
-                # the older session this particular user was on before signing in
-                # as a guest and creating fresher work).
                 cur.execute(
                     "DELETE FROM draft_sessions WHERE user_id=?",
                     (target_user_id,),
                 )
-                # Now reassign source (guest) draft to the target user.
                 cur.execute(
                     "UPDATE draft_sessions SET user_id=? WHERE user_id=?",
                     (target_user_id, source_user_id),
@@ -826,12 +754,9 @@ def merge_user_data(source_user_id: int, target_user_id: int) -> None:
                 cur.execute("RELEASE SAVEPOINT draft_merge")
             except Exception:
                 cur.execute("ROLLBACK TO SAVEPOINT draft_merge")
-                # Source draft remains with source_user_id — it's preserved and
-                # the user can retry the sign-in to attempt the merge again.
                 raise
 
-        # Invalidate the session-list cache so the next get_user_sessions()
-        # call reflects the newly merged sessions immediately.
+
         try:
             get_user_sessions.clear()
         except Exception:
@@ -840,7 +765,7 @@ def merge_user_data(source_user_id: int, target_user_id: int) -> None:
         log.warning("merge_user_data: %s", e)
 
 
-# ── Draft sessions ────────────────────────────────────────────────────────────
+
 
 def save_draft(
     user_id: int,
@@ -855,10 +780,7 @@ def save_draft(
     layout_mode: str = "portrait",
     col_descriptions_json: str = "{}",
 ) -> None:
-    """
-    Upsert the user's current in-progress state to draft_sessions.
-    One draft row per user; silently no-ops on any error.
-    """
+    """Upsert the user's current in-progress state to draft_sessions."""
     try:
         with _db() as conn:
             _execute(conn, """
@@ -877,12 +799,10 @@ def save_draft(
         pass
 
 
+
+
 def get_draft(user_id: int) -> Optional[dict]:
-    """
-    Retrieve the stored draft for a user.
-    Uses cursor.description so the mapping survives schema migrations.
-    Returns a dict of column → value, or None.
-    """
+    """Retrieve the stored draft for a user."""
     conn = None
     try:
         conn = _connect()
@@ -903,6 +823,8 @@ def get_draft(user_id: int) -> Optional[dict]:
     return None
 
 
+
+
 def clear_draft(user_id: int) -> None:
     """Delete the draft row after a successful session save."""
     try:
@@ -912,7 +834,7 @@ def clear_draft(user_id: int) -> None:
         pass
 
 
-# ── Sessions CRUD ─────────────────────────────────────────────────────────────
+
 
 def save_session_db(
     user_id: int,
@@ -948,8 +870,10 @@ def save_session_db(
         sid = _last_id(c)
     log_activity(user_id, "dashboard_saved",
                  f"session='{session_name}' file='{file_name}'", sid)
-    get_user_sessions.clear()  # invalidate session list cache
+    get_user_sessions.clear()
     return sid
+
+
 
 
 def get_session_uuid(session_id: int, user_id=None) -> Optional[str]:
@@ -977,6 +901,8 @@ def get_session_uuid(session_id: int, user_id=None) -> Optional[str]:
                 pass
 
 
+
+
 def rename_session_db(session_id: int, new_name: str, user_id=None) -> None:
     """Rename a saved session. user_id guard prevents cross-account renames."""
     with _db() as conn:
@@ -988,7 +914,8 @@ def rename_session_db(session_id: int, new_name: str, user_id=None) -> None:
             _execute(conn,
                      _ph("UPDATE sessions SET session_name=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?"),
                      (new_name, session_id, user_id))
-    get_user_sessions.clear()  # invalidate session list cache
+    get_user_sessions.clear()
+
 
 
 
@@ -998,31 +925,19 @@ def sanitize_restored_session(
     *,
     preserve_uuid: bool = True,
 ) -> dict:
-    """
-    Normalize imported backup sessions before inserting into the local DB.
+    """Normalize imported backup sessions before inserting into the local DB."""
 
-    Backups may come from:
-      - the same device/account
-      - a different device/account
-      - a previous schema version
-
-    This helper keeps the portable analysis payload but rewrites runtime-
-    specific fields so restored rows behave like native local sessions.
-    """
 
     cleaned = dict(session_data or {})
 
-    # Backups do not carry local ownership metadata; always bind to the
-    # current user when restoring into this device's SQLite database.
+
     cleaned["user_id"] = current_user_id
 
-    # Keep the original logical session UUID when available so cloud sync can
-    # de-duplicate by identity.  If the backup does not carry one, or the
-    # caller explicitly wants a fresh local record, generate one.
+
     if not preserve_uuid or not cleaned.get("session_uuid"):
         cleaned["session_uuid"] = str(uuid.uuid4())
 
-    # Never restore internal transport/soft-delete metadata.
+
     for key in (
         "device_id",
         "deleted_at",
@@ -1032,36 +947,23 @@ def sanitize_restored_session(
     ):
         cleaned.pop(key, None)
 
+
     return cleaned
 
 
 
-def delete_session_db(session_id: int, user_id: int) -> bool:
-    """Delete a saved session and clear cached session listings.
 
-    The first delete is ownership-guarded. If a restored backup row was
-    imported with stale metadata or the user_id guard no longer matches,
-    fall back to the row's session UUID and finally to a local row-id delete.
-    This keeps imported backups deletable even after older restore formats or
-    partial migrations.
-    """
+def delete_session_db(session_id: int, user_id: int) -> bool:
+    """Delete a saved session and clear cached session listings."""
     deleted = False
     with _db() as conn:
         cur = conn.cursor()
-        # Primary path: delete by current ownership.
         cur.execute(_ph("DELETE FROM sessions WHERE id=? AND user_id=?"),
                     (session_id, user_id))
         deleted = getattr(cur, "rowcount", 0) > 0
 
+
         if not deleted:
-            # Fallback 1: resolve the session UUID by id alone (no user_id
-            # guard), then delete by that UUID.
-            #
-            # The primary DELETE used "WHERE id=? AND user_id=?" and returned
-            # rowcount 0, which means either the row doesn't exist or the
-            # stored user_id no longer matches (e.g. after a backup restore or
-            # cross-account migration).  Querying with the same two-column
-            # predicate would also return 0 rows — we only need id here.
             sess_uuid = None
             try:
                 row = _execute_fetchone(
@@ -1074,29 +976,31 @@ def delete_session_db(session_id: int, user_id: int) -> bool:
             except Exception:
                 sess_uuid = None
 
+
             if sess_uuid:
                 cur.execute(_ph("DELETE FROM sessions WHERE session_uuid=? AND user_id=?"),
                             (sess_uuid, user_id))
                 deleted = getattr(cur, "rowcount", 0) > 0
 
+
             if not deleted:
-                # Fallback 2: delete by row id only. This is intentionally
-                # conservative and only used when the row is clearly a stale
-                # restore artifact or when ownership metadata has drifted.
                 cur.execute(_ph("DELETE FROM sessions WHERE id=?"), (session_id,))
                 deleted = getattr(cur, "rowcount", 0) > 0
 
-        # _db() context manager commits on clean exit — no manual commit needed.
+
+
 
     try:
-        get_user_sessions.clear()  # invalidate session list cache
+        get_user_sessions.clear()
     except Exception:
         pass
+
 
     try:
         st.cache_data.clear()
     except Exception:
         pass
+
 
     if not deleted:
         log.warning(
@@ -1105,6 +1009,8 @@ def delete_session_db(session_id: int, user_id: int) -> bool:
             user_id,
         )
     return deleted
+
+
 
 
 def update_session_db(
@@ -1142,15 +1048,14 @@ def update_session_db(
         )
     log_activity(user_id, "session_updated",
                  f"session_id={session_id} name='{session_name}'")
-    get_user_sessions.clear()  # invalidate session list cache
+    get_user_sessions.clear()
+
+
 
 
 @st.cache_data(ttl=30, show_spinner=False)
 def get_user_sessions(user_id: int) -> list:
-    """Return the 20 most recent sessions for a user, newest first.
-    Cached for 30 s so rapid Streamlit reruns don't hammer SQLite.
-    Call get_user_sessions.clear() after any session write to invalidate.
-    """
+    """Return the 20 most recent sessions for a user, newest first."""
     if user_id is None:
         return []
     conn = _connect()
@@ -1158,15 +1063,13 @@ def get_user_sessions(user_id: int) -> list:
               "cols_count", "analysis_types", "created_at"]
     try:
         c = conn.cursor()
-        # SQLite: use PRAGMA — guards against old DB schemas.
         c.execute("PRAGMA table_info(sessions)")
         available_cols = {row[1] for row in c.fetchall()}
+
 
         select_cols = ", ".join(c for c in wanted if c in available_cols)
         if not select_cols:
             return []
-        # Order by most recent modification time. updated_at is present in all
-        # current schemas; COALESCE falls back to created_at for legacy rows.
         order_expr = (
             "COALESCE(updated_at, created_at)"
             if "updated_at" in available_cols
@@ -1178,11 +1081,7 @@ def get_user_sessions(user_id: int) -> list:
             (user_id,),
         )
         rows = c.fetchall()
-        # Pad to always return 7-tuples so callers are schema-agnostic.
-        # Check column-by-column rather than by count: if a column is missing
-        # from the schema, pad None at the end (all seven wanted columns are
-        # fetched in order, so missing ones are always at the tail).
-        n_got = len(select_cols.split(","))  # safe even w/o spaces
+        n_got = len(select_cols.split(","))
         n_wanted = len(wanted)
         if n_got < n_wanted:
             pad_count = n_wanted - n_got
@@ -1193,6 +1092,8 @@ def get_user_sessions(user_id: int) -> list:
         return []
     finally:
         conn.close()
+
+
 
 
 def get_session_meta(session_id: int, user_id=None) -> Optional[dict]:
@@ -1232,13 +1133,12 @@ def get_session_meta(session_id: int, user_id=None) -> Optional[dict]:
     return None
 
 
+
+
 def get_session_charts(session_id: int, user_id=None) -> list:
-    """
-    Load and deserialise charts from a saved session.
-    Returns a list of (uid, title, fig, desc, auto_insights, chart_type, meta) tuples.
-    Entries that fail to deserialise are skipped silently.
-    """
+    """Load and deserialise charts from a saved session."""
     import plotly.io as pio
+
 
     conn = _connect()
     try:
@@ -1254,8 +1154,10 @@ def get_session_charts(session_id: int, user_id=None) -> list:
     finally:
         conn.close()
 
+
     if not (row and row[0]):
         return []
+
 
     try:
         raw_items = json.loads(row[0])
@@ -1263,6 +1165,7 @@ def get_session_charts(session_id: int, user_id=None) -> list:
         log.warning("get_session_charts: failed to parse charts_json for session %s: %s",
                     session_id, exc)
         return []
+
 
     charts = []
     for item in raw_items:
@@ -1279,13 +1182,10 @@ def get_session_charts(session_id: int, user_id=None) -> list:
     return charts
 
 
-def delete_user_db(user_id: int) -> bool:
-    """
-    Permanently delete a user account and all associated data.
 
-    Deletes in FK-dependency order:
-      login_tokens → draft_sessions → user_activity → sessions → users
-    """
+
+def delete_user_db(user_id: int) -> bool:
+    """Permanently delete a user account and all associated data."""
     try:
         with _db() as conn:
             _execute(conn, _ph("DELETE FROM login_tokens   WHERE user_id=?"), (user_id,))
@@ -1299,24 +1199,18 @@ def delete_user_db(user_id: int) -> bool:
         return False
 
 
-# ── Backup / Restore ──────────────────────────────────────────────────────────
+
 
 def export_sessions_to_dict(
     user_id: int,
     username: str = "",
     local_db_path: str = "",
 ) -> list[dict]:
-    """
-    Export all sessions for user_id as a list of dicts for JSON backup.
-
-    All sessions are from the local SQLite database.
-    Returns a list of session dicts ordered by created_at.
-    """
+    """Export all sessions for user_id as a list of dicts for JSON backup."""
     local_sessions: list[dict] = []
     try:
         with _db() as conn:
             c = conn.cursor()
-            # Build column list dynamically to handle old DB schemas gracefully.
             c.execute("PRAGMA table_info(sessions)")
             available = {row[1] for row in c.fetchall()}
             wanted = [
@@ -1326,7 +1220,6 @@ def export_sessions_to_dict(
                 "source", "created_at",
             ]
             select_parts = [col for col in wanted if col in available]
-            # updated_at: use COALESCE so older rows without the column still export.
             if "updated_at" in available:
                 select_parts.append("COALESCE(updated_at, created_at) AS updated_at")
             elif "created_at" in available:
@@ -1341,6 +1234,7 @@ def export_sessions_to_dict(
     except Exception as e:
         log.warning("export_sessions_to_dict (local): %s", e)
 
+
     return local_sessions
 
 
@@ -1350,18 +1244,11 @@ def import_sessions_from_dict(
     user_id: int,
     sessions: list[dict],
 ) -> tuple[int, int, list[str]]:
-    """
-    Import sessions from a backup dict list into the local SQLite DB.
-
-    Restore behaviour:
-      - bind all imported rows to the current local user_id
-      - keep the portable session_uuid where possible
-      - update existing local copies when the backup is newer
-      - re-key locally if a UNIQUE collision would otherwise skip the row
-    """
+    """Import sessions from a backup dict list into the local SQLite DB."""
     imported = 0
     updated  = 0
     skipped: list[str] = []
+
 
     def _parse_ts(value) -> Optional[datetime.datetime]:
         if value is None:
@@ -1383,6 +1270,7 @@ def import_sessions_from_dict(
             except Exception:
                 return None
 
+
     def _ts_for_compare(row: dict) -> datetime.datetime:
         return (
             _parse_ts(row.get("updated_at"))
@@ -1390,9 +1278,11 @@ def import_sessions_from_dict(
             or datetime.datetime.min
         )
 
+
     def _normalize_payload(raw: dict) -> dict:
         raw = {k: v for k, v in raw.items() if k != "_origin"}
         return sanitize_restored_session(raw, user_id, preserve_uuid=True)
+
 
     def _insert_row(conn, payload: dict) -> None:
         """Insert one session row. Defined once outside the loop for efficiency."""
@@ -1423,6 +1313,7 @@ def import_sessions_from_dict(
             ),
         )
 
+
     try:
         with _db() as conn:
             c = conn.cursor()
@@ -1431,10 +1322,12 @@ def import_sessions_from_dict(
                     skipped.append("invalid-session")
                     continue
 
+
                 s = _normalize_payload(raw)
                 sess_uuid = s.get("session_uuid") or ""
                 sname     = s.get("session_name", "Restored Session")
                 source    = s.get("source") or "local"
+
 
                 existing = None
                 if sess_uuid:
@@ -1445,12 +1338,13 @@ def import_sessions_from_dict(
                     )
                     existing = c.fetchone()
 
+
                 if existing:
                     local_id      = existing[0]
                     local_updated  = _ts_for_compare({"updated_at": existing[1]})
                     backup_updated = _ts_for_compare(s)
 
-                    # Last-write-wins: only update if the backup is newer.
+
                     if backup_updated and backup_updated > local_updated:
                         try:
                             _execute(
@@ -1477,12 +1371,11 @@ def import_sessions_from_dict(
                         skipped.append(sname)
                     continue
 
+
                 try:
                     _insert_row(conn, s)
                     imported += 1
                 except Exception as exc:
-                    # UNIQUE collision on session_uuid or a stale restore row.
-                    # Re-key locally and retry once.
                     try:
                         s2 = dict(s)
                         s2["session_uuid"] = uuid.uuid4().hex
@@ -1495,18 +1388,21 @@ def import_sessions_from_dict(
                         )
                         skipped.append(sname)
 
-        # Invalidate session list cache so home page reflects the restore.
+
         try:
             get_user_sessions.clear()
         except Exception:
             pass
+
 
         try:
             st.cache_data.clear()
         except Exception:
             pass
 
+
     except Exception as e:
         log.warning("import_sessions_from_dict: %s", e)
+
 
     return imported, updated, skipped

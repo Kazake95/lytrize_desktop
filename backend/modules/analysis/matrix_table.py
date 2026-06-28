@@ -1,23 +1,10 @@
-"""
-modules/analysis/matrix_table.py -- Pivot table & heatmap runner.
-=================================================================
-
-Redesigned to behave like an Excel pivot table / Power BI matrix:
-  - Table view: alternating rows, sticky-style header, row totals, column
-    totals, grand total row, conditional colour gradient per column,
-    configurable via chart_settings (header colour, cell size, footer toggle).
-  - Heatmap: uses its own independent colorscale — NOT the palette selector
-    (palette is irrelevant for heatmaps). Granular controls in chart_settings:
-    colorscale picker, annotation toggle, precision, font size, colour mode,
-    scale min/max, colorbar title.
-  - Both views: hover shows row-index label, column label, and formatted value.
-  - Both views: capped at sensible row/col limits with truncation note.
-"""
+"""modules/analysis/matrix_table.py -- Pivot table & heatmap runner."""
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from modules.charts import chart_layout, COLORS, num_cols as _num_cols, cat_cols as _cat_cols
 from modules.utils.perf import cached_pivot
+
 
 _DIVERGING_AGGS   = {"mean", "median", "std"}
 _MAX_CATS_HEATMAP = 40
@@ -28,9 +15,7 @@ _HEX_GRADIENT     = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+
 
 def _trim_pivot(pivot: pd.DataFrame, max_cats: int) -> pd.DataFrame:
     if pivot.shape[0] > max_cats:
@@ -40,6 +25,8 @@ def _trim_pivot(pivot: pd.DataFrame, max_cats: int) -> pd.DataFrame:
     return pivot
 
 
+
+
 def _sort_pivot(pivot: pd.DataFrame) -> pd.DataFrame:
     try:
         row_order = pivot.mean(axis=1).sort_values(ascending=False).index
@@ -47,6 +34,8 @@ def _sort_pivot(pivot: pd.DataFrame) -> pd.DataFrame:
         return pivot.loc[row_order, col_order]
     except Exception:
         return pivot
+
+
 
 
 def _fmt(v) -> str:
@@ -62,10 +51,14 @@ def _fmt(v) -> str:
         return str(v)
 
 
+
+
 def _fmt_total(v) -> str:
     """Bold-formatted value for totals row/column."""
     raw = _fmt(v)
     return f"<b>{raw}</b>" if raw != "—" else "—"
+
+
 
 
 def _cell_bg_gradient(val, vmin, vmax, base_dark="#0f172a", accent="#2563eb") -> str:
@@ -73,7 +66,6 @@ def _cell_bg_gradient(val, vmin, vmax, base_dark="#0f172a", accent="#2563eb") ->
     if vmin == vmax or val is None or (isinstance(val, float) and np.isnan(val)):
         return base_dark
     ratio = max(0.0, min(1.0, (val - vmin) / (vmax - vmin)))
-    # Parse hex
     def _hex_to_rgb(h):
         h = h.lstrip("#")
         return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
@@ -84,9 +76,7 @@ def _cell_bg_gradient(val, vmin, vmax, base_dark="#0f172a", accent="#2563eb") ->
     return _rgb_to_hex(r1 + ratio * (r2 - r1), g1 + ratio * (g2 - g1), b1 + ratio * (b2 - b1))
 
 
-# ---------------------------------------------------------------------------
-# Main entry point
-# ---------------------------------------------------------------------------
+
 
 def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
                      agg="mean", view_type="Heatmap", palette=None,
@@ -96,15 +86,17 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
     num    = _num_cols()
     pal    = palette or COLORS
 
+
     idx  = index_col  or (cats[0] if cats else df.columns[0])
     cols = columns_col or (cats[1] if len(cats) > 1 else df.columns[1])
     num_fallback = list(df.select_dtypes("number").columns)
     vals = values_col or (num[0] if num else (num_fallback[0] if num_fallback else None))
 
+
     if not vals or idx not in df.columns or cols not in df.columns or vals not in df.columns:
         return []
 
-    # ── Build pivot ──────────────────────────────────────────────────────────
+
     try:
         pivot = cached_pivot(df, index=idx, columns=cols, values=vals, aggfunc=agg)
         if isinstance(pivot.columns, pd.MultiIndex):
@@ -114,10 +106,11 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
     except Exception:
         return []
 
+
     _row_cap = _MAX_CATS_TABLE if view_type == "Table" else _MAX_CATS_HEATMAP
     pivot = _trim_pivot(pivot, _row_cap)
 
-    # ── Sort ─────────────────────────────────────────────────────────────────
+
     try:
         if sort_rows in ("value_desc", "value_asc"):
             row_means = pivot.mean(axis=1)
@@ -133,12 +126,15 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
     except Exception:
         pivot = _sort_pivot(pivot)
 
+
     if top_n_rows and top_n_rows > 0:
         pivot = pivot.iloc[:top_n_rows]
+
 
     n_rows, n_cols_p = pivot.shape
     if n_rows == 0 or n_cols_p == 0:
         return []
+
 
     agg_label  = agg.upper()
     tr = df[idx].nunique()
@@ -146,27 +142,28 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
     trunc_note = f"  (top {n_rows}×{n_cols_p} of {tr}×{tc})" if (tr > _row_cap or tc > _row_cap) else ""
     base_title = f"Matrix ({agg_label}): {vals}  ·  {idx} × {cols}{trunc_note}"
 
+
     z_values = pivot.values.tolist()
     x_labels = [str(c) for c in pivot.columns]
     y_labels  = [str(r) for r in pivot.index]
     flat = [v for row in z_values for v in row
             if v is not None and not (isinstance(v, float) and np.isnan(v))]
 
-    # ── Heatmap view ──────────────────────────────────────────────────────────
+
     if view_type == "Heatmap":
         height = max(420, min(n_rows * 30 + 160, 800))
 
+
         use_diverging = agg in _DIVERGING_AGGS
-        # NOTE: heatmap colorscale is completely independent of the palette.
-        # The palette is for bar/line/scatter charts only. Heatmap uses its own
-        # scale set in chart_settings → "Colour scale" (heatmap_colorscale).
         colorscale = "RdBu" if use_diverging else "Blues"
         zmid  = float(np.mean(flat)) if use_diverging and flat else None
         zmin  = float(min(flat)) if (not use_diverging and flat) else None
         zmax  = float(max(flat)) if (not use_diverging and flat) else None
 
+
         text_vals = [[_fmt(v) for v in row] for row in z_values]
         show_cell_text = n_rows <= 18 and n_cols_p <= 18
+
 
         fig = go.Figure(go.Heatmap(
             z=z_values,
@@ -223,12 +220,10 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
         }
         charts.append((f"Matrix Heatmap: {idx} × {cols}", fig))
 
-    # ── Table view (Excel pivot-table style) ──────────────────────────────────
+
     else:
-        # ── Row totals — only meaningful for count and sum ───────────────────
-        # For mean/median/max/min/std the row "total" is a sum of means which
-        # is misleading. Hide the totals column for those aggs.
         _show_row_totals = agg in ("sum", "count")
+
 
         row_totals = []
         if _show_row_totals:
@@ -238,7 +233,7 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
         else:
             row_totals = [np.nan] * len(z_values)
 
-        # Column totals (one per data column) — only meaningful for sum/count
+
         col_totals = []
         if _show_row_totals:
             for j in range(n_cols_p):
@@ -248,16 +243,17 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
         else:
             col_totals = [np.nan] * n_cols_p
 
+
         grand_total = sum(v for v in col_totals if not np.isnan(v)) if _show_row_totals else np.nan
 
-        # Per-column value range for mini gradient (conditional formatting)
+
         col_ranges = []
         for j in range(n_cols_p):
             clean = [row[j] for row in z_values
                      if row[j] is not None and not (isinstance(row[j], float) and np.isnan(row[j]))]
             col_ranges.append((min(clean) if clean else 0, max(clean) if clean else 0))
 
-        # ── Column widths (character-length-based) ──────────────────────────
+
         _idx_w  = min(max(max((len(str(r)) for r in y_labels), default=6), len(str(idx)), 8), 30)
         _hdr_len  = max((len(str(h)) for h in x_labels), default=4)
         _val_len  = max((len(str(v)) for row in z_values for v in row
@@ -265,10 +261,6 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
                         default=4)
         _data_w = min(max(_hdr_len, _val_len, 6), 24)
         _tot_w  = max(len("Total"), _data_w)
-        # Header label per the selected aggregation function — defined here
-        # (before first use) to fix the UnboundLocalError that occurred when
-        # _VALUE_HEADER_MAP was referenced at column-width calculation time
-        # but the dict was only defined ~80 lines further down.
         _VALUE_HEADER_MAP = {
             "sum":    "Overall Total",
             "mean":   "Overall Average",
@@ -284,36 +276,32 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
         else:
             _col_widths = [_idx_w] + [_data_w] * n_cols_p + [_val_hdr_w]
 
+
         _px_per_unit = 8
         _fig_width   = min((sum(_col_widths)) * _px_per_unit + 24, 1400)
 
-        # ── Build cell colour arrays (conditional gradient per column) ───────
+
         table_header_color = None
         if isinstance(kwargs, dict):
             table_header_color = kwargs.get("table_header_color")
+
 
         hdr_color = str(table_header_color) if table_header_color else (pal[0] if pal else "#4f46e5")
         hdr_alt   = pal[1] if len(pal) > 1 else "#6366f1"
         hdr_fills = [hdr_color] + [hdr_color if i % 2 == 0 else hdr_alt
                                     for i in range(n_cols_p)]
-        # Value column header fill — matches the alternating pattern of the
-        # data columns so all headers share one consistent colour scheme.
         hdr_fills = hdr_fills + [hdr_color if n_cols_p % 2 == 0 else hdr_alt]
         if _show_row_totals:
-            # Totals column header follows the same alternating scheme.
-            _tot_idx = n_cols_p + 1  # index column (0) + data cols + value col
+            _tot_idx = n_cols_p + 1
             hdr_fills = hdr_fills + [hdr_color if _tot_idx % 2 == 0 else hdr_alt]
 
-        # Row fill colours (alternating)
+
         n_data_rows = len(y_labels)
         row_fills_base = ["#1e293b" if i % 2 == 0 else "#0f172a" for i in range(n_data_rows)]
 
-        # Per-cell fill colour: subtle gradient per column
-        # go.Table needs column-major data: list of n_cols lists, each with n_rows values
+
         cell_fills_by_col = []
-        # Index column (no gradient)
         cell_fills_by_col.append(row_fills_base)
-        # Data columns
         for j in range(n_cols_p):
             vmin, vmax = col_ranges[j]
             col_bg = []
@@ -328,26 +316,18 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
                 else:
                     col_bg.append(base)
             cell_fills_by_col.append(col_bg)
-        # Value column fill (per-row aggregate) — muted teal to visually
-        # separate it from the pivot data columns.
         val_col_base = ["#0f2a3a" if i % 2 == 0 else "#0a1e2a" for i in range(n_data_rows)]
         cell_fills_by_col.append(val_col_base)
-        # Row total column fill (only appended if _show_row_totals)
         if _show_row_totals:
             row_tot_base = ["#1e3a5f" if i % 2 == 0 else "#172554" for i in range(n_data_rows)]
             cell_fills_by_col.append(row_tot_base)
 
-        # ── Format cell values ───────────────────────────────────────────────
+
         index_vals_disp = y_labels
         data_cols_fmt   = [[_fmt(row[j]) for row in z_values] for j in range(n_cols_p)]
         row_totals_fmt  = [_fmt(v) for v in row_totals] if _show_row_totals else []
 
-        # ── Value column (per-row aggregated measure) ───────────────────────
-        # Each row from the pivot corresponds to one value of `idx`. We
-        # aggregate `vals` over all rows of the original df that share that
-        # `idx` value, using the same aggregation function as the pivot cells
-        # so the column is consistent with what the matrix already shows.
-        # Handle std specially because it isn't a standard groupby method name.
+
         _value_col_method = "std" if agg == "std" else agg
         try:
             if _value_col_method in ("count",):
@@ -358,19 +338,13 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
                 _val_series = df.groupby(idx, dropna=False)[vals].first()
         except Exception:
             _val_series = pd.Series(index=pivot.index, dtype=float)
-        # Reindex onto the pivot's row labels for safe alignment
         _val_series = _val_series.reindex(pivot.index)
         value_col_fmt = [_fmt(v) for v in _val_series.tolist()]
 
-        # value_header_label uses _VALUE_HEADER_MAP, now defined earlier (see
-        # column-width section above) to fix the original UnboundLocalError.
+
         value_header_label = _VALUE_HEADER_MAP.get(agg, f"{agg.upper()}({vals})")
 
-        # ── Header row ───────────────────────────────────────────────────────
-        # The value column (per-row aggregate) is always appended after the
-        # data columns.  Previously col_headers and _data_cells omitted it
-        # while hdr_fills already allocated a colour slot for it — that
-        # mismatch made the last data column's header receive the wrong fill.
+
         total_header_label = "Total ▸"
         if agg == "count":
             total_header_label = "Count ▸"
@@ -382,9 +356,10 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
             col_headers = ([f"<b>{idx}</b>"] + [f"<b>{h}</b>" for h in x_labels]
                            + [f"<b>{value_header_label}</b>"])
 
+
         height = max(n_rows * 28 + 200, 480)
 
-        # ── Column totals + grand total footer ───────────────────────────────
+
         totals_fmt   = [_fmt_total(v) for v in col_totals]
         grand_fmt    = _fmt_total(grand_total) if _show_row_totals else ""
         if _show_row_totals:
@@ -398,10 +373,7 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
             footer_vals  = [["<b>◀ Total</b>"]] + [[v] for v in totals_fmt] + [[""]]
             footer_fills = ["#0f172a"] + ["#0f2a4a"] * n_cols_p + ["#0f172a"]
 
-        # Footer trace added FIRST so Plotly assigns it the bottom domain.
-        # Plotly renders the last-added table trace at the top — so adding
-        # the footer first means the data trace (added second) gets the top
-        # position and its column header row is visible.
+
         fig = go.Figure(go.Table(
             columnwidth=_col_widths,
             header=dict(values=[""] * len(col_headers),
@@ -418,10 +390,7 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
             ),
         ))
 
-        # Data trace added SECOND — Plotly gives it the top domain so its
-        # header row (column names) is the first thing the user sees.
-        # Value column is now correctly appended (was missing before, causing
-        # the fill-colour mismatch on the last data column header).
+
         _data_cells = [index_vals_disp] + data_cols_fmt + [value_col_fmt]
         if _show_row_totals:
             _data_cells = _data_cells + [row_totals_fmt]
@@ -445,6 +414,7 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
             ),
         ))
 
+
         _layout = chart_layout(height=height)
         _layout["margin"] = dict(l=10, r=10, t=58, b=10)
         fig.update_layout(
@@ -460,5 +430,6 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
             "matrix_view": "table",
         }
         charts.append((f"Matrix Table: {idx} × {cols}", fig))
+
 
     return charts

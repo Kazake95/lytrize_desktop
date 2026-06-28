@@ -1,7 +1,5 @@
-"""
-modules/ui/column_manager.py
-Column add / remove / rename UI shown on the upload page.
-"""
+"""modules/ui/column_manager.py"""
+
 
 import streamlit as st
 import numpy as np
@@ -9,6 +7,8 @@ import pandas as pd
 import ast
 import operator
 import re
+
+
 
 
 _SAFE_BIN_OPS = {
@@ -26,17 +26,13 @@ _SAFE_UNARY_OPS = {
 }
 
 
-def _safe_formula_eval(df: pd.DataFrame, formula: str) -> pd.Series:
-    """
-    Evaluate a derived-column formula with arithmetic only.
 
-    Supported:
-      - numeric columns by plain name, e.g. Sales / Units
-      - any column in backticks, e.g. `Total Sales` / `Units Sold`
-      - constants, parentheses, +, -, *, /, //, %, **
-    """
+
+def _safe_formula_eval(df: pd.DataFrame, formula: str) -> pd.Series:
+    """Evaluate a derived-column formula with arithmetic only."""
     numeric_cols = set(df.select_dtypes(include=[np.number]).columns)
     column_aliases: dict[str, str] = {}
+
 
     def replace_backtick(match: re.Match) -> str:
         col = match.group(1)
@@ -46,11 +42,14 @@ def _safe_formula_eval(df: pd.DataFrame, formula: str) -> pd.Series:
         column_aliases[alias] = col
         return alias
 
+
     expr = re.sub(r"`([^`]+)`", replace_backtick, formula.strip())
     if not expr:
         raise ValueError("Formula is empty.")
 
+
     tree = ast.parse(expr, mode="eval")
+
 
     def eval_node(node):
         if isinstance(node, ast.Expression):
@@ -70,10 +69,13 @@ def _safe_formula_eval(df: pd.DataFrame, formula: str) -> pd.Series:
             return _SAFE_UNARY_OPS[type(node.op)](eval_node(node.operand))
         raise ValueError("Only arithmetic with numeric columns and constants is allowed.")
 
+
     result = eval_node(tree)
     if np.isscalar(result):
         return pd.Series([result] * len(df), index=df.index)
     return result
+
+
 
 
 def show_column_manager(df):
@@ -81,12 +83,13 @@ def show_column_manager(df):
     st.markdown("---")
     st.markdown("## 🛠️ Column Manager")
     
-    # Render three tabs to support Adding, Removing, and Renaming columns
+
     tab_add, tab_remove, tab_rename = st.tabs([
-        "➕ Add Column", 
-        "🗑️ Remove Column", 
+        "➕ Add Column",
+        "🗑️ Remove Column",
         "✏️ Rename Column"
     ])
+
 
     with tab_add:
         num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
@@ -98,7 +101,9 @@ def show_column_manager(df):
                 "Column + Column", "Column − Column", "Extract Date/Time Part"
             ], key="calc_type")
 
+
         formula_str = date_col = part_to_extract = None
+
 
         if calc_type == "Custom formula (use col names)":
             formula_str = st.text_input("Formula", key="custom_formula", placeholder="e.g. Sales / Units")
@@ -117,6 +122,7 @@ def show_column_manager(df):
                  "Day", "Weekday Name", "Hour (12h AM/PM)", "Hour (24h)"], key="date_part_ext")
             formula_str = "date_extraction_placeholder"
 
+
         if st.button("➕ Add Column", key="btn_add_col"):
             if not new_col_name.strip() or not formula_str:
                 st.error("Fill all fields.")
@@ -125,13 +131,16 @@ def show_column_manager(df):
                     if calc_type == "Extract Date/Time Part":
                         raw = df[date_col]
 
+
                         def _parse_datetime_robust(series: pd.Series) -> pd.Series:
                             s = series.astype(str).str.strip()
                             result = pd.to_datetime(s, errors="coerce")
 
+
                             remaining = result.isna() & series.notna()
                             if not remaining.any():
                                 return result
+
 
                             normalised = (
                                 s[remaining]
@@ -143,9 +152,11 @@ def show_column_manager(df):
                                 "1970-01-01 " + normalised, errors="coerce"
                             )
 
+
                             remaining = result.isna() & series.notna()
                             if not remaining.any():
                                 return result
+
 
                             for fmt in (
                                 "%I:%M %p", "%I:%M:%S %p",
@@ -165,9 +176,12 @@ def show_column_manager(df):
                                 except Exception:
                                     pass
 
+
                             return result
 
+
                         temp_dates = _parse_datetime_robust(raw)
+
 
                         null_count = int(temp_dates.isna().sum())
                         if null_count:
@@ -175,6 +189,7 @@ def show_column_manager(df):
                                 f"⚠️ {null_count} value(s) in `{date_col}` could not be parsed "
                                 f"as a date/time and will produce NaN in the new column."
                             )
+
 
                         mapping = {
                             "Date (YYYY-MM-DD)": temp_dates.dt.date,
@@ -197,6 +212,7 @@ def show_column_manager(df):
                 except Exception as e:
                     st.error(f"Error: {e}")
 
+
     with tab_remove:
         col_to_del = st.selectbox("Select column to remove", df.columns.tolist(), key="col_to_del")
         confirm = st.checkbox(f"Confirm removal of **{col_to_del}**", key="confirm_del")
@@ -209,44 +225,48 @@ def show_column_manager(df):
             st.success(f"✅ Removed {col_to_del}")
             st.rerun()
 
+
     with tab_rename:
         col_to_rename = st.selectbox("Select column to rename", df.columns.tolist(), key="col_to_rename")
         new_name_input = st.text_input("New column name", key="rename_new_name_val", placeholder="e.g. Sales_USD")
         
+
         new_name_clean = new_name_input.strip()
         is_disabled = not new_name_clean or new_name_clean == col_to_rename
+
 
         if st.button("✏️ Rename Column", key="btn_rename_col", disabled=is_disabled):
             if new_name_clean in df.columns:
                 st.error(f"Error: A column named '{new_name_clean}' already exists in your dataset.")
             else:
                 try:
-                    # Rename the Column Header inside DataFrame
                     df = df.rename(columns={col_to_rename: new_name_clean})
                     st.session_state.df = df
 
-                    # Update internal Column Cache Lists if they exist in state
+
                     if "num_cols" in st.session_state:
                         st.session_state["num_cols"] = [
-                            new_name_clean if c == col_to_rename else c 
+                            new_name_clean if c == col_to_rename else c
                             for c in st.session_state["num_cols"]
                         ]
                     if "cat_cols" in st.session_state:
                         st.session_state["cat_cols"] = [
-                            new_name_clean if c == col_to_rename else c 
+                            new_name_clean if c == col_to_rename else c
                             for c in st.session_state["cat_cols"]
                         ]
 
-                    # Propagate changes to user-saved Column Descriptions
+
                     if "col_descriptions" in st.session_state:
                         col_descs = st.session_state["col_descriptions"]
                         if col_to_rename in col_descs:
                             col_descs[new_name_clean] = col_descs.pop(col_to_rename)
                             st.session_state["col_descriptions"] = col_descs
 
+
                     st.success(f"✅ Renamed '{col_to_rename}' to '{new_name_clean}'")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error renaming column: {e}")
+
 
     return st.session_state.df

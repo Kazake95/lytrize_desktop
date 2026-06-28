@@ -1,37 +1,10 @@
-"""
-modules/pages/dashboard.py -- Dashboard view, editing, saving, and PDF export.
-==============================================================================
-
-The dashboard page has two operating modes:
-
-  Edit / Build mode (default after analysis):
-    - Shows the generated chart cards in a portrait or landscape grid.
-    - Allows adding/editing KPI cards, renaming charts, adding descriptions.
-    - "Save Session" persists charts + metadata to the sessions table.
-    - "Export PDF" calls modules/export.py to produce a downloadable report.
-    - Auto-saves progress to draft_sessions on every meaningful action.
-
-  View / Read-only mode (?sid= URL parameter):
-    - Loads a saved session's charts from the DB via get_session_charts().
-    - Renders in a read-only layout (no edit controls shown).
-    - Accessed via shared links or clicking a saved session card on home.py.
-
-Session state keys managed here:
-    charts          -- list of (uid, title, fig) tuples
-    dashboard_title -- editable title shown at the top of the dashboard
-    kpis            -- list of KPI dicts: {label, value, icon}
-    layout_mode     -- "portrait" (2-col) or "landscape" (3-col)
-    editing_session_id / editing_session_name -- set when editing a saved session
-
-CONTRIBUTING -- to add a new dashboard panel or widget:
-    Add a new st.expander() or column block in page_dashboard().
-    Call save_draft() after any state change the user should be able to recover.
-"""
+"""modules/pages/dashboard.py -- Dashboard view, editing, saving, and PDF export."""
 import json, copy, datetime
 import pandas as pd
 import streamlit as st
 from html import escape
 import re
+
 
 from modules.database import (
     log_activity,
@@ -52,31 +25,18 @@ from modules.ui.chart_settings import (
 from modules.ui.font_manager import inject_font_preview_css, font_select
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────────────────────────────────────
+
 
 def _dash_sync_notes() -> None:
-    """
-    Snapshot all live desc_{uid} note values into _notes_shadow before any
-    st.rerun() that fires mid-page (e.g. KPI add/remove, chart delete from
-    the dashboard).
-
-    Dashboard renders the KPI section BEFORE the chart card loop, so any
-    st.rerun() triggered by a KPI button aborts the run before the text_area
-    widgets are rendered.  Streamlit then clears the widget-bound desc_ keys.
-    The shadow dict is a plain non-widget dict that survives every rerun, so
-    notes can be restored from it when the chart cards next render.
-    """
+    """Snapshot all live desc_{uid} note values into _notes_shadow before any"""
     shadow = st.session_state.setdefault("_notes_shadow", {})
     for k, v in list(st.session_state.items()):
         if k.startswith("desc_") and isinstance(v, str):
-            shadow[k[5:]] = v   # strip "desc_" prefix → uid
+            shadow[k[5:]] = v
 def _persist():
     uid = st.session_state.get("user_id")
     if not uid:
         return
-    # Safely build chart_meta_json — ensure all values are JSON-serializable
     _chart_meta_raw = {}
     for _k in list(st.session_state.keys()):
         if _k.startswith("chart_meta_"):
@@ -100,6 +60,7 @@ def _persist():
                 _chart_meta_raw[_k] = str(_v)
     chart_meta_json = json.dumps(_chart_meta_raw, ensure_ascii=False)
 
+
     save_draft(
         user_id              = uid,
         page                 = "dashboard",
@@ -114,11 +75,15 @@ def _persist():
     )
 
 
+
+
 def _meta(uid):
     k = f"chart_meta_{uid}"
     if k not in st.session_state:
         st.session_state[k] = {}
     return st.session_state[k]
+
+
 
 
 def _set_meta(uid, **kw):
@@ -128,14 +93,20 @@ def _set_meta(uid, **kw):
     st.session_state[k].update(kw)
 
 
+
+
 def _default_text_style() -> dict:
     """Return the default typography settings used by chart cards."""
     return _shared_default_text_style()
 
 
+
+
 def _merge_text_style(raw: dict | None) -> dict:
     """Merge a stored text-style dict over the defaults."""
     return _shared_merge_text_style(raw)
+
+
 
 
 def _apply_axes(fig, x_lbl, y_lbl, text_style: dict | None = None, *, _inplace: bool = False):
@@ -169,15 +140,10 @@ def _apply_axes(fig, x_lbl, y_lbl, text_style: dict | None = None, *, _inplace: 
         return fig
 
 
-def _apply_legend_names(fig, legend_names: dict, legend_title: str = "", text_style: dict | None = None, *, _inplace: bool = False):
-    """
-    Rename Plotly traces using the {original_name: custom_name} mapping stored
-    in chart_meta, and optionally override the legend group title.
 
-    Works on any figure type (histogram, bar, scatter, line, etc.).
-    Traces whose names are not in the mapping are left unchanged.
-    Pass legend_title="" (or omit) to leave the auto-generated title as-is.
-    """
+
+def _apply_legend_names(fig, legend_names: dict, legend_title: str = "", text_style: dict | None = None, *, _inplace: bool = False):
+    """Rename Plotly traces using the {original_name: custom_name} mapping stored"""
     try:
         f2 = fig if _inplace else copy.deepcopy(fig)
         style = _merge_text_style(text_style)
@@ -212,6 +178,8 @@ def _apply_legend_names(fig, legend_names: dict, legend_title: str = "", text_st
         return fig
 
 
+
+
 def _all_charts(viewing_saved):
     if viewing_saved:
         return st.session_state.get("_view_charts", [])
@@ -225,9 +193,8 @@ def _all_charts(viewing_saved):
     return out
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# KPI Engine  (auto-calculated -- Power BI style)
-# ─────────────────────────────────────────────────────────────────────────────
+
+
 _KPI_TYPES = [
     "Total (Sum)", "Average (Mean)", "Median", "Count (Rows)",
     "Minimum Value", "Maximum Value",
@@ -242,6 +209,8 @@ _KPI_ICONS = {
     "Date Range":"📅","Top Category → Value":"🏆","Bottom Category → Value":"📉",
     "% Change (Latest Month vs Prev Month)":"📅","% Change (Latest Year vs Prev Year)":"📅",
 }
+
+
 
 
 def _calc_kpi(df, kpi_type, col=None, group_col=None, metric_col=None,
@@ -312,6 +281,8 @@ def _calc_kpi(df, kpi_type, col=None, group_col=None, metric_col=None,
     return {"icon":icon,"label":lbl,"value":val,"prefix":pfx,"suffix":sfx}
 
 
+
+
 def _kpi_card_html(kpi):
     change_pct = kpi.get("change_pct")
     arrow_html = ""
@@ -329,12 +300,12 @@ def _kpi_card_html(kpi):
     suffix = escape(str(kpi.get("suffix", "")))
     label  = escape(str(kpi.get("label", "")))
 
+
     _UNIT_META = {
         "B": ("B", "Billions",  "#8566fc"),
         "M": ("M", "Millions",  "#6163df"),
         "K": ("K", "Thousands", "#3390c8"),
     }
-    # Build display value and responsive font sizing for the KPI value
     full_val = f"{prefix}{value}{suffix}"
     if len(full_val) > 16:
         sz = "0.95rem"
@@ -344,9 +315,7 @@ def _kpi_card_html(kpi):
         sz = "1.4rem"
     val_style = f"font-size:{sz};font-weight:800;line-height:1.05;"
 
-    # Return a compact HTML fragment for the KPI card. This is rendered via
-    # `st.markdown(..., unsafe_allow_html=True)` elsewhere so keep the markup
-    # small and self-contained.
+
     return (
         f'<div class="kpi-card" style="width:100%;box-shadow:0 2px 8px rgba(0,0,0,0.06);flex:1;">'
         f'<div style="font-size:1.2rem;line-height:1">{icon}</div>'
@@ -358,13 +327,16 @@ def _kpi_card_html(kpi):
     )
 
 
+
+
 def _render_kpi_section(df, readonly):
     if "kpis" not in st.session_state:
         st.session_state.kpis = []
 
+
     st.markdown("### 📌 KPI Cards")
 
-    # ── Display existing ──────────────────────────────────────────────────────
+
     kpis = st.session_state.kpis
     if kpis:
         cols_per_row = 4
@@ -384,12 +356,13 @@ def _render_kpi_section(df, readonly):
                             st.rerun()
         st.write("")
 
-    # ── Add new KPI ───────────────────────────────────────────────────────────
+
     if not readonly and df is not None:
         with st.expander("➕ Add KPI from Dataset", expanded=len(kpis) == 0):
             num_c = df.select_dtypes(include="number").columns.tolist()
             cat_c = df.select_dtypes(include=["object","category"]).columns.tolist()
             all_c = df.columns.tolist()
+
 
             ka, kb = st.columns(2)
             with ka:
@@ -399,7 +372,9 @@ def _render_kpi_section(df, readonly):
                                        key="kpi_label",
                                        placeholder="e.g. Total Revenue")
 
+
             col = grp = met = fcol = fval = None
+
 
             simple_num = {"Total (Sum)","Average (Mean)","Median",
                           "Minimum Value","Maximum Value"}
@@ -430,13 +405,12 @@ def _render_kpi_section(df, readonly):
                 with p1: fcol = st.selectbox("Date column",   dt_c,  key="kpi_chg_dt")
                 with p2: col  = st.selectbox("Metric column", num_c, key="kpi_chg_met") if num_c else None
 
+
             if st.button("➕ Calculate & Add KPI", type="primary", key="kpi_add_btn"):
                 kpi = _calc_kpi(df, ktype, col, grp, met, fcol, fval, klabel or None)
                 st.session_state.kpis.append(kpi)
                 _dash_sync_notes()
                 _persist()
-                # Also write KPIs to the sessions table immediately so they are
-                # not lost if the user closes the tab before clicking Save/Update.
                 eid = st.session_state.get("editing_session_id")
                 if eid:
                     try:
@@ -459,16 +433,13 @@ def _render_kpi_section(df, readonly):
         st.caption("Upload a dataset and go to Analysis first to enable KPI calculation.")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Visual Grid Layout Builder
-# ─────────────────────────────────────────────────────────────────────────────
+
+
 def _render_layout_builder(charts):
-    """
-    Visual grid layout builder. Supports 2-column (default) and independent
-    3-column grid mode, each slot with a full-width toggle.
-    """
+    """Visual grid layout builder. Supports 2-column (default) and independent"""
     if not charts:
         return []
+
 
     n = len(charts)
     uid_list   = [c[0] for c in charts]
@@ -477,17 +448,20 @@ def _render_layout_builder(charts):
     opts       = [EMPTY] + [f"[{uid}] {title_map[uid][:45]}" for uid in uid_list]
     uid_of_opt = {f"[{uid}] {title_map[uid][:45]}": uid for uid in uid_list}
 
+
     if "grid_order" not in st.session_state or \
             set(st.session_state.grid_order) != set(uid_list):
         st.session_state.grid_order     = uid_list.copy()
         st.session_state.grid_fullwidth = {}
 
+
     order      = list(st.session_state.grid_order)
     full_width = dict(st.session_state.grid_fullwidth)
 
+
     st.markdown("### 🗂️ Arrange Charts in Dashboard Grid")
 
-    # ── Independent column-count selector ────────────────────────────────────
+
     grid_cols_n = st.radio(
         "Grid columns",
         [2, 3],
@@ -498,18 +472,22 @@ def _render_layout_builder(charts):
     )
     st.session_state.grid_cols_n = grid_cols_n
 
+
     st.caption(
         f"Each row has **{grid_cols_n} slots**. "
         "Tick **Full Width** to span the first slot across the entire row.")
+
 
     st.markdown(
         '<div style="background:rgba(97,99,223,0.04);border:2px dashed rgba(97,99,223,0.25);'
         'border-radius:16px;padding:1.2rem 1.4rem;margin-bottom:1rem;">',
         unsafe_allow_html=True)
 
+
     assigned_uids = []
     seen = set()
-    max_rows = n  # worst case: every chart is full-width
+    max_rows = n
+
 
     for row_i in range(max_rows):
         base      = row_i * grid_cols_n
@@ -522,7 +500,9 @@ def _render_layout_builder(charts):
             for u in slot_uids
         ]
 
+
         is_fw = full_width.get(slot_uids[0], False) if slot_uids[0] else False
+
 
         st.markdown(
             f'<div style="font-size:0.75rem;font-weight:700;color:#64748b;'
@@ -530,11 +510,12 @@ def _render_layout_builder(charts):
             f'Row {row_i + 1}</div>',
             unsafe_allow_html=True)
 
-        # columns: N slots + 1 narrow full-width toggle
+
         col_parts = st.columns([5] * grid_cols_n + [2])
         fw_here = col_parts[-1].checkbox(
             "Full width", value=is_fw, key=f"grid_fw_{row_i}",
             help="Span first slot's chart across the entire row")
+
 
         chosen_slots = []
         for s in range(grid_cols_n):
@@ -554,11 +535,13 @@ def _render_layout_builder(charts):
                     label_visibility="collapsed")
                 chosen_slots.append(chosen)
 
+
         lu = uid_of_opt.get(chosen_slots[0])
         if lu and lu not in seen:
             assigned_uids.append(lu)
             seen.add(lu)
             full_width[lu] = fw_here
+
 
         if not fw_here:
             for s in range(1, grid_cols_n):
@@ -567,16 +550,20 @@ def _render_layout_builder(charts):
                     assigned_uids.append(ru)
                     seen.add(ru)
 
+
         if all(uid_of_opt.get(c) is None for c in chosen_slots):
             break
         if len(seen) >= n:
             break
 
+
     st.markdown('</div>', unsafe_allow_html=True)
+
 
     for uid in uid_list:
         if uid not in seen:
             assigned_uids.append(uid)
+
 
     if st.button("✅ Apply Layout", type="primary", key="apply_layout"):
         st.session_state.grid_order     = assigned_uids
@@ -587,12 +574,12 @@ def _render_layout_builder(charts):
         st.success("✅ Layout applied!")
         st.rerun()
 
+
     return assigned_uids
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Single chart card
-# ─────────────────────────────────────────────────────────────────────────────
+
+
 def _render_chart(item, idx, total, viewing_saved):
     uid, title, fig, desc, autos, ctype, saved_meta = \
         item if len(item) == 7 else (*item[:6], {})
@@ -603,9 +590,7 @@ def _render_chart(item, idx, total, viewing_saved):
             shadow_val = st.session_state.get("_notes_shadow", {}).get(uid, "")
             st.session_state[note_key] = shadow_val or desc or ""
 
-    # ── Settings panels (run BEFORE building fig_show so changes are live) ────
-    # Same pattern as analysis.py: process widget values first, then read meta
-    # for the chart render.  No Save button — changes apply instantly.
+
     if not viewing_saved:
         from modules.ui.chart_settings import render_typography_controls
         chart_type = st.session_state.get(f"chart_type_{uid}", ctype or "")
@@ -630,8 +615,9 @@ def _render_chart(item, idx, total, viewing_saved):
                 )
                 _set_meta(uid, text_style=text_style_upd)
 
-        # Re-read meta now that widgets have updated it
+
         meta = _meta(uid)
+
 
     display    = meta.get("custom_title") or title
     sub        = meta.get("subtitle", "")
@@ -639,22 +625,23 @@ def _render_chart(item, idx, total, viewing_saved):
     yl         = meta.get("y_label", "")
     text_style = _merge_text_style(meta.get("text_style", {}))
 
-    # Cache the fully-built figure to avoid expensive deepcopy + apply on every rerun
+
     _cache_key      = f"_dash_fig_cache_{uid}"
     _cache_meta_key = f"_dash_fig_cache_meta_{uid}"
     _cached_fig     = st.session_state.get(_cache_key)
     _cached_hash    = st.session_state.get(_cache_meta_key, "")
     _current_hash   = compute_meta_hash(meta)
 
+
     if _cached_fig is not None and _cached_hash == _current_hash:
         fig_show = _cached_fig
     else:
-        fig_show = _apply_axes(fig, xl, yl, text_style)          # deepcopy (only copy)
+        fig_show = _apply_axes(fig, xl, yl, text_style)
         fig_show = _apply_legend_names(fig_show, meta.get("legend_names", {}), meta.get("legend_title", ""), text_style, _inplace=True)
         fig_show = apply_chart_display_options(fig_show, meta, ctype, _inplace=True)
-        # fig_show is already a private copy from _apply_axes; no deepcopy needed here.
         try:
             apply_hover_format(fig_show)
+
 
             if sub:
                 safe_sub = escape(str(sub))
@@ -668,6 +655,7 @@ def _render_chart(item, idx, total, viewing_saved):
                 ))
             else:
                 fig_show.update_layout(title_text="")
+
 
             is_horiz = any(getattr(t, "orientation", "v") == "h"
                            for t in fig_show.data if hasattr(t, "orientation"))
@@ -687,10 +675,11 @@ def _render_chart(item, idx, total, viewing_saved):
         except Exception:
             pass
 
+
         st.session_state[_cache_key]      = fig_show
         st.session_state[_cache_meta_key] = _current_hash
 
-    # ── Control buttons (edit mode only) ─────────────────────────────────────
+
     if not viewing_saved:
         btn_cols = st.columns([9, 1, 1, 1])
         with btn_cols[1]:
@@ -723,7 +712,7 @@ def _render_chart(item, idx, total, viewing_saved):
                 st.session_state.get("_notes_shadow", {}).pop(uid, None)
                 _dash_sync_notes(); _persist(); st.rerun()
 
-    # ── Chart title rendered once as a heading (not inside Plotly) ───────────
+
     st.markdown(
         f'<div style="font-size:0.93rem;font-weight:700;color:#1e293b;margin-bottom:2px;">'
         f'{escape(str(display))}</div>'
@@ -731,7 +720,7 @@ def _render_chart(item, idx, total, viewing_saved):
            f'{escape(str(sub))}</div>' if sub else ""),
         unsafe_allow_html=True)
 
-    # Scrollable wrapper for large matrix tables (same logic as analysis.py)
+
     _db_chart_type = st.session_state.get(f"chart_type_{uid}", ctype or "")
     _db_fig_height = getattr(getattr(fig_show, "layout", None), "height", 0) or 0
     _db_is_matrix = _db_chart_type == "matrix_table"
@@ -745,19 +734,17 @@ def _render_chart(item, idx, total, viewing_saved):
     st.plotly_chart(
         fig_show,
         use_container_width=not _db_is_matrix,
-        # key= prevents full Plotly iframe teardown on every rerun (glitch fix).
         key=f"dash_plotly_{uid}",
         config={
             "responsive": True,
             "displayModeBar": "hover",
-            # Disable Plotly's attempt to load MathJax from CDN
             "mathjax": False,
         },
     )
     if _db_is_matrix:
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Insights
+
     show_ai = meta.get("show_auto_insights", True)
     hidden  = set(meta.get("hidden_insights",[]))
     if autos and show_ai:
@@ -779,7 +766,7 @@ def _render_chart(item, idx, total, viewing_saved):
                 for ins in visible:
                     st.markdown(f'<div style="{_ins_style_str}">{clean_insight_text(ins)}</div>', unsafe_allow_html=True)
 
-    # Analysis notes are independent of auto-insights and always export/save.
+
     live_desc = st.session_state.get(note_key, "") if not viewing_saved else (desc or "")
     if viewing_saved:
         if live_desc:
@@ -801,7 +788,7 @@ def _render_chart(item, idx, total, viewing_saved):
                 f'border-radius:6px;padding:.6rem .9rem;font-size:.87rem;margin-top:.3rem;{_notes_style_str}">'
                 f'<strong>Analysis Notes:</strong> {safe_desc}</div>', unsafe_allow_html=True)
     else:
-        def _sync_note(u=uid):   # default-arg captures uid by value
+        def _sync_note(u=uid):
             val = st.session_state.get(f"desc_{u}", "")
             st.session_state.setdefault("_notes_shadow", {})[u] = val
         st.text_area(
@@ -819,13 +806,12 @@ def _render_chart(item, idx, total, viewing_saved):
                 st.rerun()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Grid renderer -- respects grid_order and grid_fullwidth
-# ─────────────────────────────────────────────────────────────────────────────
+
+
 def _render_grid(ordered_charts, viewing_saved):
     total    = len(ordered_charts)
     fw       = st.session_state.get("grid_fullwidth", {})
-    n_cols   = st.session_state.get("grid_cols_n", 2)  # 2 or 3
+    n_cols   = st.session_state.get("grid_cols_n", 2)
     i = 0
     while i < total:
         item     = ordered_charts[i]
@@ -833,14 +819,13 @@ def _render_grid(ordered_charts, viewing_saved):
         item_meta = item[6] if viewing_saved and len(item) > 6 else _meta(uid)
         is_fw    = fw.get(uid, False) or item_meta.get("full_width", False)
 
+
         if is_fw or i == total - 1:
-            # Full-width or lone last chart
             with st.container():
                 _render_chart(item, i, total, viewing_saved)
             st.write("")
             i += 1
         else:
-            # Try to fill a full row of n_cols
             row_items = [item]
             for s in range(1, n_cols):
                 if i + s < total:
@@ -854,6 +839,7 @@ def _render_grid(ordered_charts, viewing_saved):
                         break
                 else:
                     break
+
 
             if len(row_items) > 1:
                 row_cols = st.columns(len(row_items), gap="large")
@@ -869,22 +855,19 @@ def _render_grid(ordered_charts, viewing_saved):
                 i += 1
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Main page entry
-# ─────────────────────────────────────────────────────────────────────────────
+
+
 def page_dashboard():
-    # Token is validated in app.py on startup and kept in the URL so that
-    # a browser page-refresh re-validates and restores the session.
-    # If there is no authenticated session, redirect to profile.
     if "user_id" not in st.session_state:
         st.session_state.page = "profile"
         st.rerun()
+
 
     viewing_saved = "view_session_id" in st.session_state
     is_editing    = "editing_session_id" in st.session_state
     df            = st.session_state.get("df")
 
-    # ── When editing a saved session, restore its KPIs + meta on first load ──
+
     if is_editing and "kpis" not in st.session_state:
         eid = st.session_state.editing_session_id
         sm  = get_session_meta(eid, st.session_state.get("user_id"))
@@ -908,34 +891,27 @@ def page_dashboard():
                 except Exception:
                     st.session_state.grid_fullwidth = {}
 
-    # ── When editing, also restore per-chart notes from the saved session ─────
+
     if is_editing and not st.session_state.get("_edit_notes_loaded"):
         eid    = st.session_state.editing_session_id
         loaded = get_session_charts(eid, st.session_state.get("user_id"))
         for uid, title, fig, desc, auto, ctype, meta in loaded:
             note_key = f"desc_{uid}"
-            # Seed note if:
-            #   a) key doesn't exist yet, OR
-            #   b) key is empty string (analysis.py pre-seeds it as "" before
-            #      we get here, which previously blocked the saved value loading)
-            # Never overwrite if user has already typed something non-empty.
             current_note = st.session_state.get(note_key, None)
             if desc and (current_note is None or current_note == ""):
                 st.session_state[note_key] = desc
-            # Restore chart meta (custom title, subtitle etc.) if not set
             meta_key = f"chart_meta_{uid}"
             if meta and not st.session_state.get(meta_key):
                 st.session_state[meta_key] = meta
         st.session_state._edit_notes_loaded = True
 
-    # Load saved session data once
+
     if viewing_saved:
         sid   = st.session_state.view_session_id
         sname = st.session_state.get("view_session_name","Saved Session")
         if "_view_charts" not in st.session_state or \
                 st.session_state.get("_vsid") != sid:
             loaded = get_session_charts(sid, st.session_state.get("user_id"))
-            # Restore per-chart session_state keys (previously done inside DB layer)
             for uid, title, fig, desc, auto, ctype, meta in loaded:
                 st.session_state[f"desc_{uid}"]          = desc
                 st.session_state[f"auto_insights_{uid}"] = auto
@@ -966,11 +942,13 @@ def page_dashboard():
                 st.session_state.grid_fullwidth = json.loads(sm.get("grid_fullwidth_json", "{}"))
             except Exception:
                 st.session_state.grid_fullwidth = {}
-        df = None  # No live df when viewing saved
+        df = None
     else:
         sname = f"Analysis -- {st.session_state.get('file_name','')}"
 
+
     charts = _all_charts(viewing_saved)
+
 
     render_logo()
     if st.button("← Back"):
@@ -983,7 +961,7 @@ def page_dashboard():
             st.session_state.page = "analysis"
         st.rerun()
 
-    # ── Dashboard title ───────────────────────────────────────────────────────
+
     if not viewing_saved:
         ti = st.text_input("📋 Dashboard Title",
                            value=st.session_state.get("dashboard_title",""),
@@ -991,6 +969,7 @@ def page_dashboard():
                            key="dbtitle")
         if ti != st.session_state.get("dashboard_title",""):
             st.session_state.dashboard_title = ti; _persist()
+
 
     display_title = st.session_state.get("dashboard_title") or sname
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -1001,7 +980,6 @@ def page_dashboard():
             header_meta = _merge_text_style(first_meta.get("text_style", {}))
     except Exception:
         pass
-    # Global dashboard title font settings
     _title_font = st.session_state.get("ex_title_font", "Inter")
     _title_style = st.session_state.get("ex_title_style", "Normal")
     _title_size = st.session_state.get("ex_title_size", 28)
@@ -1023,14 +1001,14 @@ def page_dashboard():
         f'</div>',
         unsafe_allow_html=True)
 
-    # ── Layout mode ───────────────────────────────────────────────────────────
+
     if not viewing_saved:
         lo = st.radio("📐 Export Layout", ["Portrait","Landscape"],
                       index=1 if st.session_state.get("layout_mode")=="landscape" else 0,
                       horizontal=True)
         st.session_state.layout_mode = lo.lower()
 
-    # ── Save / Update -- at the TOP so it's always visible ────────────────────
+
     if not viewing_saved:
         sc1, sc2, sc3 = st.columns([3, 1, 1])
         with sc1:
@@ -1046,19 +1024,20 @@ def page_dashboard():
                 if st.button("🔄 Update", use_container_width=True):
                     _do_update(sname_in, charts, clear_editing=False)
 
+
     st.markdown("---")
 
-    # ── KPIs ─────────────────────────────────────────────────────────────────
+
     _render_kpi_section(df, readonly=viewing_saved)
     st.markdown("---")
+
 
     if not charts:
         st.info("No charts yet. Go back to Analysis to generate some!")
         inject_footer()
         return
 
-    # Resolve grid order — deduplicate to prevent DuplicateWidgetID errors
-    # if the same uid somehow appears twice in grid_order (e.g. rapid clicks).
+
     uid_map   = {c[0]: c for c in charts}
     go_order  = st.session_state.get("grid_order", [c[0] for c in charts])
     seen_uids: set = set()
@@ -1067,22 +1046,22 @@ def page_dashboard():
         if u in uid_map and u not in seen_uids:
             ordered.append(uid_map[u])
             seen_uids.add(u)
-    # Append unplaced charts not in grid_order at all
     for c in charts:
         if c[0] not in seen_uids:
             ordered.append(c)
             seen_uids.add(c[0])
 
-    # ── Export ────────────────────────────────────────────────────────────────
+
     if ordered:
         _export_row(ordered, sname, viewing_saved)
         st.markdown("---")
 
-    # ── Layout builder ────────────────────────────────────────────────────────
+
     if charts and not viewing_saved:
         with st.expander("🗂️ Arrange Dashboard Layout", expanded=False):
             _render_layout_builder(charts)
         st.markdown("---")
+
 
     st.markdown("### 📈 Dashboard")
     try:
@@ -1100,10 +1079,13 @@ def page_dashboard():
     inject_footer()
 
 
+
+
 def _export_row(charts, sname, viewing_saved):
     orient     = st.session_state.get("layout_mode","portrait")
     kpis       = st.session_state.get("kpis",[])
     dash_title = st.session_state.get("dashboard_title","") or sname
+
 
     export_charts = []
     full_width = st.session_state.get("grid_fullwidth", {})
@@ -1116,18 +1098,14 @@ def _export_row(charts, sname, viewing_saved):
         fig  = _apply_axes(item[2], meta.get("x_label",""), meta.get("y_label",""), style)
         fig  = _apply_legend_names(fig, meta.get("legend_names", {}), meta.get("legend_title", ""), style)
         fig  = apply_chart_display_options(fig, meta, item[5] if len(item)>5 else "")
-        # Read notes from session_state live so they're always current
         notes = st.session_state.get(f"desc_{uid}", "") or (item[3] if len(item) > 3 else "")
         export_charts.append((uid, item[1], fig, notes, item[4] if len(item)>4 else [],
                               item[5] if len(item)>5 else "", meta))
 
+
     safe_file = re.sub(r"[^A-Za-z0-9_.-]+", "_", dash_title).strip("._") or "lytrize_report"
 
-    # ── Export colour customisation ───────────────────────────────────────────
-    # Preset pattern: buttons write to _ex_pending (a plain dict key, not a
-    # widget key) and rerun. On the NEXT rerun, we read _ex_pending BEFORE
-    # rendering any color_picker widgets so Streamlit never sees a widget-key
-    # mutation mid-run (which raises StreamlitAPIException).
+
     _EX_DEFAULTS = {
         "ex_bg": "#121a2e", "ex_card": "#1b2245", "ex_kpi": "#1b2245",
         "ex_accent": "#6163df", "ex_border": "#2c3564", "ex_text": "#f5f7ff",
@@ -1138,7 +1116,6 @@ def _export_row(charts, sname, viewing_saved):
         "ex_kpi_text_color": "#f5f7ff", "ex_kpi_val_size": 14,
     }
     _PRESETS = {
-        # High-contrast dark BI themes
         "🌙 Dark Moon": {
             "ex_bg": "#0b1020",
             "ex_card": "#11182b",
@@ -1164,7 +1141,7 @@ def _export_row(charts, sname, viewing_saved):
             "ex_not_bd": "#c084fc",
         },
 
-        # Bright, clear dashboard themes
+
         "🤍 Slate Clear": {
             "ex_bg": "#f7faff",
             "ex_card": "#ffffff",
@@ -1249,24 +1226,25 @@ def _export_row(charts, sname, viewing_saved):
             "ex_not_bg": "#f0fdf4",
             "ex_not_bd": "#22c55e",
         },
-    }    # Apply any pending preset BEFORE widgets are rendered this rerun.
+    }
     if "_ex_pending" in st.session_state:
         for k, v in st.session_state["_ex_pending"].items():
-            st.session_state[k] = v          # safe — widgets not yet created
+            st.session_state[k] = v
         del st.session_state["_ex_pending"]
+
 
     with st.expander("🎨 Customise Export Colours", expanded=False):
         st.caption(
             "Set colours for the downloaded HTML dashboard. "
             "Changes are preview-only — they apply to the downloaded file."
         )
-        # ── Quick preset row (rendered BEFORE pickers so clicks queue _ex_pending) ──
         st.markdown("**Quick presets:**")
         pr_cols = st.columns(len(_PRESETS))
         for i, (col, (label, vals)) in enumerate(zip(pr_cols, _PRESETS.items())):
             if col.button(label, key=f"preset_{i}"):
-                st.session_state["_ex_pending"] = vals   # queued; applied next rerun
+                st.session_state["_ex_pending"] = vals
                 st.rerun()
+
 
         tab_colours, tab_text, tab_layout = st.tabs(["Colours", "Text", "Layout"])
         with tab_colours:
@@ -1314,7 +1292,6 @@ def _export_row(charts, sname, viewing_saved):
             ex_notes = st.selectbox("Style", font_styles_list, key="ex_notes_style")
             ex_notes_size = st.slider("Size", 10, 50, int(st.session_state.get("ex_notes_size", 14)), key="ex_notes_size")
             ex_notes_color = st.color_picker("Colour", st.session_state.get("ex_notes_color", "#f5f7ff"), key="ex_notes_color")
-            # Live preview
             st.markdown("---")
             st.markdown("**Live Preview**")
             _ex_title_font = st.session_state.get("ex_title_font", "Inter")
@@ -1397,6 +1374,7 @@ def _export_row(charts, sname, viewing_saved):
                 ex_meta = st.checkbox("Show generated timestamp", value=bool(st.session_state.get("ex_meta", _EX_DEFAULTS["ex_meta"])), key="ex_meta")
                 ex_print_hint = st.checkbox("Show print hint", value=bool(st.session_state.get("ex_print_hint", _EX_DEFAULTS["ex_print_hint"])), key="ex_print_hint")
 
+
     _density = {
         "Compact": {"gap": 14, "padding": 20},
         "Comfortable": {"gap": 24, "padding": 32},
@@ -1408,6 +1386,7 @@ def _export_row(charts, sname, viewing_saved):
         "Wide": "1440px",
         "Full": "100%",
     }.get(st.session_state.get("ex_width", _EX_DEFAULTS["ex_width"]), "")
+
 
     export_theme = {
         "bg_color":       ex_bg,     "card_bg":        ex_card,
@@ -1438,6 +1417,7 @@ def _export_row(charts, sname, viewing_saved):
         "notes_color":  st.session_state.get("ex_notes_color", "#f5f7ff"),
     }
 
+
     html = generate_html_report(
         export_charts, sname,
         orientation=orient, kpis=kpis,
@@ -1451,13 +1431,23 @@ def _export_row(charts, sname, viewing_saved):
                            file_name=f"{safe_file}.html",
                            mime="text/html", use_container_width=True)
 
+
     with c2:
         st.info(
-            "**Firefox / LibreWolf / Waterfox / Tor Browser:**"
-            " built-in screenshot — no upload needed.\n\n"
+            "**Firefox based Browsers have**"
+            " **built-in full page screenshot option**:\n\n"
             "Press **Ctrl+Shift+S** (or right-click → *Take Screenshot*) "
             "to capture the full page, then save as PNG."
         )
+
+    with c3:
+        st.info(
+            "**Chromium based Browsers needs manual way**:\n\n"
+            "Press **Ctrl+Shift+I** to open DevTools, then press "
+            "**Ctrl+Shift+P**, type \"screenshot\", and select "
+            "**Capture full size screenshot** to save the page as PNG."
+        )
+
 
 
 
@@ -1487,10 +1477,9 @@ def _do_save(sname_in, charts, df):
     st.rerun()
 
 
+
+
 def _do_update(sname_in, charts, clear_editing=False):
-    # Clear the notes-loaded flag so the next dashboard visit re-seeds desc_
-    # keys from the DB values we are about to write. This ensures notes are
-    # always in sync with what was actually saved.
     st.session_state.pop("_edit_notes_loaded",      None)
     st.session_state.pop("_analysis_notes_loaded",  None)
     st.session_state.pop("_notes_shadow",           None)
