@@ -8,16 +8,7 @@ License:        See /opt/lytrize/LICENSE
 URL:            https://github.com/lytrize/lytrize-desktop
 
 # ── QA overrides ─────────────────────────────────────────────────────────────
-# The bundled Python venv contains manylinux wheels (scipy, numpy, pandas) whose
-# .so files carry hardcoded RPATHs from their build environment.  These are
-# intentional and self-contained; disabling the RPATH checker prevents a false
-# positive build failure.
 %global __brp_check_rpaths %{nil}
-
-# Stop RPM auto-scanning the venv for Requires/Provides.  The venv is
-# self-contained — all its inter-library dependencies are satisfied internally.
-# Letting RPM auto-detect them generates broken Requires against system libs
-# that may not exist under the same name on every distro.
 %global __requires_exclude_from ^/opt/lytrize/venv/.*$
 %global __provides_exclude_from ^/opt/lytrize/venv/.*$
 
@@ -123,12 +114,14 @@ gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
 update-desktop-database /usr/share/applications      2>/dev/null || true
 
 echo "Lytrize installed successfully."
-echo "Launch from your application menu or run: lytrize"
-echo "If something goes wrong: check /tmp/lytrize-launch.log"
 
 
 %preun
 if [ "$1" -eq 0 ]; then
+    # ── 1. Terminate any active running instances to prevent file locks ──
+    pkill -f "/opt/lytrize" 2>/dev/null || true
+
+    # ── 2. Stop and disable systemd user services for the active launcher ──
     TARGET_USER="${SUDO_USER:-$USER}"
     if [ -n "$TARGET_USER" ] && [ "$TARGET_USER" != "root" ]; then
         _UID=$(id -u "$TARGET_USER" 2>/dev/null || echo "")
@@ -142,14 +135,20 @@ if [ "$1" -eq 0 ]; then
                 systemctl --user daemon-reload   2>/dev/null || true
             " 2>/dev/null || true
         fi
-        rm -f "/home/${TARGET_USER}/.config/systemd/user/lytrize.service" 2>/dev/null || true
     fi
+
+    # ── 3. Remove user service configuration files across all users ──────
+    for homedir in /home/* /root; do
+        [ -d "$homedir" ] || continue
+        [ "$homedir" = "/home/*" ] && continue
+        rm -f "$homedir/.config/systemd/user/lytrize.service" 2>/dev/null || true
+    done
 fi
 
 
 %postun
 if [ "$1" -eq 0 ]; then
-    # Remove system files
+    # ── 1. Clean residual system binaries, icon maps, and directory trees ──
     rm -rf /opt/lytrize 2>/dev/null || true
     for SIZE in 16 22 24 32 48 64 96 128 256 scalable; do
         rm -f "/usr/share/icons/hicolor/${SIZE}x${SIZE}/apps/lytrize.png" 2>/dev/null || true
@@ -158,19 +157,17 @@ if [ "$1" -eq 0 ]; then
     rm -f /usr/share/icons/hicolor/scalable/apps/lytrize.png 2>/dev/null || true
     rm -f /usr/share/pixmaps/lytrize.png                     2>/dev/null || true
 
-    # ── DELETE USER DATA FOR ALL USERS (no prompt) ────────────────────
+    # ── 2. Delete dynamic configs, database states, and caches for all users ──
     for homedir in /home/* /root; do
-        if [ -d "$homedir/.local/share/lytrize" ]; then
-            rm -rf "$homedir/.local/share/lytrize"
-            echo "  Removed $homedir/.local/share/lytrize"
-        fi
-        if [ -d "$homedir/.cache/lytrize" ]; then
-            rm -rf "$homedir/.cache/lytrize"
-            echo "  Removed $homedir/.cache/lytrize"
-        fi
+        [ -d "$homedir" ] || continue
+        [ "$homedir" = "/home/*" ] && continue
+
+        rm -rf "$homedir/.local/share/lytrize" 2>/dev/null || true
+        rm -rf "$homedir/.config/lytrize"      2>/dev/null || true
+        rm -rf "$homedir/.cache/lytrize"       2>/dev/null || true
     done
 
-    # Refresh caches
+    # ── 3. Rebuild desktop application and icon system caches ────────────
     gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
     update-desktop-database /usr/share/applications      2>/dev/null || true
     echo "Lytrize fully removed, including all user data."

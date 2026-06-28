@@ -644,8 +644,10 @@ div[data-baseweb="notification"],
 
 /* ── DATAFRAME COLUMN MENU EXEMPTION ─────────────────────────────────────── */
 /* Protects the dataframe column menu popover from inheriting white backgrounds & white text in light theme.
-   This guarantees it remains in its original dark, clear and default styling layout. */
-div[data-baseweb="popover"]:not(:has([role="option"])):not(:has([role="tooltip"])) {
+   This guarantees it remains in its original dark, clear and default styling layout.
+   The :not(:has(canvas):has(input)) clause EXCLUDES color picker popovers (which contain a canvas
+   element for the saturation/hue picker) so they get the normal light-mode styling and work correctly. */
+div[data-baseweb="popover"]:not(:has([role="option"])):not(:has([role="tooltip"])):not(:has(canvas):has(input)) {
     background: #12182d !important;
     background-color: #12182d !important;
     border: 1px solid rgba(255, 255, 255, 0.15) !important;

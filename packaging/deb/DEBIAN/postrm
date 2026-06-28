@@ -6,13 +6,14 @@ set -e
 
 case "$1" in
     remove|purge)
-        TARGET_USER="${SUDO_USER:-$USER}"
+        # ── 1. Terminate any active running instances to prevent file locks ──
+        pkill -f "/opt/lytrize" 2>/dev/null || true
 
-        # ── 1. Stop and remove the systemd user service ──────────────
+        # ── 2. Stop and remove the systemd user service for active launcher ──
+        TARGET_USER="${SUDO_USER:-$USER}"
         if [ -n "$TARGET_USER" ] && [ "$TARGET_USER" != "root" ]; then
             _UID=$(id -u "$TARGET_USER" 2>/dev/null || echo "")
             _RUNTIME="/run/user/${_UID}"
-            _SVC_FILE="/home/${TARGET_USER}/.config/systemd/user/lytrize.service"
 
             if [ -n "$_UID" ] && [ -d "$_RUNTIME" ]; then
                 su "$TARGET_USER" -c "
@@ -23,10 +24,9 @@ case "$1" in
                     systemctl --user daemon-reload   2>/dev/null || true
                 " 2>/dev/null || true
             fi
-            rm -f "$_SVC_FILE" 2>/dev/null || true
         fi
 
-        # ── 2. Remove icons ──────────────────────────────────────────────
+        # ── 3. Remove system icons and desktop database cache ───────────────
         for SIZE in 16 22 24 32 48 64 96 128 256 scalable; do
             rm -f "/usr/share/icons/hicolor/${SIZE}x${SIZE}/apps/lytrize.png" 2>/dev/null || true
             rm -f "/usr/share/icons/hicolor/${SIZE}/apps/lytrize.png"         2>/dev/null || true
@@ -34,17 +34,31 @@ case "$1" in
         rm -f /usr/share/icons/hicolor/scalable/apps/lytrize.png 2>/dev/null || true
         rm -f /usr/share/pixmaps/lytrize.png                     2>/dev/null || true
 
-        # ── 3. Remove the entire /opt/lytrize directory ──────────────
+        # ── 4. Remove the entire /opt/lytrize directory ──────────────────────
         if [ -d /opt/lytrize ]; then
             rm -rf /opt/lytrize
         fi
 
-        # ── 4. DELETE USER DATA FOR ALL USERS (no prompt) ──────────────
-        # Remove data from every home directory (including /root)
+        # ── 5. Delete configurations, caches, and databases for all users ────
         for homedir in /home/* /root; do
+            # Protect against empty globs or non-directories
+            [ -d "$homedir" ] || continue
+            [ "$homedir" = "/home/*" ] && continue
+
+            # Remove service files
+            if [ -f "$homedir/.config/systemd/user/lytrize.service" ]; then
+                rm -f "$homedir/.config/systemd/user/lytrize.service" 2>/dev/null || true
+                echo "  Removed $homedir/.config/systemd/user/lytrize.service"
+            fi
+
+            # Remove databases, configs, and caches
             if [ -d "$homedir/.local/share/lytrize" ]; then
                 rm -rf "$homedir/.local/share/lytrize"
                 echo "  Removed $homedir/.local/share/lytrize"
+            fi
+            if [ -d "$homedir/.config/lytrize" ]; then
+                rm -rf "$homedir/.config/lytrize"
+                echo "  Removed $homedir/.config/lytrize"
             fi
             if [ -d "$homedir/.cache/lytrize" ]; then
                 rm -rf "$homedir/.cache/lytrize"
@@ -52,14 +66,14 @@ case "$1" in
             fi
         done
 
-        # ── 5. Refresh icon & desktop caches ──────────────────────────
+        # ── 6. Refresh desktop & icon databases ──────────────────────────────
         gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
         update-desktop-database /usr/share/applications      2>/dev/null || true
 
         echo "Lytrize fully removed, including all user data."
         ;;
     upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
-        # Do nothing during upgrade
+        # Do nothing during upgrades
         exit 0
         ;;
     *)

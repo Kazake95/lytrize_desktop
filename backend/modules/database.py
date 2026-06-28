@@ -86,10 +86,36 @@ def _clear_attempts(username: str) -> None:
 def _connect():
     """Return a fresh SQLite DB connection."""
     import sqlite3
+    db_path = _pathlib.Path(DB_PATH)
+
     # Ensure the parent directory exists before opening the DB file.
     # Required on first launch or after a clean install where
     # ~/.local/share/lytrize/ may not yet exist.
-    _pathlib.Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
+    try:
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        log.exception("_connect: failed to create parent directory %s", db_path.parent)
+
+    # Verify the directory actually exists now — mkdir can silently fail on
+    # read-only filesystems or when a path component is a non-directory.
+    if not db_path.parent.is_dir():
+        raise OSError(
+            f"Database parent directory does not exist or is not a directory: "
+            f"{db_path.parent}"
+        )
+
+    # If DB_PATH itself is a directory (e.g. a stray folder from a previous
+    # install or packaging quirk), remove it so sqlite3.connect can create
+    # a regular file at that path.
+    if db_path.is_dir():
+        try:
+            import shutil
+            shutil.rmtree(db_path)
+            log.warning("_connect: removed stale directory at DB_PATH %s", db_path)
+        except Exception:
+            log.exception("_connect: failed to remove stale directory at %s", db_path)
+            raise
+
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     # WAL mode: readers never block writers and writers never block readers —
     # essential on desktop where the Streamlit server and potential background
@@ -331,7 +357,7 @@ def init_db() -> None:
                     (_GUEST_USERNAME, _GUEST_EMAIL, _hash(uuid.uuid4().hex), 1, uuid.uuid4().hex),
                 )
         except Exception:
-            pass
+            log.exception("init_db: failed to seed guest user")
 
         # Backfill session UUIDs for legacy rows that have none.
         try:
@@ -346,7 +372,35 @@ def init_db() -> None:
                     (uuid.uuid5(uuid.NAMESPACE_URL, seed).hex, sid),
                 )
         except Exception:
-            pass
+            log.exception("init_db: failed to backfill session UUIDs")
+
+        # Final verification: ensure the critical tables actually exist.
+        # Catches edge cases where CREATE TABLE was silently skipped due to
+        # an I/O error, disk-full, or similar condition that left the file
+        # but no valid schema.
+        try:
+            c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+            if not c.fetchone():
+                raise Exception("'users' table not found in sqlite_master")
+        except Exception:
+            log.exception("init_db: users table missing or corrupt after schema creation — attempting recovery")
+            try:
+                c2 = conn.cursor()
+                c2.execute("""CREATE TABLE IF NOT EXISTS users (
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username      TEXT UNIQUE NOT NULL,
+                    email         TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    is_guest      INTEGER DEFAULT 0,
+                    uuid          TEXT UNIQUE
+                )""")
+                conn.commit()
+                c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+                if not c.fetchone():
+                    raise Exception("'users' table still missing after recovery CREATE")
+            except Exception:
+                log.exception("init_db: unrecoverable — 'users' table could not be created")
 
         conn.commit()
     finally:
@@ -654,9 +708,28 @@ def cleanup_expired_tokens() -> None:
 
 def get_or_create_guest_user() -> dict:
     """Return the permanent local guest user row, creating it if needed."""
+    import sqlite3
     conn = _connect()
     try:
-        uid = _guest_row_id(conn)
+        try:
+            uid = _guest_row_id(conn)
+        except sqlite3.OperationalError:
+            # Schema missing — trigger recovery and obtain a fresh connection
+            # against the (hopefully) initialised database.
+            try:
+                conn.close()
+            except Exception:
+                pass
+            try:
+                init_db()
+            except Exception:
+                pass
+            conn = _connect()
+            try:
+                uid = _guest_row_id(conn)
+            except sqlite3.OperationalError:
+                uid = None
+
         if uid:
             c = conn.cursor()
             c.execute(_ph("SELECT id, username FROM users WHERE id=?"), (uid,))
