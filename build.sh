@@ -109,14 +109,16 @@ else
 fi
 
 # Set permissions
-find "$BUILD" -type d                -exec chmod 755 {} \;
-find "$BUILD" -type f                -exec chmod 644 {} \;
+find "$BUILD" -type d -exec chmod 755 {} \;
+find "$BUILD" -type f -exec chmod 644 {} \;
+# Make specific files executable
 chmod 755 "$BUILD/usr/local/bin/lytrize"
 chmod 755 "$BUILD/DEBIAN/postinst"
 chmod 755 "$BUILD/DEBIAN/postrm"
 chmod 755 "$BUILD/opt/$APP/desktop/gui.py"
 chmod 755 "$BUILD/opt/$APP/desktop/launcher.py"
-find "$VENV_BUILD/bin" -type f       -exec chmod 755 {} \;
+chmod 755 "$BUILD/usr/share/applications/lytrize.desktop"
+find "$VENV_BUILD/bin" -type f -exec chmod 755 {} \;
 
 dpkg-deb --build --root-owner-group "$BUILD"
 

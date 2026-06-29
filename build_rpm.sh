@@ -126,7 +126,9 @@ find "$VENV" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete 2>/dev/null ||
 # Set permissions
 find "$STAGING" -type d -exec chmod 755 {} \;
 find "$STAGING" -type f -exec chmod 644 {} \;
+# Make specific files executable
 chmod 755 "$STAGING/usr/local/bin/lytrize"
+chmod 755 "$STAGING/usr/share/applications/lytrize.desktop"
 chmod 755 "$STAGING/opt/$APP/desktop/gui.py"
 chmod 755 "$STAGING/opt/$APP/desktop/launcher.py"
 find "$VENV/bin" -type f -exec chmod 755 {} \;

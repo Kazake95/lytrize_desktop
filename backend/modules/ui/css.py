@@ -1350,11 +1350,13 @@ def render_logo() -> None:
     with st.container():
         st.markdown('<div id="nav-target"></div>', unsafe_allow_html=True)
 
-        _icon = "☀️" if theme_mode == "dark" else "🌙"
-        _help = "Switch to light mode" if theme_mode == "dark" else "Switch to dark mode"
-        if st.button(_icon, key="global_nav_theme", help=_help):
-            set_theme_mode("light" if theme_mode == "dark" else "dark")
-            st.rerun()
+        # ── DISABLED: Theme toggle (☀️/🌙) — locked to dark for production ──
+        # _icon = "☀️" if theme_mode == "dark" else "🌙"
+        # _help = "Switch to light mode" if theme_mode == "dark" else "Switch to dark mode"
+        # if st.button(_icon, key="global_nav_theme", help=_help):
+        #     set_theme_mode("light" if theme_mode == "dark" else "dark")
+        #     st.rerun()
+        # ── ── ── ──
 
         st.markdown(
             "<span style='color:rgba(148,163,184,0.45);font-size:1rem;"

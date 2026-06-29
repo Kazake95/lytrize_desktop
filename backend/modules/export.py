@@ -100,8 +100,6 @@ DEFAULT_THEME = {
     "chart_height":   400,
     "max_width":      "",
     "show_meta":      True,
-    "show_print_hint": True,
-    "kpi_text_color": "#f5f7ff",
     "kpi_val_size":   14,
     "title_font":     "Inter",
     "title_style":    "Normal",
@@ -226,7 +224,6 @@ def generate_html_report(
         if t.get("show_meta", True) else ""
     )
 
-
     kpi_html = ""
     if kpis:
         def _change_style(k):
@@ -263,7 +260,7 @@ def generate_html_report(
             f'</div>'
             for k in kpis
         )
-        kpi_html = f'<div class="kpi-row">{kpi_items}</div><hr>'
+        kpi_html = f'<div class="kpi-row">{kpi_items}</div>'
 
 
     chart_blocks = ""
@@ -395,16 +392,6 @@ def generate_html_report(
     .report-header .meta {{ font-size: 0.8rem; color: {t['text_color']}; }}
 
 
-    .print-hint {{
-      text-align: center;
-      padding: 0.5rem 3rem;
-      margin: 2rem auto 1.2rem;
-      width: fit-content;
-      font-size: 0.78rem;
-      color: {t['text_color']};
-    }}
-
-
     /* ── KPI strip ── */
     .kpi-row {{
       display: flex; gap: {gap_px}px; flex-wrap: wrap;
@@ -500,7 +487,6 @@ def generate_html_report(
         padding: 0 !important;
         margin: 0 !important;
       }}
-      .print-hint {{ display: none !important; }}
       .wrapper {{
         max-width: 100% !important;
         padding: 0 !important;

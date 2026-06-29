@@ -51,15 +51,12 @@ else
 fi
 
 # ── 3. Fix permissions ────────────────────────────────────────────────────────
-chmod 755 /opt/lytrize/desktop/launcher.py           2>/dev/null || true
-chmod 755 /opt/lytrize/desktop/gui.py                2>/dev/null || true
-find "$VENV/bin" -type f -exec chmod 755 {} \;       2>/dev/null || true
 # Ensure all of /opt/lytrize is world-readable so non-root users can run it
 find /opt/lytrize -type d -exec chmod 755 {} \;      2>/dev/null || true
 find /opt/lytrize -type f -exec chmod 644 {} \;      2>/dev/null || true
-find "$VENV/bin" -type f -exec chmod 755 {} \;       2>/dev/null || true
 chmod 755 /opt/lytrize/desktop/launcher.py           2>/dev/null || true
 chmod 755 /opt/lytrize/desktop/gui.py                2>/dev/null || true
+find "$VENV/bin" -type f -exec chmod 755 {} \;       2>/dev/null || true
 
 # ── 4. Create per-user data directory ────────────────────────────────────────
 # During "sudo apt install" $HOME is /root.  Resolve the real user via

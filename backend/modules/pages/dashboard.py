@@ -22,7 +22,30 @@ from modules.ui.chart_settings import (
     merge_text_style as _shared_merge_text_style,
     render_chart_settings_controls,
 )
-from modules.ui.font_manager import inject_font_preview_css, font_select
+from modules.ui.font_manager import inject_font_preview_css, font_select, get_font_stack
+
+
+def _render_section_preview(label: str, font: str, style: str, size: int, color: str) -> None:
+    """Render a single-line preview for a dashboard section (title / insights / notes)."""
+    font_stack = get_font_stack(font)
+    styles = [
+        f"font-family:{font_stack}",
+        f"font-size:{size}px",
+        f"color:{color}",
+    ]
+    if "Bold" in style:
+        styles.append("font-weight:bold")
+    if "Italic" in style:
+        styles.append("font-style:italic")
+    if "Underline" in style:
+        styles.append("text-decoration:underline")
+    st.markdown(
+        f'<div style="{";".join(styles)};padding:0.4rem 0.8rem;'
+        f'background:var(--secondary-background-color,#1a1f3a);'
+        f'border-radius:6px;border:1px solid var(--border-color,#2c3564);'
+        f'line-height:1.5;">{label}</div>',
+        unsafe_allow_html=True,
+    )
 
 
 
@@ -890,6 +913,22 @@ def page_dashboard():
                     st.session_state.grid_fullwidth = json.loads(sm.get("grid_fullwidth_json", "{}"))
                 except Exception:
                     st.session_state.grid_fullwidth = {}
+            try:
+                export_text = json.loads(sm.get("export_text_json", "{}"))
+            except Exception:
+                export_text = {}
+            for key, val in export_text.items():
+                session_key = f"ex_{key}"
+                if session_key not in st.session_state:
+                    st.session_state[session_key] = val
+            try:
+                export_colours = json.loads(sm.get("export_colours_json", "{}"))
+            except Exception:
+                export_colours = {}
+            for key, val in export_colours.items():
+                session_key = f"ex_{key}"
+                if session_key not in st.session_state:
+                    st.session_state[session_key] = val
 
 
     if is_editing and not st.session_state.get("_edit_notes_loaded"):
@@ -942,6 +981,22 @@ def page_dashboard():
                 st.session_state.grid_fullwidth = json.loads(sm.get("grid_fullwidth_json", "{}"))
             except Exception:
                 st.session_state.grid_fullwidth = {}
+        try:
+            export_text = json.loads(sm.get("export_text_json", "{}"))
+        except Exception:
+            export_text = {}
+        for key, val in export_text.items():
+            session_key = f"ex_{key}"
+            if session_key not in st.session_state:
+                st.session_state[session_key] = val
+        try:
+            export_colours = json.loads(sm.get("export_colours_json", "{}"))
+        except Exception:
+            export_colours = {}
+        for key, val in export_colours.items():
+            session_key = f"ex_{key}"
+            if session_key not in st.session_state:
+                st.session_state[session_key] = val
         df = None
     else:
         sname = f"Analysis -- {st.session_state.get('file_name','')}"
@@ -1029,7 +1084,6 @@ def page_dashboard():
 
 
     _render_kpi_section(df, readonly=viewing_saved)
-    st.markdown("---")
 
 
     if not charts:
@@ -1112,119 +1166,201 @@ def _export_row(charts, sname, viewing_saved):
         "ex_ins_bg": "#1a2441", "ex_ins_bd": "#6163df",
         "ex_not_bg": "#1a1732", "ex_not_bd": "#8566fc",
         "ex_density": "Comfortable", "ex_radius": 12, "ex_chart_h": 400,
-        "ex_width": "Auto", "ex_meta": True, "ex_print_hint": True,
+        "ex_width": "Auto", "ex_meta": True,
         "ex_kpi_text_color": "#f5f7ff", "ex_kpi_val_size": 14,
     }
     _PRESETS = {
-        "🌙 Dark Moon": {
-            "ex_bg": "#0b1020",
-            "ex_card": "#11182b",
-            "ex_kpi": "#11182b",
-            "ex_accent": "#7c8cff",
-            "ex_border": "#24304a",
-            "ex_text": "#f4f7ff",
-            "ex_ins_bg": "#0f1a30",
-            "ex_ins_bd": "#5b7cfa",
-            "ex_not_bg": "#12162b",
-            "ex_not_bd": "#a78bfa",
-        },
-        "🌌 Midnight Navy": {
+        "⚡ Midnight Pulse": {
             "ex_bg": "#08111f",
-            "ex_card": "#111b31",
-            "ex_kpi": "#111b31",
-            "ex_accent": "#60a5fa",
-            "ex_border": "#20304d",
-            "ex_text": "#f5f8ff",
-            "ex_ins_bg": "#0c223d",
-            "ex_ins_bd": "#60a5fa",
-            "ex_not_bg": "#14102b",
-            "ex_not_bd": "#c084fc",
+            "ex_card": "#101a35",
+            "ex_kpi": "#0c1530",
+            "ex_accent": "#8b5cf6",#0D1325
+            "ex_border": "#31406e",
+            "ex_text": "#f8fbff",
+            "ex_ins_bg": "#14264a",
+            "ex_ins_bd": "#22d3ee",
+            "ex_not_bg": "#1b1736",
+            "ex_not_bd": "#f472b6",
+            "ex_title_color": "#8b5cf6",
+            "ex_insights_color": "#f8fbff",
+            "ex_notes_color": "#f8fbff",
+            "ex_kpi_text_color": "#f8fbff",
         },
-
-
-        "🤍 Slate Clear": {
-            "ex_bg": "#f7faff",
-            "ex_card": "#ffffff",
-            "ex_kpi": "#f4f7ff",
-            "ex_accent": "#4f8cff",
-            "ex_border": "#d6def0",
-            "ex_text": "#162033",
-            "ex_ins_bg": "#eef4ff",
-            "ex_ins_bd": "#4f8cff",
-            "ex_not_bg": "#f7f3ff",
-            "ex_not_bd": "#8b5cf6",
+        "🌊 Electric Lagoon": {
+            "ex_bg": "#061a24",
+            "ex_card": "#0f2437",
+            "ex_kpi": "#0b1f30",
+            "ex_accent": "#38bdf8",
+            "ex_border": "#0ea5e9",
+            "ex_text": "#ecfeff",
+            "ex_ins_bg": "#123e52",
+            "ex_ins_bd": "#22d3ee",
+            "ex_not_bg": "#102a43",
+            "ex_not_bd": "#a855f7",
+            "ex_title_color": "#38bdf8",
+            "ex_insights_color": "#ecfeff",
+            "ex_notes_color": "#ecfeff",
+            "ex_kpi_text_color": "#ecfeff",
+        },
+        "💖 Prism Pop": {
+            "ex_bg": "#1b1030",
+            "ex_card": "#251544",
+            "ex_kpi": "#22113f",
+            "ex_accent": "#ec4899",
+            "ex_border": "#8b5cf6",
+            "ex_text": "#fff7ff",
+            "ex_ins_bg": "#37124d",
+            "ex_ins_bd": "#f59e0b",
+            "ex_not_bg": "#211638",
+            "ex_not_bd": "#60a5fa",
+            "ex_title_color": "#ec4899",
+            "ex_insights_color": "#fff7ff",
+            "ex_notes_color": "#fff7ff",
+            "ex_kpi_text_color": "#fff7ff",
+        },
+        "☀️ Solar Flare": {
+            "ex_bg": "#20130a",
+            "ex_card": "#322012",
+            "ex_kpi": "#2f180f",
+            "ex_accent": "#f97316",
+            "ex_border": "#f59e0b",
+            "ex_text": "#fff7ed",
+            "ex_ins_bg": "#3a2410",
+            "ex_ins_bd": "#facc15",
+            "ex_not_bg": "#2d1e0b",
+            "ex_not_bd": "#fb7185",
+            "ex_title_color": "#f97316",
+            "ex_insights_color": "#fff7ed",
+            "ex_notes_color": "#fff7ed",
+            "ex_kpi_text_color": "#fff7ed",
+        },
+        "❄️ Arctic Neon": {
+            "ex_bg": "#07131f",
+            "ex_card": "#0f2235",
+            "ex_kpi": "#0b1b2d",
+            "ex_accent": "#60a5fa",
+            "ex_border": "#22d3ee",
+            "ex_text": "#eff6ff",
+            "ex_ins_bg": "#12324b",
+            "ex_ins_bd": "#38bdf8",
+            "ex_not_bg": "#14213d",
+            "ex_not_bd": "#34d399",
+            "ex_title_color": "#60a5fa",
+            "ex_insights_color": "#eff6ff",
+            "ex_notes_color": "#eff6ff",
+            "ex_kpi_text_color": "#eff6ff",
+        },
+        "🌿 Forest Electric": {
+            "ex_bg": "#071a12",
+            "ex_card": "#0f281b",
+            "ex_kpi": "#0b2217",
+            "ex_accent": "#22c55e",
+            "ex_border": "#34d399",
+            "ex_text": "#effaf3",
+            "ex_ins_bg": "#123324",
+            "ex_ins_bd": "#a3e635",
+            "ex_not_bg": "#182817",
+            "ex_not_bd": "#f59e0b",
+            "ex_title_color": "#22c55e",
+            "ex_insights_color": "#effaf3",
+            "ex_notes_color": "#effaf3",
+            "ex_kpi_text_color": "#effaf3",
         },
         "✨ Aurora Bright": {
-            "ex_bg": "#f7fffb",
+            "ex_bg": "#f7fbff",
             "ex_card": "#ffffff",
-            "ex_kpi": "#effaf4",
-            "ex_accent": "#22c55e",
-            "ex_border": "#cfe8d6",
-            "ex_text": "#123022",
-            "ex_ins_bg": "#e9fbf1",
-            "ex_ins_bd": "#14b8a6",
-            "ex_not_bg": "#fff4e8",
-            "ex_not_bd": "#fb923c",
+            "ex_kpi": "#eefcf8",
+            "ex_accent": "#14b8a6",
+            "ex_border": "#b7e4d3",
+            "ex_text": "#0f172a",
+            "ex_ins_bg": "#e7fff5",
+            "ex_ins_bd": "#22c55e",
+            "ex_not_bg": "#fff7e6",
+            "ex_not_bd": "#f59e0b",
+            "ex_title_color": "#14b8a6",
+            "ex_insights_color": "#0f172a",
+            "ex_notes_color": "#0f172a",
+            "ex_kpi_text_color": "#0f172a",
         },
         "🌅 Sunset Bloom": {
-            "ex_bg": "#fff9f5",
+            "ex_bg": "#fff7fb",
             "ex_card": "#ffffff",
-            "ex_kpi": "#fff0ea",
-            "ex_accent": "#fb7185",
-            "ex_border": "#f0d5c6",
-            "ex_text": "#31201b",
-            "ex_ins_bg": "#fff1ea",
-            "ex_ins_bd": "#f97316",
-            "ex_not_bg": "#fff0f7",
-            "ex_not_bd": "#ec4899",
+            "ex_kpi": "#fff0f5",
+            "ex_accent": "#ec4899",
+            "ex_border": "#f6b3d4",
+            "ex_text": "#3f1634",
+            "ex_ins_bg": "#ffe4ec",
+            "ex_ins_bd": "#f43f5e",
+            "ex_not_bg": "#fff6ea",
+            "ex_not_bd": "#fb923c",
+            "ex_title_color": "#ec4899",
+            "ex_insights_color": "#3f1634",
+            "ex_notes_color": "#3f1634",
+            "ex_kpi_text_color": "#3f1634",
         },
         "🌊 Ocean Breeze": {
-            "ex_bg": "#f5fbff",
+            "ex_bg": "#f4fbff",
             "ex_card": "#ffffff",
-            "ex_kpi": "#eef8ff",
-            "ex_accent": "#06b6d4",
-            "ex_border": "#cce6f5",
-            "ex_text": "#102133",
-            "ex_ins_bg": "#e8f6ff",
-            "ex_ins_bd": "#0ea5e9",
-            "ex_not_bg": "#eff6ff",
-            "ex_not_bd": "#3b82f6",
+            "ex_kpi": "#e6f5ff",
+            "ex_accent": "#0284c7",
+            "ex_border": "#9fd7f5",
+            "ex_text": "#0c4a6e",
+            "ex_ins_bg": "#dff3ff",
+            "ex_ins_bd": "#38bdf8",
+            "ex_not_bg": "#effcf8",
+            "ex_not_bd": "#14b8a6",
+            "ex_title_color": "#0284c7",
+            "ex_insights_color": "#0c4a6e",
+            "ex_notes_color": "#0c4a6e",
+            "ex_kpi_text_color": "#0c4a6e",
         },
         "🍋 Citrus Glow": {
-            "ex_bg": "#fffcf2",
+            "ex_bg": "#fffdf3",
             "ex_card": "#ffffff",
-            "ex_kpi": "#fff8df",
+            "ex_kpi": "#fff4cc",
             "ex_accent": "#f59e0b",
-            "ex_border": "#f0dfaf",
-            "ex_text": "#2b2112",
-            "ex_ins_bg": "#fff8e1",
-            "ex_ins_bd": "#eab308",
-            "ex_not_bg": "#fff3db",
-            "ex_not_bd": "#fb923c",
+            "ex_border": "#f7d46b",
+            "ex_text": "#713f12",
+            "ex_ins_bg": "#fff1c2",
+            "ex_ins_bd": "#f97316",
+            "ex_not_bg": "#fff7e8",
+            "ex_not_bd": "#ef4444",
+            "ex_title_color": "#f59e0b",
+            "ex_insights_color": "#713f12",
+            "ex_notes_color": "#713f12",
+            "ex_kpi_text_color": "#713f12",
         },
         "🌸 Blossom Pop": {
             "ex_bg": "#fff7fb",
             "ex_card": "#ffffff",
-            "ex_kpi": "#fff0f7",
-            "ex_accent": "#ec4899",
-            "ex_border": "#f1d0e2",
-            "ex_text": "#31152a",
-            "ex_ins_bg": "#fff0f8",
-            "ex_ins_bd": "#f43f5e",
-            "ex_not_bg": "#f7f0ff",
-            "ex_not_bd": "#a855f7",
+            "ex_kpi": "#ffeaf3",
+            "ex_accent": "#db2777",
+            "ex_border": "#f3b0cf",
+            "ex_text": "#7a1f55",
+            "ex_ins_bg": "#fde2ee",
+            "ex_ins_bd": "#ec4899",
+            "ex_not_bg": "#f4f0ff",
+            "ex_not_bd": "#8b5cf6",
+            "ex_title_color": "#db2777",
+            "ex_insights_color": "#7a1f55",
+            "ex_notes_color": "#7a1f55",
+            "ex_kpi_text_color": "#7a1f55",
         },
-        "🌿 Mint Fresh": {
-            "ex_bg": "#f7fffe",
+        "🪴 Mint Fresh": {
+            "ex_bg": "#f4fff7",
             "ex_card": "#ffffff",
-            "ex_kpi": "#ecfffb",
-            "ex_accent": "#14b8a6",
-            "ex_border": "#cae7e1",
-            "ex_text": "#123431",
-            "ex_ins_bg": "#e9fffb",
-            "ex_ins_bd": "#06b6d4",
-            "ex_not_bg": "#f0fdf4",
-            "ex_not_bd": "#22c55e",
+            "ex_kpi": "#e3fcef",
+            "ex_accent": "#16a34a",
+            "ex_border": "#a7e6b8",
+            "ex_text": "#14532d",
+            "ex_ins_bg": "#dcfce7",
+            "ex_ins_bd": "#22c55e",
+            "ex_not_bg": "#eefcf4",
+            "ex_not_bd": "#10b981",
+            "ex_title_color": "#16a34a",
+            "ex_insights_color": "#14532d",
+            "ex_notes_color": "#14532d",
+            "ex_kpi_text_color": "#14532d",
         },
     }
     if "_ex_pending" in st.session_state:
@@ -1241,7 +1377,7 @@ def _export_row(charts, sname, viewing_saved):
         st.markdown("**Quick presets:**")
         pr_cols = st.columns(len(_PRESETS))
         for i, (col, (label, vals)) in enumerate(zip(pr_cols, _PRESETS.items())):
-            if col.button(label, key=f"preset_{i}"):
+            if col.button(label, key=f"preset_{i}", use_container_width=True):
                 st.session_state["_ex_pending"] = vals
                 st.rerun()
 
@@ -1282,67 +1418,36 @@ def _export_row(charts, sname, viewing_saved):
             ex_title_style = st.selectbox("Style", font_styles_list, index=0, key="ex_title_style")
             ex_title_size = st.slider("Size", 10, 50, int(st.session_state.get("ex_title_size", 28)), key="ex_title_size")
             ex_title_color = st.color_picker("Colour", st.session_state.get("ex_title_color", "#6163df"), key="ex_title_color")
+            _render_section_preview(
+                "📊 Dashboard Preview – The quick brown fox jumps over the lazy dog",
+                ex_title_font,
+                ex_title_style,
+                ex_title_size,
+                ex_title_color,
+            )
             st.markdown("**Insights**")
             ex_insights_font = font_select("Font", default=st.session_state.get("ex_insights_font", "Inter"), key="ex_insights_font")
             ex_insights_style = st.selectbox("Style", font_styles_list, key="ex_insights_style")
             ex_insights_size = st.slider("Size", 10, 50, int(st.session_state.get("ex_insights_size", 14)), key="ex_insights_size")
             ex_insights_color = st.color_picker("Colour", st.session_state.get("ex_insights_color", "#f5f7ff"), key="ex_insights_color")
+            _render_section_preview(
+                "💡 Insights Preview – Sample insight showing current text styling",
+                ex_insights_font,
+                ex_insights_style,
+                ex_insights_size,
+                ex_insights_color,
+            )
             st.markdown("**Notes**")
             ex_notes_font = font_select("Font", default=st.session_state.get("ex_notes_font", "Inter"), key="ex_notes_font")
             ex_notes = st.selectbox("Style", font_styles_list, key="ex_notes_style")
             ex_notes_size = st.slider("Size", 10, 50, int(st.session_state.get("ex_notes_size", 14)), key="ex_notes_size")
             ex_notes_color = st.color_picker("Colour", st.session_state.get("ex_notes_color", "#f5f7ff"), key="ex_notes_color")
-            st.markdown("---")
-            st.markdown("**Live Preview**")
-            _ex_title_font = st.session_state.get("ex_title_font", "Inter")
-            _ex_title_style = st.session_state.get("ex_title_style", "Normal")
-            _ex_title_size = int(st.session_state.get("ex_title_size", 28))
-            _ex_title_color = st.session_state.get("ex_title_color", "#6163df")
-            _ex_ins_font = st.session_state.get("ex_insights_font", "Inter")
-            _ex_ins_style = st.session_state.get("ex_insights_style", "Normal")
-            _ex_ins_size = int(st.session_state.get("ex_insights_size", 14))
-            _ex_ins_color = st.session_state.get("ex_insights_color", "#f5f7ff")
-            _ex_notes_font = st.session_state.get("ex_notes_font", "Inter")
-            _ex_notes_style = st.session_state.get("ex_notes_style", "Normal")
-            _ex_notes_size = int(st.session_state.get("ex_notes_size", 14))
-            _ex_notes_color = st.session_state.get("ex_notes_color", "#f5f7ff")
-            _title_styles = [
-                f"font-family:'{_ex_title_font}', 'Helvetica Neue', Arial, sans-serif",
-                f"font-size:{_ex_title_size}px",
-                f"color:{_ex_title_color}",
-                "font-weight:800",
-            ]
-            if "Bold" in _ex_title_style: _title_styles.append("font-weight:900")
-            if "Italic" in _ex_title_style: _title_styles.append("font-style:italic")
-            if "Underline" in _ex_title_style: _title_styles.append("text-decoration:underline")
-            _ins_styles = [
-                f"font-family:'{_ex_ins_font}', 'Helvetica Neue', Arial, sans-serif",
-                f"font-size:{_ex_ins_size}px",
-                f"color:{_ex_ins_color}",
-            ]
-            if "Bold" in _ex_ins_style: _ins_styles.append("font-weight:bold")
-            if "Italic" in _ex_ins_style: _ins_styles.append("font-style:italic")
-            if "Underline" in _ex_ins_style: _ins_styles.append("text-decoration:underline")
-            _notes_styles = [
-                f"font-family:'{_ex_notes_font}', 'Helvetica Neue', Arial, sans-serif",
-                f"font-size:{_ex_notes_size}px",
-                f"color:{_ex_notes_color}",
-                "font-style:italic",
-            ]
-            if "Bold" in _ex_notes_style: _notes_styles.append("font-weight:bold")
-            if "Italic" in _ex_notes_style: _notes_styles.append("font-style:italic")
-            if "Underline" in _ex_notes_style: _notes_styles.append("text-decoration:underline")
-            st.markdown(
-                f'<div style="background:#1b2245;border:1px solid #2c3564;border-radius:12px;padding:1.2rem;">'
-                f'<h3 style="{";".join(_title_styles)};">📊 Sample Dashboard Title</h3>'
-                f'<p style="font-size:0.78rem;color:#64748b;margin-bottom:0.6rem;">Chart Subtitle Example</p>'
-                f'<div class="insights" style="background:#1a2441;border-left:3px solid #6163df;border-radius:6px;padding:0.6rem 0.9rem;margin-top:0.7rem;{";".join(_ins_styles)}">'
-                f'<strong>Insights</strong>'
-                f'<ul style="margin-left:1rem;margin-bottom:0;"><li>Sample insight showing current text styling</li></ul></div>'
-                f'<div class="notes" style="background:#1a1732;padding:0.6rem 0.9rem;border-left:4px solid #8566fc;margin-top:0.7rem;border-radius:4px;{";".join(_notes_styles)}">'
-                f'<strong>Analysis Notes:</strong> Sample notes text with your chosen formatting</div>'
-                f'</div>',
-                unsafe_allow_html=True,
+            _render_section_preview(
+                "📝 Notes Preview – Sample notes text with your chosen formatting",
+                ex_notes_font,
+                ex_notes,
+                ex_notes_size,
+                ex_notes_color,
             )
         with tab_layout:
             density_options = ["Compact", "Comfortable", "Spacious"]
@@ -1372,7 +1477,6 @@ def _export_row(charts, sname, viewing_saved):
                 )
             with l3:
                 ex_meta = st.checkbox("Show generated timestamp", value=bool(st.session_state.get("ex_meta", _EX_DEFAULTS["ex_meta"])), key="ex_meta")
-                ex_print_hint = st.checkbox("Show print hint", value=bool(st.session_state.get("ex_print_hint", _EX_DEFAULTS["ex_print_hint"])), key="ex_print_hint")
 
 
     _density = {
@@ -1400,7 +1504,6 @@ def _export_row(charts, sname, viewing_saved):
         "chart_height":   st.session_state.get("ex_chart_h", _EX_DEFAULTS["ex_chart_h"]),
         "max_width":      _width,
         "show_meta":      st.session_state.get("ex_meta", _EX_DEFAULTS["ex_meta"]),
-        "show_print_hint": st.session_state.get("ex_print_hint", _EX_DEFAULTS["ex_print_hint"]),
         "kpi_text_color": st.session_state.get("ex_kpi_text_color", _EX_DEFAULTS["ex_kpi_text_color"]),
         "kpi_val_size":   st.session_state.get("ex_kpi_val_size",   _EX_DEFAULTS["ex_kpi_val_size"]),
         "title_font":    st.session_state.get("ex_title_font", "Inter"),
@@ -1451,6 +1554,47 @@ def _export_row(charts, sname, viewing_saved):
 
 
 
+def _collect_export_text_json() -> str:
+    """Collect the 12 export text widget values into a JSON string."""
+    return json.dumps({
+        "title_font":   st.session_state.get("ex_title_font",   "Inter"),
+        "title_style":  st.session_state.get("ex_title_style",  "Normal"),
+        "title_size":   st.session_state.get("ex_title_size",   28),
+        "title_color":  st.session_state.get("ex_title_color",  "#6163df"),
+        "insights_font": st.session_state.get("ex_insights_font", "Inter"),
+        "insights_style": st.session_state.get("ex_insights_style", "Normal"),
+        "insights_size": st.session_state.get("ex_insights_size", 14),
+        "insights_color": st.session_state.get("ex_insights_color", "#f5f7ff"),
+        "notes_font":    st.session_state.get("ex_notes_font",    "Inter"),
+        "notes_style":  st.session_state.get("ex_notes_style",  "Normal"),
+        "notes_size":   st.session_state.get("ex_notes_size",   14),
+        "notes_color":  st.session_state.get("ex_notes_color",   "#f5f7ff"),
+    })
+
+
+def _collect_export_colours_json() -> str:
+    """Collect the colour/layout widget values into a JSON string."""
+    return json.dumps({
+        "bg":            st.session_state.get("ex_bg",     "#121a2e"),
+        "card":          st.session_state.get("ex_card",   "#1b2245"),
+        "kpi":           st.session_state.get("ex_kpi",    "#1b2245"),
+        "accent":        st.session_state.get("ex_accent", "#6163df"),
+        "border":        st.session_state.get("ex_border", "#2c3564"),
+        "text":          st.session_state.get("ex_text",   "#f5f7ff"),
+        "ins_bg":        st.session_state.get("ex_ins_bg", "#1a2441"),
+        "ins_bd":        st.session_state.get("ex_ins_bd", "#6163df"),
+        "not_bg":        st.session_state.get("ex_not_bg", "#1a1732"),
+        "not_bd":        st.session_state.get("ex_not_bd", "#8566fc"),
+        "density":       st.session_state.get("ex_density",    "Comfortable"),
+        "radius":        st.session_state.get("ex_radius",     12),
+        "chart_h":       st.session_state.get("ex_chart_h",   400),
+        "width":         st.session_state.get("ex_width",      "Auto"),
+        "meta":          st.session_state.get("ex_meta",       True),
+        "kpi_text_color": st.session_state.get("ex_kpi_text_color", "#f5f7ff"),
+        "kpi_val_size":  st.session_state.get("ex_kpi_val_size",  14),
+    })
+
+
 def _do_save(sname_in, charts, df):
     if "user_id" not in st.session_state:
         return
@@ -1466,6 +1610,8 @@ def _do_save(sname_in, charts, df):
         layout_mode       = st.session_state.get("layout_mode","portrait"),
         grid_order_json   = json.dumps(st.session_state.get("grid_order", [])),
         grid_fullwidth_json = json.dumps(st.session_state.get("grid_fullwidth", {})),
+        export_text_json  = _collect_export_text_json(),
+        export_colours_json = _collect_export_colours_json(),
     )
     clear_draft(st.session_state.user_id)
     st.session_state.editing_session_id   = sid
@@ -1494,6 +1640,8 @@ def _do_update(sname_in, charts, clear_editing=False):
         layout_mode       = st.session_state.get("layout_mode","portrait"),
         grid_order_json   = json.dumps(st.session_state.get("grid_order", [])),
         grid_fullwidth_json = json.dumps(st.session_state.get("grid_fullwidth", {})),
+        export_text_json  = _collect_export_text_json(),
+        export_colours_json = _collect_export_colours_json(),
     )
     clear_draft(st.session_state.user_id)
     st.toast(f"✅ Updated '{sname_in}'!", icon="✅")

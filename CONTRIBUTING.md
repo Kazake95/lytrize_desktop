@@ -292,9 +292,13 @@ commands. Automated test suite TBD.
 1. No dedicated PNG download button — users must use browser DevTools to capture the exported HTML page as an image.
 2. Some CSS colour values in the generated HTML export lack fallback values when a theme key is missing.
 3. No automated test suite — manual smoke-testing is required after changes.
-4. Streamlit reruns trigger full-page refreshes, which can be slow for datasets over 100 MB.
-5. The PySide6 desktop launcher does not work on Wayland with some NVIDIA GPU configurations.
-6. In Light theme mode, Streamlit color-picker not rendering color scale as complete dark but working color select.
+4. Streamlit reruns trigger full-page refreshes, which can be slow for datasets over 300 MB.
+---
+
+## Current development
+
+1. Dedicated chrome ext. to download a full page screeshot of dashboard html.
+2. Working stable Light theme mode.
 ---
 
 ## License

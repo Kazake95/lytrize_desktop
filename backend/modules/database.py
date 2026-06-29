@@ -245,6 +245,8 @@ def init_db() -> None:
             layout_mode         TEXT DEFAULT 'portrait',
             grid_order_json     TEXT DEFAULT '[]',
             grid_fullwidth_json TEXT DEFAULT '{}',
+            export_text_json    TEXT DEFAULT '{}',
+            export_colours_json TEXT DEFAULT '{}',
             source              TEXT DEFAULT 'local',
             created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -304,6 +306,8 @@ def init_db() -> None:
             "ALTER TABLE sessions ADD COLUMN grid_order_json TEXT DEFAULT '[]'",
             "ALTER TABLE sessions ADD COLUMN grid_fullwidth_json TEXT DEFAULT '{}'",
             "ALTER TABLE sessions ADD COLUMN updated_at      TIMESTAMP",
+            "ALTER TABLE sessions ADD COLUMN export_text_json TEXT DEFAULT '{}'",
+            "ALTER TABLE sessions ADD COLUMN export_colours_json TEXT DEFAULT '{}'",
             "ALTER TABLE draft_sessions ADD COLUMN col_descriptions_json TEXT DEFAULT '{}'",
         ]:
             try:
@@ -849,6 +853,8 @@ def save_session_db(
     layout_mode: str = "portrait",
     grid_order_json: str = "[]",
     grid_fullwidth_json: str = "{}",
+    export_text_json: str = "{}",
+    export_colours_json: str = "{}",
     session_uuid: Optional[str] = None,
     source: str = "local",
 ) -> int:
@@ -860,12 +866,12 @@ def save_session_db(
             _ph("""INSERT INTO sessions
                (user_id, session_uuid, session_name, file_name, rows_count, cols_count,
                 analysis_types, charts_json, dashboard_title, kpis_json, layout_mode,
-                grid_order_json, grid_fullwidth_json, source, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)"""),
+                grid_order_json, grid_fullwidth_json, export_text_json, export_colours_json, source, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)"""),
             (user_id, session_uuid, session_name, file_name, rows, cols,
              json.dumps(analysis_types), charts_json,
              dashboard_title, kpis_json, layout_mode,
-             grid_order_json, grid_fullwidth_json, source),
+             grid_order_json, grid_fullwidth_json, export_text_json, export_colours_json, source),
         )
         sid = _last_id(c)
     log_activity(user_id, "dashboard_saved",
@@ -1024,6 +1030,8 @@ def update_session_db(
     layout_mode: str = "portrait",
     grid_order_json: str = "[]",
     grid_fullwidth_json: str = "{}",
+    export_text_json: str = "{}",
+    export_colours_json: str = "{}",
     session_uuid: Optional[str] = None,
 ) -> None:
     """Overwrite a saved session in-place. user_id guard enforces ownership."""
@@ -1038,12 +1046,12 @@ def update_session_db(
             "UPDATE sessions "
             "SET session_name=?, charts_json=?, analysis_types=?, "
             "    dashboard_title=?, kpis_json=?, layout_mode=?, "
-            "    grid_order_json=?, grid_fullwidth_json=?, "
+            "    grid_order_json=?, grid_fullwidth_json=?, export_text_json=?, export_colours_json=?, "
             "    updated_at=CURRENT_TIMESTAMP "
             "WHERE id=? AND user_id=?"),
             (session_name, charts_json, json.dumps(analysis_types),
              dashboard_title, kpis_json, layout_mode,
-             grid_order_json, grid_fullwidth_json,
+             grid_order_json, grid_fullwidth_json, export_text_json, export_colours_json,
              session_id, user_id),
         )
     log_activity(user_id, "session_updated",
@@ -1104,12 +1112,12 @@ def get_session_meta(session_id: int, user_id=None) -> Optional[dict]:
         c    = conn.cursor()
         if user_id is None:
             c.execute(
-                _ph("SELECT dashboard_title, kpis_json, layout_mode, grid_order_json, grid_fullwidth_json FROM sessions WHERE id=?"),
+                _ph("SELECT dashboard_title, kpis_json, layout_mode, grid_order_json, grid_fullwidth_json, export_text_json, export_colours_json FROM sessions WHERE id=?"),
                 (session_id,),
             )
         else:
             c.execute(
-                _ph("SELECT dashboard_title, kpis_json, layout_mode, grid_order_json, grid_fullwidth_json "
+                _ph("SELECT dashboard_title, kpis_json, layout_mode, grid_order_json, grid_fullwidth_json, export_text_json, export_colours_json "
                     "FROM sessions WHERE id=? AND user_id=?"),
                 (session_id, user_id),
             )
@@ -1121,6 +1129,8 @@ def get_session_meta(session_id: int, user_id=None) -> Optional[dict]:
                 "layout_mode":        row[2] or "portrait",
                 "grid_order_json":    row[3] or "[]",
                 "grid_fullwidth_json": row[4] or "{}",
+                "export_text_json":   row[5] or "{}",
+                "export_colours_json": row[6] or "{}",
             }
     except Exception:
         pass
@@ -1217,7 +1227,7 @@ def export_sessions_to_dict(
                 "session_uuid", "session_name", "file_name", "rows_count",
                 "cols_count", "analysis_types", "charts_json", "dashboard_title",
                 "kpis_json", "layout_mode", "grid_order_json", "grid_fullwidth_json",
-                "source", "created_at",
+                "export_text_json", "export_colours_json", "source", "created_at",
             ]
             select_parts = [col for col in wanted if col in available]
             if "updated_at" in available:
@@ -1292,8 +1302,8 @@ def import_sessions_from_dict(
                    (user_id, session_uuid, session_name, file_name, rows_count,
                     cols_count, analysis_types, charts_json, dashboard_title,
                     kpis_json, layout_mode, grid_order_json, grid_fullwidth_json,
-                    source, created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)"""),
+                    export_text_json, export_colours_json, source, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)"""),
             (
                 user_id,
                 payload.get("session_uuid") or None,
@@ -1308,6 +1318,8 @@ def import_sessions_from_dict(
                 payload.get("layout_mode", "portrait"),
                 payload.get("grid_order_json", "[]"),
                 payload.get("grid_fullwidth_json", "{}"),
+                payload.get("export_text_json") or "{}",
+                payload.get("export_colours_json") or "{}",
                 payload.get("source") or "local",
                 payload.get("created_at"),
             ),
@@ -1354,13 +1366,15 @@ def import_sessions_from_dict(
                                        cols_count=?, analysis_types=?, charts_json=?,
                                        dashboard_title=?, kpis_json=?, layout_mode=?,
                                        grid_order_json=?, grid_fullwidth_json=?,
-                                       source=?, updated_at=CURRENT_TIMESTAMP
+                                       export_text_json=?, export_colours_json=?, source=?, updated_at=CURRENT_TIMESTAMP
                                        WHERE id=? AND user_id=?"""),
                                 (sname, s.get("file_name"), s.get("rows_count"),
                                  s.get("cols_count"), s.get("analysis_types"),
                                  s.get("charts_json"), s.get("dashboard_title", ""),
                                  s.get("kpis_json", "[]"), s.get("layout_mode", "portrait"),
                                  s.get("grid_order_json", "[]"), s.get("grid_fullwidth_json", "{}"),
+                                 s.get("export_text_json") or "{}",
+                                 s.get("export_colours_json") or "{}",
                                  source, local_id, user_id),
                             )
                             updated += 1

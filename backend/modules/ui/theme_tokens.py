@@ -2,7 +2,7 @@
 
 
 BRAND_NAME = "Lytrize"
-BRAND_VERSION = "webapp-theme"
+BRAND_VERSION = "desktopapp-theme"
 
 
 BRAND_1 = "#4f6ef7"

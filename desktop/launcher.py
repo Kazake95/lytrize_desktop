@@ -11,14 +11,11 @@ VENV_PY      = INSTALL_BASE / "venv" / "bin" / "python"
 GUI          = INSTALL_BASE / "desktop" / "gui.py"
 
 
-
-
 def _resolve_python() -> str:
     """Return the path to the Python interpreter to use."""
     if VENV_PY.exists():
         return str(VENV_PY)
     return "python3"
-
 
 
 

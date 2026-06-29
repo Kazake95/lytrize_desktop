@@ -11,4 +11,4 @@ font = "sans serif"
 
 [server]
 # Enable uploads up to the 500 MB limit supported in upload.py
-maxUploadSize = 500
+maxUploadSize = 400
