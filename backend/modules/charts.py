@@ -506,8 +506,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
 
 
             insights.append(
-                "Use this as a lead for deeper investigation, not as proof "
-                "that one column directly causes changes in another."
+                "Correlation shows association, not causation — use it as a lead for deeper investigation."
             )
         except Exception:
             pass
@@ -607,13 +606,11 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                     )
                 elif cv < 0.1:
                     insights.append(
-                        "Very consistent across periods — a reliable baseline "
-                        "for benchmarking or target-setting."
+                        "Very consistent across periods — a reliable baseline for benchmarking or targets."
                     )
                 else:
                     insights.append(
-                        "Moderate variability. Look for repeating peaks or dips; "
-                        "they often point to seasonality or cyclical business patterns."
+                        "Moderate variability — look for repeating peaks or dips that could signal seasonality."
                     )
         except Exception:
             insights.append(
@@ -693,11 +690,13 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                         )
 
 
-                    bot_pct = (min(vals) / total * 100) if total else 0
-                    insights.append(
-                        f"Lowest: {bot_cat} at {_fmt_num(min(vals))} ({bot_pct:.1f}%). "
-                        "If this is a revenue or performance metric, it may be worth reviewing."
-                    )
+                    if total and min(vals) > 0:
+                        bot_pct = (min(vals) / total * 100)
+                        if max(vals) / max(min(vals), 1) >= 3:
+                            insights.append(
+                                f"Lowest: **{bot_cat}** at {_fmt_num(min(vals))} ({bot_pct:.1f}%) — "
+                                "a significant gap from the top; worth investigating if this is expected."
+                            )
         except Exception:
             pass
 
@@ -763,40 +762,31 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                 if ols_slope is not None:
                     direction_word = "increases" if ols_slope > 0 else "decreases"
                     insights.append(
-                        f"OLS trendline: for every 1-unit increase in {_named(x_col)}, "
-                        f"{_named(y_col)} {direction_word} by {abs(ols_slope):.3g} on average. "
-                        "OLS assumes a straight-line relationship — verify this holds across the range."
+                        f"OLS trendline: each 1-unit increase in {_named(x_col)} is associated with "
+                        f"{_named(y_col)} {direction_word}ing by {abs(ols_slope):.3g} on average."
                     )
                 else:
-                    insights.append(
-                        "OLS (Ordinary Least Squares) trendline fitted. It models the best-fit "
-                        "straight line through the data — suitable when the relationship is roughly linear."
-                    )
+                    insights.append("OLS (best-fit straight line) trendline fitted.")
                 insights.append(
-                    "Points far from the OLS line are outliers or high-leverage observations "
-                    "that may disproportionately influence the model."
+                    "Points far from the OLS line are outliers or high-leverage observations."
                 )
 
 
             if has_lowess:
                 insights.append(
-                    "LOWESS (Locally Weighted Smoothing) trendline fitted. Unlike OLS, LOWESS "
-                    "follows the local shape of the data — bends and curves in the line indicate "
-                    "non-linear relationships that a straight-line model would miss."
+                    "LOWESS trendline fitted — it follows the local shape of the data. "
+                    "Bends in the curve indicate non-linear relationships a straight-line model would miss."
                 )
-                _lx_sat = _named(x_col)
-                _ly_sat = _named(y_col)
                 insights.append(
-                    f"Where the LOWESS curve flattens, {_ly_sat} stops responding to changes "
-                    f"in {_lx_sat} — a potential saturation or threshold effect."
+                    f"Where the LOWESS curve flattens, {_named(y_col)} stops responding to {_named(x_col)} — "
+                    "a potential saturation or threshold effect."
                 )
 
 
             if not has_ols and not has_lowess and r_val is None:
                 insights.append(
-                    f"Explore the pattern between {_named(x_col)} and {_named(y_col)}. "
-                    "Add an OLS trendline to quantify a linear relationship, or LOWESS "
-                    "to reveal curved or non-linear patterns."
+                    f"No trendline fitted yet. Add OLS to quantify a linear relationship, "
+                    "or LOWESS to reveal curved patterns."
                 )
 
 

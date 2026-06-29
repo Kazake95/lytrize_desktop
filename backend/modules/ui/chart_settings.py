@@ -585,7 +585,7 @@ def apply_chart_display_options(
                 cell_size    = int(opts.get("table_font_size", 11))
                 header_size  = int(opts.get("table_header_font_size", max(cell_size, 12)))
                 row_h        = int(opts.get("table_row_height", 26))
-                hdr_h        = int(opts.get("table_header_height", 34))
+                hdr_h        = max(int(opts.get("table_header_height", 22)), header_size + 12)
                 idx_align    = opts.get("table_index_align", "left")
                 data_align   = opts.get("table_data_align", "right")
                 
@@ -944,7 +944,7 @@ def render_typography_controls(
             ),
             key=f"{key_prefix}_hfont_style_{uid}",
         )
-        text_style["header_size"]   = st.slider("Header size",   14, 40, int(text_style["header_size"]),   key=f"{key_prefix}_hsize_{uid}")
+        text_style["header_size"]   = st.slider("Header size",   8, 40, int(text_style["header_size"]),   key=f"{key_prefix}_hsize_{uid}")
 
 
         st.markdown("**Subtitle Typography**")
@@ -1222,7 +1222,7 @@ def render_chart_settings_controls(
                 key=f"{key_prefix}_table_row_h_{uid}",
             )
             opts["table_header_height"] = st.slider(
-                "Header height (px)", 22, 60, int(opts.get("table_header_height", 34)),
+                "Header height (px)", 22, 60, int(opts.get("table_header_height", 22)),
                 key=f"{key_prefix}_table_hdr_h_{uid}",
             )
             opts["table_index_align"] = st.selectbox(

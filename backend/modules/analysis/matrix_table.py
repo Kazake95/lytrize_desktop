@@ -225,6 +225,9 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
         _show_row_totals = agg in ("sum", "count")
 
 
+        _dedup_agg_col = _show_row_totals and agg in ("sum", "count")
+
+
         row_totals = []
         if _show_row_totals:
             for row in z_values:
@@ -271,8 +274,10 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
             "std":    "Overall Std. Dev",
         }
         _val_hdr_w = max(len(_VALUE_HEADER_MAP.get(agg, f"{agg.upper()}({vals})")), _data_w)
-        if _show_row_totals:
+        if _show_row_totals and not _dedup_agg_col:
             _col_widths = [_idx_w] + [_data_w] * n_cols_p + [_val_hdr_w] + [_tot_w]
+        elif _show_row_totals:
+            _col_widths = [_idx_w] + [_data_w] * n_cols_p + [_tot_w]
         else:
             _col_widths = [_idx_w] + [_data_w] * n_cols_p + [_val_hdr_w]
 
@@ -290,9 +295,10 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
         hdr_alt   = pal[1] if len(pal) > 1 else "#6366f1"
         hdr_fills = [hdr_color] + [hdr_color if i % 2 == 0 else hdr_alt
                                     for i in range(n_cols_p)]
-        hdr_fills = hdr_fills + [hdr_color if n_cols_p % 2 == 0 else hdr_alt]
+        if _show_row_totals and not _dedup_agg_col:
+            hdr_fills = hdr_fills + [hdr_color if n_cols_p % 2 == 0 else hdr_alt]
         if _show_row_totals:
-            _tot_idx = n_cols_p + 1
+            _tot_idx = n_cols_p + (1 if _dedup_agg_col else 2)
             hdr_fills = hdr_fills + [hdr_color if _tot_idx % 2 == 0 else hdr_alt]
 
 
@@ -316,8 +322,9 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
                 else:
                     col_bg.append(base)
             cell_fills_by_col.append(col_bg)
-        val_col_base = ["#0f2a3a" if i % 2 == 0 else "#0a1e2a" for i in range(n_data_rows)]
-        cell_fills_by_col.append(val_col_base)
+        if not _dedup_agg_col:
+            val_col_base = ["#0f2a3a" if i % 2 == 0 else "#0a1e2a" for i in range(n_data_rows)]
+            cell_fills_by_col.append(val_col_base)
         if _show_row_totals:
             row_tot_base = ["#1e3a5f" if i % 2 == 0 else "#172554" for i in range(n_data_rows)]
             cell_fills_by_col.append(row_tot_base)
@@ -349,9 +356,13 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
         if agg == "count":
             total_header_label = "Count ▸"
         if _show_row_totals:
-            col_headers = ([f"<b>{idx}</b>"] + [f"<b>{h}</b>" for h in x_labels]
-                           + [f"<b>{value_header_label}</b>"]
-                           + [f"<b>{total_header_label}</b>"])
+            if _dedup_agg_col:
+                col_headers = ([f"<b>{idx}</b>"] + [f"<b>{h}</b>" for h in x_labels]
+                               + [f"<b>{total_header_label}</b>"])
+            else:
+                col_headers = ([f"<b>{idx}</b>"] + [f"<b>{h}</b>" for h in x_labels]
+                               + [f"<b>{value_header_label}</b>"]
+                               + [f"<b>{total_header_label}</b>"])
         else:
             col_headers = ([f"<b>{idx}</b>"] + [f"<b>{h}</b>" for h in x_labels]
                            + [f"<b>{value_header_label}</b>"])
@@ -366,9 +377,14 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
             footer_label = "Total"
             if agg == "count":
                 footer_label = "Count"
-            footer_vals  = ([[f"<b>◀ {footer_label}</b>"]] + [[v] for v in totals_fmt]
-                            + [[""]] + [[grand_fmt]])
-            footer_fills = ["#0f172a"] + ["#0f2a4a"] * n_cols_p + ["#0f172a"] + ["#0a1628"]
+            if _dedup_agg_col:
+                footer_vals  = ([[f"<b>◀ {footer_label}</b>"]] + [[v] for v in totals_fmt]
+                                + [[grand_fmt]])
+                footer_fills = ["#0f172a"] + ["#0f2a4a"] * n_cols_p + ["#0a1628"]
+            else:
+                footer_vals  = ([[f"<b>◀ {footer_label}</b>"]] + [[v] for v in totals_fmt]
+                                + [[""]] + [[grand_fmt]])
+                footer_fills = ["#0f172a"] + ["#0f2a4a"] * n_cols_p + ["#0f172a"] + ["#0a1628"]
         else:
             footer_vals  = [["<b>◀ Total</b>"]] + [[v] for v in totals_fmt] + [[""]]
             footer_fills = ["#0f172a"] + ["#0f2a4a"] * n_cols_p + ["#0f172a"]
@@ -384,16 +400,19 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
                 fill_color=footer_fills,
                 font=dict(color="#818cf8", size=12,
                           family="Inter, system-ui, sans-serif"),
-                align=["left"] + ["right"] * n_cols_p + ["right"] + (["right"] if _show_row_totals else []),
+                align=["left"] + ["right"] * n_cols_p + ["right"] + (["right"] if (_show_row_totals and not _dedup_agg_col) else []),
                 line_color="rgba(100,116,139,0.2)",
                 height=30,
             ),
         ))
 
 
-        _data_cells = [index_vals_disp] + data_cols_fmt + [value_col_fmt]
-        if _show_row_totals:
-            _data_cells = _data_cells + [row_totals_fmt]
+        if _dedup_agg_col:
+            _data_cells = [index_vals_disp] + data_cols_fmt + [row_totals_fmt]
+        else:
+            _data_cells = [index_vals_disp] + data_cols_fmt + [value_col_fmt]
+            if _show_row_totals:
+                _data_cells = _data_cells + [row_totals_fmt]
         fig.add_trace(go.Table(
             columnwidth=_col_widths,
             header=dict(
