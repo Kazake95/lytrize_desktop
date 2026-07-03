@@ -6,21 +6,19 @@ import json
 import os
 
 
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 
 try:
     import plotly.io as _pio
     _pio.renderers.default = "browser"
-    try:
-        _pio.config.mathjax = None
-    except AttributeError:
-        pass
-    try:
-        import plotly.offline as _poff
-        _poff._DEFAULT_INCLUDE_PLOTLYJS = "inline"
-    except Exception:
-        pass
+    _pio.config.mathjax = None
+except (AttributeError, Exception):
+    pass
+
+try:
+    import plotly.offline as _poff
+    _poff._DEFAULT_INCLUDE_PLOTLYJS = "inline"
 except Exception:
     pass
 
@@ -161,8 +159,6 @@ def main() -> None:
         guest = get_or_create_guest_user()
         if guest["id"] is None:
             st.info("⏳ Setting up your workspace… please wait.", icon="🔧")
-            import time as _time
-            _time.sleep(0.5)
             st.rerun()
         st.session_state.user_id  = guest["id"]
         st.session_state.username = guest["username"]

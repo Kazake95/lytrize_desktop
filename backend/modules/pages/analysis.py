@@ -53,12 +53,13 @@ def _sync_one_note(uid: str) -> None:
 
 
 def _autosave() -> None:
-    """Persist the current chart/notes state to the database on every meaningful"""
+    """Persist chart/notes state to the database on each navigation or edit."""
     _shadow_notes_sync()
     _persist_draft()
     eid  = st.session_state.get("editing_session_id")
     uid  = st.session_state.get("user_id")
     name = st.session_state.get("editing_session_name", "Session")
+    kpis_json = "[]"
     if eid and uid:
         try:
             if "kpis" in st.session_state:
@@ -71,7 +72,7 @@ def _autosave() -> None:
                     sm = get_session_meta(eid, uid)
                     kpis_json = sm.get("kpis_json", "[]") if sm else "[]"
                 except Exception:
-                    kpis_json = "[]"
+                    pass
                 st.session_state["_cached_kpis_json"] = kpis_json
 
 

@@ -353,6 +353,19 @@ def _option_index(options: list[str], value: str, default: str) -> int:
 
 
 
+def _safe_get_font_attr(font_obj, attr: str, default=None):
+    """Safely get an attribute from a font object (which could be None, dict, or Plotly object)."""
+    if font_obj is None:
+        return default
+    try:
+        val = getattr(font_obj, attr, None)
+        return val if val is not None else default
+    except Exception:
+        return default
+
+
+
+
 def apply_chart_display_options(
     fig,
     meta: dict | None,
@@ -366,7 +379,6 @@ def apply_chart_display_options(
         opts = {}
     f2 = fig if _inplace else copy.deepcopy(fig)
 
-
     try:
         text_style = meta.get("text_style", {})
         ts = merge_text_style(text_style)
@@ -377,6 +389,12 @@ def apply_chart_display_options(
         _font_style  = str(ts.get("font_style", "Normal"))
 
 
+        # Capture value label settings early
+        _show_value_labels = bool(opts.get("show_value_labels", False))
+        _value_label_color = str(opts.get("value_label_color", "#ffffff")) if _show_value_labels else None
+        _label_pos = opts.get("label_position", "outside")
+
+
         if "show_legend" in opts:
             f2.update_layout(showlegend=bool(opts["show_legend"]))
         if "bar_gap" in opts:
@@ -385,42 +403,20 @@ def apply_chart_display_options(
             f2.update_layout(barmode=str(opts["bar_mode"]))
 
 
-        show_labels = bool(opts.get("show_value_labels", False))
-        label_pos   = opts.get("label_position", "outside")
-
-
         for tr in f2.data:
             ttype = str(getattr(tr, "type", "") or "").lower()
             mode  = str(getattr(tr, "mode", "") or "")
 
 
             if ttype == "bar":
-                tr.textposition = label_pos if show_labels else "none"
-                if show_labels and opts.get("value_label_color"):
-                    try:
-                        _vlc = str(opts["value_label_color"])
-                        tr.textfont = dict(getattr(tr, "textfont", None) or {}, color=_vlc)
-                        if hasattr(tr, "insidetextfont"):
-                            tr.insidetextfont = dict(getattr(tr, "insidetextfont", None) or {}, color=_vlc)
-                        if hasattr(tr, "outsidetextfont"):
-                            tr.outsidetextfont = dict(getattr(tr, "outsidetextfont", None) or {}, color=_vlc)
-                    except Exception:
-                        pass
+                tr.textposition = _label_pos if _show_value_labels else "none"
 
 
             if ttype in ("scatter", "scattergl") and "lines" in mode:
-                if show_labels:
+                if _show_value_labels:
                     if "text" not in mode:
                         tr.mode = mode + "+text"
                     tr.textposition = "top center"
-                    if opts.get("value_label_color"):
-                        try:
-                            tr.textfont = dict(
-                                getattr(tr, "textfont", None) or {},
-                                color=str(opts["value_label_color"]),
-                            )
-                        except Exception:
-                            pass
                 else:
                     tr.mode = (
                         mode.replace("+text", "").replace("text+", "").replace("text", "")
@@ -565,10 +561,10 @@ def apply_chart_display_options(
                     ann_color = {"light": "white", "dark": "#1e293b"}.get(ann_color_mode)
                 if ann_size is not None or ann_color is not None:
                     existing_tf = getattr(tr, "textfont", None)
-                    _tf_family = getattr(existing_tf, "family", None) or None
+                    _tf_family = _safe_get_font_attr(existing_tf, "family", None)
                     new_tf: dict = {
-                        "size":  getattr(existing_tf, "size",  10) or 10,
-                        "color": getattr(existing_tf, "color", "white") or "white",
+                        "size":  _safe_get_font_attr(existing_tf, "size", 10) or 10,
+                        "color": _safe_get_font_attr(existing_tf, "color", "white") or "white",
                     }
                     if _tf_family:
                         new_tf["family"] = _tf_family
@@ -650,8 +646,12 @@ def apply_chart_display_options(
                     tr.cells.fill.color = [flat_fills] * len(tr.cells.values)
 
 
-            if hasattr(tr, "textfont") and tr.textfont:
-                tr.textfont.family = _font_family
+            # Apply font family to textfont if it exists
+            if hasattr(tr, "textfont") and tr.textfont is not None:
+                try:
+                    tr.textfont.family = _font_family
+                except Exception:
+                    pass
 
 
         _leg_title = meta.get("legend_title", "")
@@ -740,22 +740,34 @@ def apply_chart_display_options(
             _leg_item_color  = str(ts.get("legend_item_color", "#e2e8f0"))
 
 
+            # Process text fonts with safe None handling
             for tr in f2.data:
                 ttype = str(getattr(tr, "type", "") or "").lower()
                 if ttype == "table":
                     continue
-                for font_attr in ("textfont", "insidetextfont", "outsidetextfont"):
-                    if hasattr(tr, font_attr):
-                        existing_font = getattr(tr, font_attr, None)
-                        new_font = dict(size=getattr(existing_font, "size", 11) or 11,
-                                        color=getattr(existing_font, "color", "#e2e8f0") or "#e2e8f0")
-                        new_font["family"] = _font_family
-                        if ttype != "heatmap":
-                            tr_style = str(ts.get("font_style", "Normal"))
-                            txt = getattr(tr, "text", None)
-                            if txt is not None and isinstance(txt, (list, tuple)) and len(txt) <= 500:
-                                tr.text = [_wrap_html_style(str(v) if v is not None else "", tr_style) for v in txt]
-                        setattr(tr, font_attr, new_font)
+                
+                # Skip bar/scatter with value labels - we'll handle them separately at the end
+                if ttype == "bar" and _show_value_labels:
+                    continue
+                if ttype in ("scatter", "scattergl") and _show_value_labels:
+                    continue
+                
+                try:
+                    for font_attr in ("textfont", "insidetextfont", "outsidetextfont"):
+                        if hasattr(tr, font_attr):
+                            existing_font = getattr(tr, font_attr, None)
+                            _existing_size = _safe_get_font_attr(existing_font, "size", 11) or 11
+                            _existing_color = _safe_get_font_attr(existing_font, "color", "#e2e8f0") or "#e2e8f0"
+                            new_font = dict(size=_existing_size, color=_existing_color)
+                            new_font["family"] = _font_family
+                            if ttype != "heatmap":
+                                tr_style = str(ts.get("font_style", "Normal"))
+                                txt = getattr(tr, "text", None)
+                                if txt is not None and isinstance(txt, (list, tuple)) and len(txt) <= 500:
+                                    tr.text = [_wrap_html_style(str(v) if v is not None else "", tr_style) for v in txt]
+                            setattr(tr, font_attr, new_font)
+                except Exception:
+                    pass
 
 
             try:
@@ -853,7 +865,7 @@ def apply_chart_display_options(
                         if tf is not None:
                             new_tf: dict = {
                                 "size":  final_sz,
-                                "color": getattr(tf, "color", "white") or "white",
+                                "color": _safe_get_font_attr(tf, "color", "white") or "white",
                                 "family": cb_family,
                             }
                             new_tf.update(_cb_font_suffix)
@@ -876,19 +888,38 @@ def apply_chart_display_options(
     except Exception:
         return fig
 
-    # Re-apply value_label_color after all text_style processing
-    _value_label_color_to_preserve = opts.get("value_label_color")
-    if _value_label_color_to_preserve:
+    # ============================================================
+    # APPLY VALUE LABEL COLOR LAST - This ensures it always wins
+    # ============================================================
+    if _show_value_labels and _value_label_color:
         for tr in f2.data:
             ttype = str(getattr(tr, "type", "") or "").lower()
+            
             if ttype == "bar":
                 try:
-                    _vlc = str(_value_label_color_to_preserve)
-                    tr.textfont = dict(getattr(tr, "textfont", None) or {}, color=_vlc)
-                    if hasattr(tr, "insidetextfont"):
-                        tr.insidetextfont = dict(getattr(tr, "insidetextfont", None) or {}, color=_vlc)
-                    if hasattr(tr, "outsidetextfont"):
-                        tr.outsidetextfont = dict(getattr(tr, "outsidetextfont", None) or {}, color=_vlc)
+                    for font_attr in ("textfont", "insidetextfont", "outsidetextfont"):
+                        if hasattr(tr, font_attr):
+                            existing = getattr(tr, font_attr, None)
+                            new_font = dict(
+                                size=_safe_get_font_attr(existing, "size", 11) or 11,
+                                color=_value_label_color,
+                                family=_font_family,
+                            )
+                            setattr(tr, font_attr, new_font)
+                except Exception:
+                    pass
+            
+            elif ttype in ("scatter", "scattergl"):
+                try:
+                    for font_attr in ("textfont",):
+                        if hasattr(tr, font_attr):
+                            existing = getattr(tr, font_attr, None)
+                            new_font = dict(
+                                size=_safe_get_font_attr(existing, "size", 11) or 11,
+                                color=_value_label_color,
+                                family=_font_family,
+                            )
+                            setattr(tr, font_attr, new_font)
                 except Exception:
                     pass
 
@@ -1138,6 +1169,9 @@ def render_chart_settings_controls(
                     value=str(opts.get("value_label_color", "#ffffff")),
                     key=f"{key_prefix}_vl_color_{uid}",
                 )
+            else:
+                if "value_label_color" not in opts:
+                    opts["value_label_color"] = "#ffffff"
             label_positions = ["outside", "inside", "auto"]
             opts["label_position"] = st.selectbox(
                 "Label position", label_positions,
@@ -1155,357 +1189,343 @@ def render_chart_settings_controls(
             ) >= 2
             bar_modes = ["group", "stack", "overlay", "relative"]
             opts["bar_mode"] = st.selectbox(
-                "Bar mode", bar_modes,
+                "Bar mode",
+                bar_modes,
                 index=_option_index(bar_modes, opts.get("bar_mode", "group"), "group"),
                 key=f"{key_prefix}_bar_mode_{uid}",
                 disabled=not has_multiple_bars,
             )
-
-
-        if caps["has_histogram"]:
+        elif caps["has_histogram"]:
             opts["histogram_bins"] = st.slider(
-                "Bins", 5, 120, int(opts.get("histogram_bins", 35)),
+                "Number of bins", 5, 200,
+                int(opts.get("histogram_bins", 30)), 5,
                 key=f"{key_prefix}_hist_bins_{uid}",
             )
             opts["histogram_opacity"] = st.slider(
-                "Opacity", 0.15, 1.0, float(opts.get("histogram_opacity", 0.75)), 0.05,
+                "Opacity", 0.1, 1.0,
+                float(opts.get("histogram_opacity", 0.8)), 0.05,
                 key=f"{key_prefix}_hist_opacity_{uid}",
             )
-
-
-        if caps["has_scatter"]:
-            opts["marker_opacity"] = st.slider(
-                "Marker opacity", 0.1, 1.0,
-                float(opts.get("marker_opacity", 0.75)), 0.05,
-                key=f"{key_prefix}_marker_opacity_{uid}",
+            has_multiple_hist = sum(
+                1 for t in getattr(fig, "data", [])
+                if str(getattr(t, "type", "")).lower() == "histogram"
+            ) >= 2
+            hist_modes = ["stack", "overlay", "group"]
+            opts["bar_mode"] = st.selectbox(
+                "Histogram mode",
+                hist_modes,
+                index=_option_index(hist_modes, opts.get("bar_mode", "stack"), "stack"),
+                key=f"{key_prefix}_hist_mode_{uid}",
+                disabled=not has_multiple_hist,
             )
+
+
+        if caps["has_scatter"] or caps["has_line"]:
+            opts["show_value_labels"] = st.checkbox(
+                "Value labels",
+                value=bool(opts.get("show_value_labels", False)),
+                key=f"{key_prefix}_scatter_labels_{uid}",
+            )
+            if opts["show_value_labels"]:
+                opts["value_label_color"] = st.color_picker(
+                    "Value label colour",
+                    value=str(opts.get("value_label_color", "#ffffff")),
+                    key=f"{key_prefix}_scatter_vl_color_{uid}",
+                )
+            else:
+                if "value_label_color" not in opts:
+                    opts["value_label_color"] = "#ffffff"
+            if "lines" in str(getattr(next((t for t in getattr(fig, "data", []) if "lines" in str(getattr(t, "mode", ""))), None), "mode", "")):
+                opts["line_width"] = st.slider(
+                    "Line width", 1, 8,
+                    int(opts.get("line_width", 2)), 1,
+                    key=f"{key_prefix}_line_width_{uid}",
+                )
+                opts["line_shape"] = st.selectbox(
+                    "Line shape",
+                    ["linear", "spline", "hv", "vh", "hvh", "vhv"],
+                    index=_option_index(
+                        ["linear", "spline", "hv", "vh", "hvh", "vhv"],
+                        opts.get("line_shape", "linear"), "linear"
+                    ),
+                    key=f"{key_prefix}_line_shape_{uid}",
+                )
+                opts["line_fill"] = st.selectbox(
+                    "Line fill",
+                    ["none", "tozeroy", "tozerox", "tonexty", "tonextx"],
+                    index=_option_index(
+                        ["none", "tozeroy", "tozerox", "tonexty", "tonextx"],
+                        opts.get("line_fill", "none"), "none"
+                    ),
+                    key=f"{key_prefix}_line_fill_{uid}",
+                )
             opts["marker_size"] = st.slider(
-                "Marker size", 3, 28, int(opts.get("marker_size", 8)),
+                "Marker size", 2, 20,
+                int(opts.get("marker_size", 6)), 1,
                 key=f"{key_prefix}_marker_size_{uid}",
             )
-
-
-        if caps["has_heatmap"]:
-            if chart_type == "matrix_heatmap":
-                opts["heatmap_header_size"] = st.slider(
-                    "Axis label size", 8, 18,
-                    int(opts.get("heatmap_header_size", 10)),
-                    key=f"{key_prefix}_mh_hdr_sz_{uid}",
-                )
-                opts["heatmap_cell_height"] = st.slider(
-                    "Row height (px)", 20, 60,
-                    int(opts.get("heatmap_cell_height", 30)),
-                    key=f"{key_prefix}_mh_row_h_{uid}",
-                )
-            _cs_idx = _option_index(COLORSCALES_ALL, opts.get("heatmap_colorscale", ""), "RdBu")
-            opts["heatmap_colorscale"] = st.selectbox(
-                "Colour scale", COLORSCALES_ALL, index=_cs_idx,
-                key=f"{key_prefix}_heatmap_cs_{uid}",
-            )
-            if chart_type in ("matrix_heatmap", "correlation"):
-                z1, z2 = st.columns(2)
-                with z1:
-                    opts["colorbar_zmin"] = st.text_input(
-                        "Scale min", value=str(opts.get("colorbar_zmin", "")),
-                        placeholder="Auto", key=f"{key_prefix}_cb_min_{uid}",
-                    )
-                with z2:
-                    opts["colorbar_zmax"] = st.text_input(
-                        "Scale max", value=str(opts.get("colorbar_zmax", "")),
-                        placeholder="Auto", key=f"{key_prefix}_cb_max_{uid}",
-                    )
-            else:
-                opts.setdefault("colorbar_zmin", "")
-                opts.setdefault("colorbar_zmax", "")
-            opts["colorbar_title"] = st.text_input(
-                "Colour bar title", value=str(opts.get("colorbar_title", "")),
-                key=f"{key_prefix}_cb_title_{uid}",
-            )
-
-
-        if caps["has_table"]:
-            opts["table_font_size"] = st.slider(
-                "Cell text size", 9, 18, int(opts.get("table_font_size", 11)),
-                key=f"{key_prefix}_table_font_{uid}",
-            )
-            opts["table_font_color"] = st.color_picker(
-                "Cell text colour",
-                value=str(opts.get("table_font_color", "#f1f5f9")),
-                key=f"{key_prefix}_table_font_color_{uid}",
-            )
-            opts["table_header_font_size"] = st.slider(
-                "Header text size", 9, 20, int(opts.get("table_header_font_size", 12)),
-                key=f"{key_prefix}_table_hdr_font_{uid}",
-            )
-            opts["table_row_height"] = st.slider(
-                "Row height (px)", 18, 48, int(opts.get("table_row_height", 26)),
-                key=f"{key_prefix}_table_row_h_{uid}",
-            )
-            opts["table_header_height"] = st.slider(
-                "Header height (px)", 22, 60, int(opts.get("table_header_height", 22)),
-                key=f"{key_prefix}_table_hdr_h_{uid}",
-            )
-            opts["table_index_align"] = st.selectbox(
-                "Index column align", ["left", "center", "right"],
-                index=["left","center","right"].index(opts.get("table_index_align","left")),
-                key=f"{key_prefix}_table_idx_align_{uid}",
-            )
-            opts["table_data_align"] = st.selectbox(
-                "Data cells align", ["right", "center", "left"],
-                index=["right","center","left"].index(opts.get("table_data_align","right")),
-                key=f"{key_prefix}_table_data_align_{uid}",
-            )
-            st.markdown("**Header colours**")
-            opts["table_header_color"] = st.color_picker(
-                "Header background",
-                value=str(opts.get("table_header_color", "#4f46e5")),
-                key=f"{key_prefix}_table_hdr_color_{uid}",
-            )
-            opts["table_header_text_color"] = st.color_picker(
-                "Header text colour",
-                value=str(opts.get("table_header_text_color", "#ffffff")),
-                key=f"{key_prefix}_table_hdr_text_color_{uid}",
-            )
-            sc1, sc2 = st.columns(2)
-            with sc1:
-                opts["table_stripe_even_color"] = st.color_picker(
-                    "Even rows",
-                    value=str(opts.get("table_stripe_even_color", "#1e293b")),
-                    key=f"{key_prefix}_table_stripe_even_{uid}",
-                )
-            with sc2:
-                opts["table_stripe_odd_color"] = st.color_picker(
-                    "Odd rows",
-                    value=str(opts.get("table_stripe_odd_color", "#0f172a")),
-                    key=f"{key_prefix}_table_stripe_odd_{uid}",
-                )
-            _fmt_options = ["auto", "integer", "2dp", "4dp", "kmb", "percent"]
-            _fmt_labels  = {
-                "auto": "Auto (original)", "integer": "Integer (1,234)",
-                "2dp": "2 decimal (1,234.56)", "4dp": "4 decimal (1,234.5678)",
-                "kmb": "K / M / B (1.2K, 3.4M)", "percent": "Percent (12.3%)",
-            }
-            opts["table_number_format"] = st.selectbox(
-                "Number format",
-                _fmt_options,
-                index=_option_index(_fmt_options, opts.get("table_number_format", "auto"), "auto"),
-                format_func=lambda x: _fmt_labels.get(x, x),
-                key=f"{key_prefix}_table_num_fmt_{uid}",
+            opts["marker_opacity"] = st.slider(
+                "Marker opacity", 0.1, 1.0,
+                float(opts.get("marker_opacity", 0.8)), 0.05,
+                key=f"{key_prefix}_marker_opacity_{uid}",
             )
 
 
     with s2:
-        if caps["has_line"]:
-            opts["line_width"] = st.slider(
-                "Line width", 1, 8, int(opts.get("line_width", 2)),
-                key=f"{key_prefix}_line_width_{uid}",
-            )
-            if chart_type != "scatter_plot":
-                line_shapes = ["linear", "spline", "hv", "vh"]
-                opts["line_shape"] = st.selectbox(
-                    "Line shape", line_shapes,
-                    index=_option_index(line_shapes, opts.get("line_shape", "linear"), "linear"),
-                    key=f"{key_prefix}_line_shape_{uid}",
-                )
-            opts["show_markers"] = st.checkbox(
-                "Show markers",
-                value=bool(opts.get("show_markers", True)),
-                key=f"{key_prefix}_line_markers_{uid}",
-            )
-            fill_opts   = ["none", "tozeroy", "tonexty"]
-            fill_labels = {"none": "No fill", "tozeroy": "Fill to zero", "tonexty": "Fill to next trace"}
-            opts["line_fill"] = st.selectbox(
-                "Area fill", fill_opts,
-                index=_option_index(fill_opts, opts.get("line_fill", "none"), "none"),
-                format_func=lambda x: fill_labels.get(x, x),
-                key=f"{key_prefix}_line_fill_{uid}",
-            )
-
-
         if caps["has_pie"]:
             opts["donut_hole"] = st.slider(
-                "Donut hole", 0.0, 0.7,
-                float(opts.get("donut_hole", 0.0)), 0.05,
+                "Donut hole size", 0.0, 0.9,
+                float(opts.get("donut_hole", 0)), 0.05,
                 key=f"{key_prefix}_donut_{uid}",
             )
-            pie_opts = ["label+percent", "label+value", "percent", "label", "value"]
             opts["pie_textinfo"] = st.selectbox(
-                "Slice labels", pie_opts,
-                index=_option_index(pie_opts, opts.get("pie_textinfo", "label+percent"), "label+percent"),
-                key=f"{key_prefix}_pie_text_{uid}",
+                "Text info",
+                ["label+percent", "label", "percent", "value", "label+value", "none"],
+                index=_option_index(
+                    ["label+percent", "label", "percent", "value", "label+value", "none"],
+                    opts.get("pie_textinfo", "label+percent"), "label+percent"
+                ),
+                key=f"{key_prefix}_pie_textinfo_{uid}",
             )
             opts["pull_slices"] = st.slider(
-                "Slice separation", 0.0, 0.12,
-                float(opts.get("pull_slices", 0.0)), 0.01,
-                key=f"{key_prefix}_pie_pull_{uid}",
+                "Pull slices", 0.0, 0.3,
+                float(opts.get("pull_slices", 0)), 0.02,
+                key=f"{key_prefix}_pull_{uid}",
             )
             opts["pie_rotation"] = st.slider(
-                "First-slice rotation °", 0, 359,
-                int(opts.get("pie_rotation", 0)),
-                key=f"{key_prefix}_pie_rot_{uid}",
+                "Rotation", 0, 360,
+                int(opts.get("pie_rotation", 0)), 5,
+                key=f"{key_prefix}_rotation_{uid}",
             )
-            pie_dirs = ["clockwise", "counterclockwise"]
             opts["pie_direction"] = st.selectbox(
-                "Slice direction", pie_dirs,
-                index=_option_index(pie_dirs, opts.get("pie_direction", "clockwise"), "clockwise"),
-                key=f"{key_prefix}_pie_dir_{uid}",
-            )
-            st.markdown("**Data label styling**")
-            _current_pie_label_color = str(opts.get("pie_label_color", "#f1f5f9"))
-            if _current_pie_label_color.lower() in ("auto", ""):
-                _current_pie_label_color = "#f1f5f9"
-            opts["pie_label_color"] = st.color_picker(
-                "Label colour",
-                value=_current_pie_label_color,
-                key=f"{key_prefix}_pie_label_color_{uid}",
-            )
-            opts["pie_label_size"] = st.slider(
-                "Label size", 8, 20, int(opts.get("pie_label_size", 11)),
-                key=f"{key_prefix}_pie_label_sz_{uid}",
+                "Direction",
+                ["clockwise", "counterclockwise"],
+                index=_option_index(
+                    ["clockwise", "counterclockwise"],
+                    opts.get("pie_direction", "clockwise"), "clockwise"
+                ),
+                key=f"{key_prefix}_direction_{uid}",
             )
 
 
-        if caps["has_heatmap"] and chart_type not in ("map_plot",):
-            _has_existing_text = any(
-                getattr(t, "text", None) is not None
-                for t in getattr(fig, "data", [])
-                if str(getattr(t, "type", "")).lower() == "heatmap"
+        if caps["has_heatmap"]:
+            opts["heatmap_colorscale"] = st.selectbox(
+                "Colorscale",
+                COLORSCALES_ALL,
+                index=_option_index(
+                    COLORSCALES_ALL,
+                    opts.get("heatmap_colorscale", "RdBu"), "RdBu"
+                ),
+                key=f"{key_prefix}_colorscale_{uid}",
             )
-            _heatmap_checkbox_disabled = (
-                False if chart_type in ("correlation", "matrix_heatmap")
-                else (not _has_existing_text and not opts.get("heatmap_show_text"))
-            )
+            cs1, cs2 = st.columns(2)
+            with cs1:
+                opts["colorbar_zmin"] = st.text_input(
+                    "Min value", value=str(opts.get("colorbar_zmin", "")),
+                    placeholder="Auto", key=f"{key_prefix}_zmin_{uid}",
+                )
+            with cs2:
+                opts["colorbar_zmax"] = st.text_input(
+                    "Max value", value=str(opts.get("colorbar_zmax", "")),
+                    placeholder="Auto", key=f"{key_prefix}_zmax_{uid}",
+                )
             opts["heatmap_show_text"] = st.checkbox(
                 "Show cell values",
-                value=bool(opts.get("heatmap_show_text", _has_existing_text)),
-                key=f"{key_prefix}_heatmap_txt_{uid}",
-                disabled=_heatmap_checkbox_disabled,
+                value=opts.get("heatmap_show_text", True),
+                key=f"{key_prefix}_heatmap_text_{uid}",
             )
-            _text_active = bool(opts.get("heatmap_show_text", _has_existing_text))
-            opts["heatmap_annotation_precision"] = st.slider(
-                "Value decimal places", 0, 4,
-                int(opts.get("heatmap_annotation_precision", 2)),
-                key=f"{key_prefix}_heatmap_prec_{uid}",
-                disabled=not _text_active,
-            )
-            opts["heatmap_annotation_size"] = st.slider(
-                "Cell text size", 7, 18,
-                int(opts.get("heatmap_annotation_size", 10)),
-                key=f"{key_prefix}_heatmap_ann_sz_{uid}",
-                disabled=not _text_active,
-            )
-            ann_color_opts   = ["auto", "light", "dark"]
-            ann_color_labels = {"auto": "Auto (white)", "light": "Force light", "dark": "Force dark"}
-            opts["heatmap_annotation_color"] = st.selectbox(
-                "Annotation colour", ann_color_opts,
-                index=_option_index(ann_color_opts, opts.get("heatmap_annotation_color", "auto"), "auto"),
-                format_func=lambda x: ann_color_labels.get(x, x),
-                key=f"{key_prefix}_heatmap_ann_col_{uid}",
-                disabled=not _text_active,
-            )
-        if chart_type in ("matrix_heatmap", "correlation", "map_plot"):
-            opts["colorbar_tick_size"] = st.slider(
-                "Colorbar tick size", 8, 16,
-                int(opts.get("colorbar_tick_size", 10)),
-                key=f"{key_prefix}_cb_tick_sz_{uid}",
-            )
-            opts["colorbar_tick_color"] = st.color_picker(
-                "Colorbar tick colour",
-                value=str(opts.get("colorbar_tick_color", "#94a3b8")),
-                key=f"{key_prefix}_cb_tick_col_{uid}",
-            )
-            opts["colorbar_title_size"] = st.slider(
-                "Colorbar title size", 8, 16,
-                int(opts.get("colorbar_title_size", 11)),
-                key=f"{key_prefix}_cb_title_sz_{uid}",
-            )
-            opts["colorbar_title_color"] = st.color_picker(
-                "Colorbar title colour",
-                value=str(opts.get("colorbar_title_color", "#cbd5e1")),
-                key=f"{key_prefix}_cb_title_col_{uid}",
-            )
-            opts["colorbar_font_family"] = font_select(
-                "Colorbar font family",
-                default=opts.get("colorbar_font_family", "Inter"),
-                key=f"{key_prefix}_cb_family_{uid}",
-            )
-
-
-        if caps["has_table"]:
-            opts["table_show_borders"] = st.checkbox(
-                "Show cell borders",
-                value=bool(opts.get("table_show_borders", True)),
-                key=f"{key_prefix}_table_borders_{uid}",
-            )
-            opts["table_gradient_cells"] = st.checkbox(
-                "Conditional cell gradient",
-                value=bool(opts.get("table_gradient_cells", True)),
-                key=f"{key_prefix}_table_grad_{uid}",
-            )
-
-
-    legend_inputs    = {}
-    new_legend_title = meta.get("legend_title", "")
-    trace_names, seen = [], set()
-    for trace in getattr(fig, "data", []):
-        raw = getattr(trace, "name", None)
-        if raw is not None and str(raw) not in seen:
-            seen.add(str(raw))
-            trace_names.append(str(raw))
-
-
-    if len(trace_names) > 1:
-        st.markdown("**Legend labels**")
-        new_legend_title = st.text_input(
-            "Legend Title", value=meta.get("legend_title", ""),
-            key=f"{key_prefix}_legend_title_{uid}",
-        )
-        saved_legend = meta.get("legend_names", {})
-        cols = st.columns(min(len(trace_names), 3))
-        for i, name in enumerate(trace_names):
-            with cols[i % len(cols)]:
-                legend_inputs[name] = st.text_input(
-                    f"Label for: {name}", value=saved_legend.get(name, ""),
-                    placeholder=name, key=f"{key_prefix}_legend_{uid}_{i}",
+            if opts["heatmap_show_text"]:
+                opts["heatmap_annotation_size"] = st.slider(
+                    "Annotation size", 8, 18,
+                    int(opts.get("heatmap_annotation_size", 10)), 1,
+                    key=f"{key_prefix}_ann_size_{uid}",
+                )
+                opts["heatmap_annotation_precision"] = st.slider(
+                    "Decimal places", 0, 4,
+                    int(opts.get("heatmap_annotation_precision", 2)), 1,
+                    key=f"{key_prefix}_ann_prec_{uid}",
+                )
+                opts["heatmap_annotation_color"] = st.selectbox(
+                    "Annotation colour",
+                    ["auto", "light", "dark"],
+                    index=_option_index(
+                        ["auto", "light", "dark"],
+                        opts.get("heatmap_annotation_color", "auto"), "auto"
+                    ),
+                    key=f"{key_prefix}_ann_color_{uid}",
                 )
 
 
-    if chart_type != "map_plot":
-        show_ai = st.checkbox(
-            "Show auto-insights in export",
-            value=meta.get("show_auto_insights", True),
-            key=f"{key_prefix}_show_ai_{uid}",
-        )
-    else:
-        show_ai = False
-    hidden     = set(meta.get("hidden_insights", []))
-    new_hidden = set()
-    if auto_insights and show_ai:
-        st.markdown("**Insights included in export**")
-        for i, ins in enumerate(auto_insights):
-            label = clean_insight_text(ins)
-            if not st.checkbox(
-                label[:80] + ("..." if len(label) > 80 else ""),
-                value=i not in hidden,
-                key=f"{key_prefix}_ins_{uid}_{i}",
-            ):
-                new_hidden.add(i)
+        if chart_type == "correlation" or chart_type == "matrix_heatmap":
+            opts["heatmap_font_size"] = st.slider(
+                "Cell font size", 8, 14,
+                int(opts.get("heatmap_font_size", 10)), 1,
+                key=f"{key_prefix}_hm_font_sz_{uid}",
+            )
+            opts["heatmap_header_size"] = st.slider(
+                "Header font size", 8, 14,
+                int(opts.get("heatmap_header_size", 10)), 1,
+                key=f"{key_prefix}_hm_hdr_sz_{uid}",
+            )
+            opts["colorbar_title"] = st.text_input(
+                "Colorbar title", value=opts.get("colorbar_title", ""),
+                placeholder="Optional", key=f"{key_prefix}_cb_title_{uid}",
+            )
 
 
-    text_style = merge_text_style(meta.get("text_style", {}))
+        if caps["has_table"] or chart_type == "matrix_table":
+            st.markdown("**Table styling**")
+            opts["table_font_size"] = st.slider(
+                "Cell font size", 8, 16,
+                int(opts.get("table_font_size", 11)), 1,
+                key=f"{key_prefix}_t_font_sz_{uid}",
+            )
+            opts["table_header_font_size"] = st.slider(
+                "Header font size", 8, 16,
+                int(opts.get("table_header_font_size", 12)), 1,
+                key=f"{key_prefix}_t_hdr_sz_{uid}",
+            )
+            opts["table_row_height"] = st.slider(
+                "Row height", 18, 50,
+                int(opts.get("table_row_height", 26)), 2,
+                key=f"{key_prefix}_t_row_h_{uid}",
+            )
+            opts["table_header_height"] = st.slider(
+                "Header height", 18, 50,
+                int(opts.get("table_header_height", 28)), 2,
+                key=f"{key_prefix}_t_hdr_h_{uid}",
+            )
+            opts["table_font_color"] = st.color_picker(
+                "Cell text colour",
+                value=str(opts.get("table_font_color", "#f1f5f9")),
+                key=f"{key_prefix}_t_font_col_{uid}",
+            )
+            opts["table_header_color"] = st.color_picker(
+                "Header background colour",
+                value=str(opts.get("table_header_color", "#6163df")),
+                key=f"{key_prefix}_t_hdr_col_{uid}",
+            )
+            ta1, ta2 = st.columns(2)
+            with ta1:
+                opts["table_index_align"] = st.selectbox(
+                    "Index column align", ["left", "center", "right"],
+                    index=_option_index(["left", "center", "right"], opts.get("table_index_align", "left"), "left"),
+                    key=f"{key_prefix}_t_idx_align_{uid}",
+                )
+            with ta2:
+                opts["table_data_align"] = st.selectbox(
+                    "Data columns align", ["left", "center", "right"],
+                    index=_option_index(["left", "center", "right"], opts.get("table_data_align", "right"), "right"),
+                    key=f"{key_prefix}_t_data_align_{uid}",
+                )
+            opts["table_show_footer"] = st.checkbox(
+                "Show totals row",
+                value=opts.get("table_show_footer", True),
+                key=f"{key_prefix}_t_footer_{uid}",
+            )
+            opts["table_gradient_cells"] = st.checkbox(
+                "Gradient cell colours",
+                value=opts.get("table_gradient_cells", True),
+                key=f"{key_prefix}_t_gradient_{uid}",
+            )
+            opts["table_show_borders"] = st.checkbox(
+                "Show cell borders",
+                value=opts.get("table_show_borders", False),
+                key=f"{key_prefix}_t_borders_{uid}",
+            )
+            opts["table_show_row_totals"] = st.checkbox(
+                "Show row totals",
+                value=opts.get("table_show_row_totals", False),
+                key=f"{key_prefix}_t_row_totals_{uid}",
+            )
+            opts["table_stripe_even_color"] = st.color_picker(
+                "Even row colour",
+                value=str(opts.get("table_stripe_even_color", "#1e293b")),
+                key=f"{key_prefix}_t_stripe_even_{uid}",
+            )
+            opts["table_stripe_odd_color"] = st.color_picker(
+                "Odd row colour",
+                value=str(opts.get("table_stripe_odd_color", "#0f172a")),
+                key=f"{key_prefix}_t_stripe_odd_{uid}",
+            )
+            opts["table_number_format"] = st.selectbox(
+                "Number format",
+                [",.0f", ",.1f", ",.2f", ",.3f", ".0%", ".1%", ".2%"],
+                index=_option_index(
+                    [",.0f", ",.1f", ",.2f", ",.3f", ".0%", ".1%", ".2%"],
+                    opts.get("table_number_format", ",.2f"), ",.2f"
+                ),
+                key=f"{key_prefix}_t_num_fmt_{uid}",
+            )
 
 
-    return {
-        "custom_title":       nt,
-        "subtitle":           sub,
-        "x_label":            xl,
-        "y_label":            yl,
-        "show_auto_insights": show_ai,
-        "hidden_insights":    list(new_hidden),
-        "legend_title":       new_legend_title,
-        "legend_names":       {k: v for k, v in legend_inputs.items() if str(v).strip()},
-        "text_style":         text_style,
-        "display_options":    opts | {"show_legend": show_legend},
-        "colorbar_zmin":      opts.get("colorbar_zmin", ""),
-        "colorbar_zmax":      opts.get("colorbar_zmax", ""),
+        if chart_type == "map_plot":
+            opts["show_colorbar"] = st.checkbox(
+                "Show colour bar",
+                value=opts.get("show_colorbar", True),
+                key=f"{key_prefix}_map_cb_{uid}",
+            )
+            opts["colorbar_title"] = st.text_input(
+                "Colorbar title", value=opts.get("colorbar_title", ""),
+                placeholder="Optional", key=f"{key_prefix}_map_cb_title_{uid}",
+            )
+
+
+    _legend_names_raw = meta.get("legend_names", {})
+    if _legend_names_raw and isinstance(_legend_names_raw, dict) and caps["has_legend"]:
+        st.markdown("**Custom legend labels**")
+        _legend_names = dict(_legend_names_raw)
+        for tr in getattr(fig, "data", []):
+            _name = getattr(tr, "name", None)
+            if _name and str(_name).strip():
+                _new_name = st.text_input(
+                    f"Rename: {_name}",
+                    value=_legend_names.get(_name, ""),
+                    key=f"{key_prefix}_leg_name_{uid}_{_name}",
+                )
+                if _new_name.strip():
+                    _legend_names[_name] = _new_name
+                elif _name in _legend_names:
+                    del _legend_names[_name]
+        opts["legend_names"] = _legend_names
+
+
+    _show_auto_insights = bool(meta.get("show_auto_insights", True))
+    _hidden_insights = list(meta.get("hidden_insights", []) or [])
+
+
+    if auto_insights:
+        with st.expander("💡 Auto-Insights", expanded=_show_auto_insights):
+            st.caption("AI-generated observations. Hide any that don't apply.")
+            for i, insight in enumerate(auto_insights):
+                _key = f"{key_prefix}_insight_{uid}_{i}"
+                _is_hidden = insight in _hidden_insights
+                _checked = st.checkbox(insight, value=not _is_hidden, key=_key)
+                if not _checked and insight not in _hidden_insights:
+                    _hidden_insights.append(insight)
+                elif _checked and insight in _hidden_insights:
+                    _hidden_insights.remove(insight)
+    elif chart_type not in ("descriptive", "map_plot", "matrix_table", "matrix_heatmap"):
+        st.caption("No auto-insights generated for this chart.")
+
+
+    result = {
+        "custom_title": nt,
+        "subtitle": sub,
+        "x_label": xl,
+        "y_label": yl,
+        "legend_title": meta.get("legend_title", ""),
+        "legend_names": opts.get("legend_names", {}),
+        "display_options": opts,
+        "show_auto_insights": _show_auto_insights,
+        "hidden_insights": _hidden_insights,
     }
+
+
+    if show_text_style:
+        result["text_style"] = render_typography_controls(
+            uid, fig, chart_type, meta, key_prefix=key_prefix,
+        )
+
+
+    return result

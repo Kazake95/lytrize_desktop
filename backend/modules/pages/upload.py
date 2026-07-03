@@ -106,8 +106,8 @@ def page_upload():
 
 
     uploaded = st.file_uploader(
-        "CSV or Excel (single or multi-sheet) — up to 500 MB",
-        type=["csv", "xlsx", "xls"],
+        "CSV or Excel (single or multi-sheet) — up to 400 MB",
+        type=["csv", "xlsx"],
         key="main_file_uploader",
     )
 

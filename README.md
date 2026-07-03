@@ -6,8 +6,8 @@
 
 Upload a CSV or Excel file and get interactive charts, dashboards, and insights in seconds. Everything stays on your device.
 
-[![Platform](https://img.shields.io/badge/platform-Linux%20(amd64)-blue?style=flat-square)](https://github.com/Kazake95/lytrize_desktop)
-[![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
+[![Platform](https://img.shields.io/badge/platform-Linux%20\(amd64\)-blue?style=flat-square)](https://github.com/Kazake95/lytrize_desktop)
+[![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square\&logo=python\&logoColor=white)](https://python.org)
 
 </div>
 
@@ -31,33 +31,37 @@ Built for people who work with data regularly and want answers fast, without ope
 
 ## Current Features
 
-| | |
-|---|---|
-| **📂 CSV & Excel support** | Upload `.csv`, `.xlsx`, or `.xls` files up to 400 MB |
-| **📊 10 chart types** | Bar, pie/donut, scatter, histogram, time series, correlation heatmap, matrix/pivot, geographic map, outlier, and data quality |
-| **🔍 Auto insights** | Automated plain-language observations generated for every chart |
-| **🗂️ Dashboard builder** | Arrange charts in a portrait or landscape grid, add KPI summary cards, set a title, and save |
-| **📤 Export** | Download as a self-contained HTML file (no server dependency) — then use your browser's DevTools to save as PNG |
-| **🧹 Data tools** | Column rename, type cast, outlier flagging, and missing-value handling before analysis |
-| **💾 Session saving** | Analyses and dashboards persist locally — pick up exactly where you left off after a restart |
-| **🔄 Auto-save** | Every meaningful action writes an in-progress draft so nothing is lost to an accidental close |
-| **🔒 Fully offline** | No telemetry, no analytics, no outbound network requests |
+|                            |                                                                                                                               |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| **📂 CSV & Excel support** | Upload `.csv` or `.xlsx` files up to **400 MB**                                                                               |
+| **📊 10 chart types**      | Bar, pie/donut, scatter, histogram, time series, correlation heatmap, matrix/pivot, geographic map, outlier, and data quality |
+| **🔍 Auto insights**       | Automated plain-language observations generated for every chart                                                               |
+| **🗂️ Dashboard builder**  | Arrange charts in a portrait or landscape grid, add KPI summary cards, set a title, and save                                  |
+| **📤 Export**              | Download as a self-contained HTML file (no server dependency) — then use your browser's DevTools to save as PNG               |
+| **🧹 Data tools**          | Column rename, type cast, outlier flagging, and missing-value handling before analysis                                        |
+| **💾 Session saving**      | Analyses and dashboards persist locally — pick up exactly where you left off after a restart                                  |
+| **🔄 Auto-save**           | Every meaningful action writes an in-progress draft so nothing is lost to an accidental close                                 |
+| **🔒 Fully offline**       | No telemetry, no analytics, no outbound network requests                                                                      |
+
 
 ## Upcoming Features
-| | |
-|---|---|
-| **Chrome Extension** | To download dashboard html file as full page png file |
+
+| Feature | Description |
+|---------|-------------|
+| **🖼️ Full-page PNG Export** | Dedicated Chrome extension for capturing the exported dashboard HTML as a full-page PNG image. |
+| **☀️ Complete Light Mode** | A fully polished light theme with consistent styling across every page, component, chart, and dialog. |
+
 
 ---
 
 ## System requirements
 
-- **OS:** Linux (Ubuntu 20.04 LTS or later; any modern Debian-based or RPM-based distro)
-- **Architecture:** amd64 (64-bit)
-- **Python:** 3.11 or later (bundled in the installed package — no separate install needed)
-- **Browser:** Any installed browser — Chrome, Chromium, Firefox, Brave, or Edge — to view the app and export PNGs
-- **Disk:** ~400 MB installed (includes a self-contained Python virtual environment)
-- **RAM:** 2 GB minimum; 4 GB or more recommended for files over 100 MB
+* **OS:** Linux (Ubuntu 20.04 LTS or later; any modern Debian-based or RPM-based distro)
+* **Architecture:** amd64 (64-bit)
+* **Python:** 3.11 or later is required to build from source. Packaged installs use an isolated virtual environment and the system Python on the target Linux machine.
+* **Browser:** Any installed browser — Chrome, Chromium, Firefox, Brave, or Edge — to view the app and export PNGs
+* **Disk:** ~400 MB installed (includes a self-contained Python virtual environment)
+* **RAM:** 2 GB minimum; 4 GB or more recommended for files over 100 MB
 
 ---
 
@@ -120,14 +124,14 @@ Your session saves automatically as you work. Use **Save Session** to lock in a 
 
 Everything lives on your machine:
 
-| What | Where |
-|------|-------|
-| Sessions, charts, KPIs | `~/.local/share/lytrize/lytrize.db` (SQLite) |
-| Active DataFrame (in-session) | `$XDG_RUNTIME_DIR/lytrize/df_<id>.parquet` (RAM-backed tmpfs; cleared on reboot) |
-| Launcher preferences | `~/.local/share/lytrize/launcher_prefs.json` |
-| Backend log | `~/.local/share/lytrize/streamlit.log` (overwritten on each launch) |
+| What                          | Where                                                                                                         |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Sessions, charts, KPIs        | `~/.local/share/lytrize/lytrize.db` (SQLite)                                                                  |
+| Active DataFrame (in-session) | `$XDG_RUNTIME_DIR/lytrize/df_<id>.parquet` (RAM-backed tmpfs if available; falls back to `~/.cache/lytrize/`) |
+| Launcher preferences          | `~/.local/share/lytrize/launcher_prefs.json`                                                                  |
+| Backend log                   | Streamlit writes to stderr by default; check terminal output or redirect to a file                            |
 
-The parquet snapshot is used to restore your loaded dataset after a browser tab refresh. It is not persisted across reboots — if the app restarts after a reboot and your file is gone, you will be prompted to re-upload.
+The parquet snapshot is used to restore your loaded dataset after a browser tab refresh. It is not persisted across reboots if stored on tmpfs — if the app restarts after a reboot and your file is gone, you will be prompted to re-upload.
 
 ---
 
@@ -149,21 +153,22 @@ rm -rf ~/.local/share/lytrize
 ## Troubleshooting
 
 **The app does not start**
-Run `lytrize` from a terminal to see live output. A launch log is also written to `~/.local/share/lytrize/streamlit.log` on every start — check that first.
+Run `lytrize` from a terminal to see live output. Check the terminal for Python tracebacks.
 
 **Missing dependencies after install**
 Run `sudo apt-get install -f` (Debian/Ubuntu) or `sudo dnf install -f` (Fedora/RHEL) then try again.
 
 **Downloading as PNG / image**
 The app exports a standalone HTML file. To save that page as a PNG, use your browser's built-in screenshot tools:
-- **Chrome/Edge/Opera/Brave:** Open DevTools (`Ctrl+Shift+I`), then `Ctrl+Shift+P`, type "screenshot", choose **Capture full size screenshot**
-- **Firefox/LibreWolf:** `Ctrl+Shift+S` (or right-click → *Take Screenshot*)
+
+* **Chrome/Edge/Opera/Brave:** Open DevTools (`Ctrl+Shift+I`), then `Ctrl+Shift+P`, type "screenshot", choose **Capture full size screenshot**
+* **Firefox/LibreWolf:** `Ctrl+Shift+S` (or right-click → *Take Screenshot*)
 
 **The browser does not open automatically**
 If no supported browser is detected, copy `http://127.0.0.1:8501` into any browser while the launcher window shows "Running".
 
 **Something looks broken**
-Check `~/.local/share/lytrize/streamlit.log` for Python tracebacks. If the issue is reproducible, open an issue and attach the log.
+Check the terminal output for Python tracebacks. If the issue is reproducible, open an issue and attach the log.
 
 ---
 

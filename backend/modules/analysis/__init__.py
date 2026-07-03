@@ -16,6 +16,7 @@ from modules.analysis.outlier       import run_outlier, OUTLIER_HELP
 from modules.analysis.scatter_plot  import run_scatter_plot
 from modules.analysis.matrix_table  import run_matrix_table
 from modules.analysis.map_plot      import run_map_plot
+from modules.analysis.data_quality  import run_data_quality
 from modules.analysis.insights      import generate_insights
 
 
@@ -48,6 +49,7 @@ _RUNNERS = {
     "scatter_plot": run_scatter_plot,
     "matrix_table": run_matrix_table,
     "map_plot":     run_map_plot,
+    "data_quality": run_data_quality,
 }
 
 
@@ -131,7 +133,7 @@ def _single_choice_value(value, default=None):
 
 
 def render_config_panel_scoped(uid: str, aid: str, df) -> None:
-    """Same as render_config_panel() but every widget key is scoped to `uid` so"""
+    """Render configuration panel with uid-scoped widget keys for regenerate."""
     num, cat, dt, all_cols = _num_cols(), _cat_cols(), _dt_cols(), df.columns.tolist()
     NONE = "None"
     sk = lambda key: _sk_uid(uid, aid, key)
@@ -295,7 +297,7 @@ def render_config_panel_scoped(uid: str, aid: str, df) -> None:
 
 
 def _collect_kwargs_scoped(uid: str, aid: str, df) -> dict:
-    """Same as _collect_kwargs() but reads from uid-scoped widget keys."""
+    """Collect widget kwargs from uid-scoped keys for regenerate."""
     num, cat, dt, all_cols = _num_cols(), _cat_cols(), _dt_cols(), df.columns.tolist()
     NONE = "None"
     g = lambda key, default=None: _g_uid(uid, aid, key, default)
@@ -774,4 +776,4 @@ def _run(aid: str, df, **kwargs):
 
     except Exception as e:
         st.error(f"Analysis error ({aid}): {e}")
-        return None
+        return []

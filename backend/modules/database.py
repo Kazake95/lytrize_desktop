@@ -105,7 +105,7 @@ def _connect():
 
 @contextmanager
 def _db():
-    """Context manager that opens a connection, commits on success, and"""
+    """Context manager that opens a connection, commits on success, and rolls back on error."""
     conn = _connect()
     try:
         yield conn
@@ -579,7 +579,7 @@ def create_token(user_id: int, username: str) -> str:
 
 
 def validate_token(token: str) -> Optional[tuple]:
-    """Validate a login token. Returns (user_id, username) if valid and"""
+    """Validate a login token. Returns (user_id, username) if valid and not expired, else None."""
     if not token:
         return None
 

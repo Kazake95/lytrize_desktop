@@ -16,17 +16,11 @@ def run_statistical(df, x_cols=None, y_cols=None, palette=None, **kwargs):
     pal = palette or COLORS
 
     if grp and grp in df.columns:
-        # With Group by: 
-        # - If single metric: ONE chart with x=group values, grouped bars=Mean/Min/Max/Std
-        # - If multiple metrics: ONE chart per metric with x=group values, grouped bars=Mean/Min/Max/Std
-        
         if len(num) == 1:
-            # Single metric: One chart with group values on x-axis, 4 bars per group (Mean/Min/Max/Std)
             metric = num[0]
             stats = df.groupby(grp)[metric].agg(['mean', 'min', 'max', 'std']).reset_index()
             stats.columns = [grp, 'Mean', 'Min', 'Max', 'Std Dev']
             
-            # Melt for grouped bar chart
             stats_melted = stats.melt(id_vars=[grp], value_vars=['Mean', 'Min', 'Max', 'Std Dev'],
                                       var_name='Statistic', value_name='Value')
             
@@ -36,17 +30,17 @@ def run_statistical(df, x_cols=None, y_cols=None, palette=None, **kwargs):
                 color_discrete_sequence=pal, text_auto=".2f",
                 barmode='group')
             fig.update_layout(**chart_layout())
+            # FIX: Set value label text color to white for contrast with palette colors
+            fig.update_traces(textfont_color="white", textfont_size=11)
             apply_lytrize_standard(fig, title=f"Statistics of {metric} by {grp}",
                                    xaxis=grp, yaxis="Value",
                                    analysis_type="statistical")
             charts.append((f"Statistics of {metric} by {grp}", fig))
         else:
-            # Multiple metrics: One chart per metric
             for metric in num:
                 stats = df.groupby(grp)[metric].agg(['mean', 'min', 'max', 'std']).reset_index()
                 stats.columns = [grp, 'Mean', 'Min', 'Max', 'Std Dev']
                 
-                # Melt for grouped bar chart
                 stats_melted = stats.melt(id_vars=[grp], value_vars=['Mean', 'Min', 'Max', 'Std Dev'],
                                           var_name='Statistic', value_name='Value')
                 
@@ -56,12 +50,13 @@ def run_statistical(df, x_cols=None, y_cols=None, palette=None, **kwargs):
                     color_discrete_sequence=pal, text_auto=".2f",
                     barmode='group')
                 fig.update_layout(**chart_layout())
+                # FIX: Set value label text color to white for contrast with palette colors
+                fig.update_traces(textfont_color="white", textfont_size=11)
                 apply_lytrize_standard(fig, title=f"Statistics of {metric} by {grp}",
                                        xaxis=grp, yaxis="Value",
                                        analysis_type="statistical")
                 charts.append((f"Statistics of {metric} by {grp}", fig))
     else:
-        # Without Group by: Create one chart with all metrics and their Mean, Min, Max, Std
         all_stats = []
         for metric in num:
             stats = df[metric].agg(['mean', 'min', 'max', 'std'])
@@ -80,6 +75,8 @@ def run_statistical(df, x_cols=None, y_cols=None, palette=None, **kwargs):
             color_discrete_sequence=pal, text_auto=".2f",
             barmode='group')
         fig.update_layout(**chart_layout())
+        # FIX: Set value label text color to white for contrast with palette colors
+        fig.update_traces(textfont_color="white", textfont_size=11)
         apply_lytrize_standard(fig, title="Statistical Summary",
                                xaxis="Column", yaxis="Value",
                                analysis_type="statistical")
