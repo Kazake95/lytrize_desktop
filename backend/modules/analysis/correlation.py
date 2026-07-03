@@ -34,8 +34,7 @@ def run_correlation(df, x_cols=None, y_cols=None, palette=None, **kwargs):
             tr.texttemplate = "%{z:.2f}"
     fig.update_layout(**chart_layout())
     apply_lytrize_standard(fig, title="Correlation Heatmap",
-                           analysis_type="correlation",
-                           axis_editing=False)
+                           analysis_type="correlation")
     charts.append(("Correlation", fig))
 
 

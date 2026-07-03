@@ -1275,6 +1275,39 @@ hr {{
 ::-webkit-scrollbar-thumb {{ background: var(--border-subtle); border-radius: 3px; }}
 ::-webkit-scrollbar-thumb:hover {{ background: var(--border-strong); }}
 
+/* Hide scrollbars on chart containers (Plotly tables, etc.) */
+.js-plotly-plot .plotly .main-svg,
+.js-plotly-plot .plotly .draglayer,
+.js-plotly-plot .plotly .subplot {{
+    overflow: hidden !important;
+}}
+
+/* Hide scrollbar on Streamlit chart containers */
+[data-testid="stPlotlyChart"] > div,
+[data-testid="stPlotlyChart"] .js-plotly-plot {{
+    overflow: hidden !important;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+}}
+[data-testid="stPlotlyChart"] > div::-webkit-scrollbar,
+[data-testid="stPlotlyChart"] .js-plotly-plot::-webkit-scrollbar {{
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+}}
+
+/* Also target the specific wrapper that contains the matrix table */
+.stPlotlyChart > div,
+.stPlotlyChart > div > div {{
+    overflow: hidden !important;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+}}
+.stPlotlyChart > div::-webkit-scrollbar,
+.stPlotlyChart > div > div::-webkit-scrollbar {{
+    display: none !important;
+}}
+
 
 /* Tooltips */
 [data-baseweb="tooltip"] {{

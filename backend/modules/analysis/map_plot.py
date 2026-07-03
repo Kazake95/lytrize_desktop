@@ -653,6 +653,8 @@ def _run_scatter_map(
             new_size_name = f"{agg}({size_col})"
             plot_df.rename(columns={size_col: new_size_name}, inplace=True)
             size_col = new_size_name
+        elif not size_col and val_col in plot_df.columns:
+            size_col = val_col
     else:
         plot_df, sampled = sample_for_plot(clean_df, n=_MAP_SAMPLE)
 
@@ -758,8 +760,8 @@ def _run_scatter_map(
     if color_is_numeric:
         fig.update_coloraxes(
             colorbar=dict(
-                title=dict(text=str(color), font=dict(color="#cbd5e1", size=11)),
-                tickfont=dict(color="#94a3b8", size=10),
+                title=dict(text=str(color), font=dict(color="#cbd5e1")),
+                tickfont=dict(color="#94a3b8"),
                 thickness=14, len=0.80,
                 bgcolor="rgba(0,0,0,0)",
                 bordercolor="rgba(0,0,0,0)",
@@ -944,8 +946,8 @@ def _run_choropleth(
     )
     fig.update_coloraxes(
         colorbar=dict(
-            title=dict(text=f"{agg_label}({value_col})", font=dict(color="#cbd5e1", size=11)),
-            tickfont=dict(color="#94a3b8", size=10),
+            title=dict(text=f"{agg_label}({value_col})", font=dict(color="#cbd5e1")),
+            tickfont=dict(color="#94a3b8"),
             thickness=14, len=0.80,
             bgcolor="rgba(0,0,0,0)",
             bordercolor="rgba(0,0,0,0)", borderwidth=0,
@@ -1032,8 +1034,8 @@ def _render_scatter_geo(
     )
     fig.update_coloraxes(
         colorbar=dict(
-            title=dict(text=f"{agg_label}({value_col})", font=dict(color="#cbd5e1", size=11)),
-            tickfont=dict(color="#94a3b8", size=10),
+            title=dict(text=f"{agg_label}({value_col})", font=dict(color="#cbd5e1")),
+            tickfont=dict(color="#94a3b8"),
             thickness=14, len=0.80,
             bgcolor="rgba(0,0,0,0)",
             bordercolor="rgba(0,0,0,0)", borderwidth=0,

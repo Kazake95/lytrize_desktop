@@ -1,16 +1,13 @@
 """modules/analysis/outlier.py -- Fast IQR outlier detection for the upload page."""
 
 
-import uuid
-import json
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 
 
-from modules.charts import chart_layout, COLORS, charts_to_json
-from modules.analysis.insights import outlier_insights
-from modules.database import log_activity, save_draft
+from modules.charts import chart_layout, COLORS
+from modules.database import log_activity
 
 
 
@@ -304,80 +301,26 @@ def run_outlier_upload(df: pd.DataFrame) -> None:
                 st.caption(f"Showing 500 of {len(out_rows):,} outlier rows.")
 
 
-            act1, act2 = st.columns(2)
-
-
-            with act1:
-                if st.button(
-                    f"🗑️ Delete all {len(out_rows):,} outlier rows in '{col}'",
-                    key=f"out_del_all_{col}",
-                ):
-                    st.session_state.df = (
-                        st.session_state.df
-                        .drop(index=out_rows.index.tolist())
-                        .reset_index(drop=True)
-                    )
-                    log_activity(
-                        st.session_state.get("user_id", 0),
-                        "outlier_delete_all",
-                        f"col={col} removed={len(out_rows)}",
-                    )
-                    st.session_state.pop("_outlier_results", None)
-                    st.success(
-                        f"✅ Removed {len(out_rows):,} rows. "
-                        f"Dataset now has {len(st.session_state.df):,} rows."
-                    )
-                    st.rerun()
-
-
-            with act2:
-                if st.button(
-                    f"📊 Add '{col}' outlier chart to dashboard",
-                    key=f"out_add_dash_{col}",
-                    help=(
-                        "Generates an IQR scatter plot and adds it to your "
-                        "chart list, ready to save to a dashboard."
-                    ),
-                ):
-                    fig   = _make_outlier_fig(df, col, info)
-                    uid   = uuid.uuid4().hex[:8]
-                    title = f"Outliers: {col}"
-
-
-                    charts = st.session_state.get("charts", [])
-                    charts.append((uid, title, fig))
-                    st.session_state.charts = charts
-
-
-                    st.session_state[f"chart_type_{uid}"]    = "outlier"
-                    st.session_state[f"desc_{uid}"]          = (
-                        f"IQR outlier analysis for '{col}'. "
-                        f"{info['out_count']} outlier(s) detected ({info['pct']}% of rows). "
-                        f"Fences: [{info['lo']:.4g}, {info['hi']:.4g}]. "
-                        f"Multiplier: k = {multiplier}."
-                    )
-                    st.session_state[f"auto_insights_{uid}"] = outlier_insights(col, info)
-                    if st.session_state.get("user_id"):
-                        save_draft(
-                            st.session_state.user_id,
-                            "dashboard",
-                            charts_to_json(st.session_state.get("charts", [])),
-                            file_name=st.session_state.get("file_name", ""),
-                            editing_session_id=st.session_state.get("editing_session_id"),
-                            editing_session_name=st.session_state.get("editing_session_name"),
-                            dashboard_title=st.session_state.get("dashboard_title", ""),
-                            kpis_json=json.dumps(st.session_state.get("kpis", [])),
-                            chart_meta_json=json.dumps(
-                                {k: v for k, v in st.session_state.items() if k.startswith("chart_meta_")}
-                            ),
-                            layout_mode=st.session_state.get("layout_mode", "portrait"),
-                        )
-                    log_activity(
-                        st.session_state.get("user_id", 0),
-                        "outlier_chart_added_to_dashboard",
-                        f"col={col}",
-                    )
-                    st.success(f"✅ '{col}' outlier chart added to the dashboard!")
+            if st.button(
+                f"🗑️ Delete all {len(out_rows):,} outlier rows in '{col}'",
+                key=f"out_del_all_{col}",
+            ):
+                st.session_state.df = (
+                    st.session_state.df
+                    .drop(index=out_rows.index.tolist())
+                    .reset_index(drop=True)
+                )
+                log_activity(
+                    st.session_state.get("user_id", 0),
+                    "outlier_delete_all",
+                    f"col={col} removed={len(out_rows)}",
+                )
+                st.session_state.pop("_outlier_results", None)
+                st.success(
+                    f"✅ Removed {len(out_rows):,} rows. "
+                    f"Dataset now has {len(st.session_state.df):,} rows."
+                )
+                st.rerun()
 
 
             st.markdown("**Delete specific rows by index:**")

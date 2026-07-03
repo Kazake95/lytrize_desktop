@@ -270,19 +270,25 @@ def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
 
 
         _ul_mode = st.session_state.get("_ul_preview_mode", "top")
-        try:
-            if _ul_mode == "bottom":
-                _prev_df = df.tail(10)
-                _lbl = "Bottom 10 rows"
-            elif _ul_mode == "random":
-                _prev_df = df.sample(min(10, _n_rows), random_state=None)
-                _lbl = "10 random rows"
-            else:
+        _cache_key = ("ul_preview", _n_rows, _n_cols, _ul_mode)
+        if st.session_state.get("_ul_preview_cache_key") != _cache_key:
+            try:
+                if _ul_mode == "bottom":
+                    _prev_df = df.tail(10)
+                    _lbl = "Bottom 10 rows"
+                elif _ul_mode == "random":
+                    _prev_df = df.sample(min(10, _n_rows), random_state=None)
+                    _lbl = "10 random rows"
+                else:
+                    _prev_df = df.head(10)
+                    _lbl = "Top 10 rows"
+            except Exception:
                 _prev_df = df.head(10)
                 _lbl = "Top 10 rows"
-        except Exception:
-            _prev_df = df.head(10)
-            _lbl = "Top 10 rows"
+            st.session_state["_ul_preview_cache"] = (_prev_df, _lbl)
+            st.session_state["_ul_preview_cache_key"] = _cache_key
+        else:
+            _prev_df, _lbl = st.session_state.get("_ul_preview_cache", (df.head(10), "Top 10 rows"))
 
 
         st.caption(f"*{_lbl}*")

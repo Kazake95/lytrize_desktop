@@ -143,12 +143,11 @@ def render_config_panel_scoped(uid: str, aid: str, df) -> None:
 
 
     if aid == "statistical":
-        c1, c2, c3 = st.columns(3)
+        c1, c2 = st.columns(2)
         with c1:
             _ensure_single_choice_state(sk("x"), [NONE] + cat, NONE)
             st.selectbox("Group by (optional)", [NONE] + cat, key=sk("x"))
         with c2: st.multiselect("Metrics", num, default=num[:4], key=sk("y"))
-        with c3: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=sk("agg"))
 
 
     elif aid == "distribution":
@@ -263,15 +262,16 @@ def render_config_panel_scoped(uid: str, aid: str, df) -> None:
             with mp4: st.selectbox("Colour by", [NONE] + cat + num, key=sk("color_col"),
                                    help="Categorical → discrete colours  ·  Numeric → palette gradient")
             mp5, mp6 = st.columns(2)
-            with mp5: st.selectbox("Size by (optional)", [NONE] + num, key=sk("size_col"))
-            with mp6: st.selectbox("Value column (aggregated in hover)", [NONE] + num, key=sk("value_col"))
+            with mp5: st.selectbox("Value column (drives colour & size)", [NONE] + num, key=sk("value_col"),
+                                   help="When location+value set, this column is aggregated and drives both colour and marker size")
+            with mp6: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=sk("agg_func"))
             mp7, mp8 = st.columns(2)
             with mp7: st.selectbox("Map style", ["carto-positron", "open-street-map", "carto-darkmatter"],
                                    key=sk("map_style"))
-            with mp8: st.selectbox("Aggregation (when location+value set)", list(_AGG_FUNCS.keys()), key=sk("agg_func"))
+            with mp8: st.slider("Marker opacity", 0.3, 1.0, 0.82, 0.05, key=sk("marker_opacity"))
             mp9, mp10 = st.columns(2)
-            with mp9:  st.slider("Marker opacity", 0.3, 1.0, 0.82, 0.05, key=sk("marker_opacity"))
-            with mp10: st.checkbox("🔄 Invert colour scale", key=sk("invert_colorscale"))
+            with mp9: st.checkbox("🔄 Invert colour scale", key=sk("invert_colorscale"))
+            with mp10: st.checkbox("Show borders", value=True, key=sk("show_borders"))
         else:
             _all_cols_str = [c for c in df.columns if df[c].dtype == object]
             _geo_default_idx = (_all_cols_str.index(_detected_geo)
@@ -310,8 +310,7 @@ def _collect_kwargs_scoped(uid: str, aid: str, df) -> dict:
 
 
     if aid == "statistical":
-        kwargs.update(x_cols=_single_choice_value(g("x", NONE), NONE), y_cols=g("y", num[:4]) or num,
-                      agg=_AGG_FUNCS.get(g("agg","Avg"), "mean"))
+        kwargs.update(x_cols=_single_choice_value(g("x", NONE), NONE), y_cols=g("y", num[:4]) or num)
     elif aid == "distribution":
         color = _single_choice_value(g("color", NONE), NONE)
         kwargs.update(x_cols=g("x", num[:4]) or num[:4], y_cols=None if color is None else [color])
@@ -397,7 +396,7 @@ def _collect_kwargs_scoped(uid: str, aid: str, df) -> dict:
             kwargs.update(
                 lat_col=_mp_r("lat_col"), lon_col=_mp_r("lon_col"),
                 location_col=_mp_r("location_col"), color_col=_mp_r("color_col"),
-                size_col=_mp_r("size_col"), value_col=_mp_r("value_col"),
+                value_col=_mp_r("value_col"),
                 agg_func=_AGG_FUNCS.get(g("agg_func", "Avg"), "mean"),
                 invert_colorscale=bool(g("invert_colorscale", False)),
                 map_style=g("map_style", "carto-positron"),
@@ -426,12 +425,11 @@ def render_config_panel(aid: str, df) -> None:
 
 
     elif aid == "statistical":
-        c1, c2, c3 = st.columns(3)
+        c1, c2 = st.columns(2)
         with c1:
             _ensure_single_choice_state(_sk(aid, "x"), [NONE] + cat, NONE)
             st.selectbox("Group by (optional)", [NONE] + cat, key=_sk(aid, "x"))
         with c2: st.multiselect("Metrics", num, default=num[:4], key=_sk(aid, "y"))
-        with c3: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=_sk(aid, "agg"))
 
 
     elif aid == "distribution":
@@ -543,16 +541,17 @@ def render_config_panel(aid: str, df) -> None:
             with mp4: st.selectbox("Colour by", [NONE] + cat + num, key=_sk(aid, "color_col"),
                                    help="Categorical → discrete colours  ·  Numeric → continuous gradient")
             mp5, mp6 = st.columns(2)
-            with mp5: st.selectbox("Size by (optional)", [NONE] + num, key=_sk(aid, "size_col"))
-            with mp6: st.selectbox("Value column (aggregated in hover)", [NONE] + num, key=_sk(aid, "value_col"))
+            with mp5: st.selectbox("Value column (drives colour & size)", [NONE] + num, key=_sk(aid, "value_col"),
+                                   help="When location+value set, this column is aggregated and drives both colour and marker size")
+            with mp6: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=_sk(aid, "agg_func"))
             mp7, mp8 = st.columns(2)
             with mp7: st.selectbox("Map style", ["carto-positron", "open-street-map", "carto-darkmatter"],
                                    key=_sk(aid, "map_style"))
-            with mp8: st.selectbox("Aggregation (when location+value set)", list(_AGG_FUNCS.keys()), key=_sk(aid, "agg_func"))
+            with mp8: st.slider("Marker opacity", 0.3, 1.0, 0.82, 0.05, key=_sk(aid, "marker_opacity"))
             mp9, mp10 = st.columns(2)
-            with mp9:  st.slider("Marker opacity", 0.3, 1.0, 0.82, 0.05, key=_sk(aid, "marker_opacity"))
-            with mp10: st.checkbox("🔄 Invert colour scale", key=_sk(aid, "invert_colorscale"),
-                                   help="Flip gradient: e.g. make high values lighter instead of darker.")
+            with mp9: st.checkbox("🔄 Invert colour scale", key=_sk(aid, "invert_colorscale"),
+                                  help="Flip gradient: e.g. make high values lighter instead of darker.")
+            with mp10: st.checkbox("Show borders", value=True, key=_sk(aid, "show_borders"))
         else:
             _all_cols_str = [c for c in df.columns if df[c].dtype == object]
             _geo_default_idx = (_all_cols_str.index(_detected_geo)
@@ -628,8 +627,7 @@ def _collect_kwargs(aid: str, df) -> dict:
     if aid == "statistical":
         x   = _single_choice_value(_g(aid, "x", NONE), NONE)
         y   = _g(aid, "y", num[:4]) or num
-        agg = _AGG_FUNCS.get(_g(aid, "agg", "Avg"), "mean")
-        kwargs.update(x_cols=None if x is None else [x], y_cols=y, agg=agg)
+        kwargs.update(x_cols=None if x is None else [x], y_cols=y)
 
 
     elif aid == "distribution":

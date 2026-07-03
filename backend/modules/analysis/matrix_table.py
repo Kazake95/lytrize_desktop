@@ -16,7 +16,6 @@ _HEX_GRADIENT     = [
 
 
 
-
 def _trim_pivot(pivot: pd.DataFrame, max_cats: int) -> pd.DataFrame:
     if pivot.shape[0] > max_cats:
         pivot = pivot.loc[pivot.abs().sum(axis=1).nlargest(max_cats).index]
@@ -73,7 +72,7 @@ def _cell_bg_gradient(val, vmin, vmax, base_dark="#0f172a", accent="#2563eb") ->
         return "#{:02x}{:02x}{:02x}".format(int(r), int(g), int(b))
     r1, g1, b1 = _hex_to_rgb(base_dark)
     r2, g2, b2 = _hex_to_rgb(accent)
-    return _rgb_to_hex(r1 + ratio * (r2 - r1), g1 + ratio * (g2 - g1), b1 + ratio * (b2 - b1))
+    return _rgb_to_hex(r1 + ratio * (r2 - r1), g1 + ratio * (g2 - g1), b1 + ratio * (b2 - g1))
 
 
 
@@ -262,7 +261,7 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
         _val_len  = max((len(str(v)) for row in z_values for v in row
                          if v is not None and not (isinstance(v, float) and np.isnan(v))),
                         default=4)
-        _data_w = min(max(_hdr_len, _val_len, 6), 24)
+        _data_w = max(_hdr_len, _val_len, 6)
         _tot_w  = max(len("Total"), _data_w)
         _VALUE_HEADER_MAP = {
             "sum":    "Overall Total",
@@ -352,9 +351,9 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
         value_header_label = _VALUE_HEADER_MAP.get(agg, f"{agg.upper()}({vals})")
 
 
-        total_header_label = "Total ▸"
-        if agg == "count":
-            total_header_label = "Count ▸"
+        total_header_label = _VALUE_HEADER_MAP.get(agg, "Total ▸")
+        if not total_header_label.endswith(" ▸"):
+            total_header_label = f"{total_header_label} ▸"
         if _show_row_totals:
             if _dedup_agg_col:
                 col_headers = ([f"<b>{idx}</b>"] + [f"<b>{h}</b>" for h in x_labels]
@@ -374,9 +373,7 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
         totals_fmt   = [_fmt_total(v) for v in col_totals]
         grand_fmt    = _fmt_total(grand_total) if _show_row_totals else ""
         if _show_row_totals:
-            footer_label = "Total"
-            if agg == "count":
-                footer_label = "Count"
+            footer_label = _VALUE_HEADER_MAP.get(agg, "Total")
             if _dedup_agg_col:
                 footer_vals  = ([[f"<b>◀ {footer_label}</b>"]] + [[v] for v in totals_fmt]
                                 + [[grand_fmt]])
@@ -438,7 +435,6 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
         _layout["margin"] = dict(l=10, r=10, t=58, b=10)
         fig.update_layout(
             **_layout,
-            width=_fig_width,
             title=dict(text=base_title, font=dict(color="#e2e8f0", size=13)),
         )
         fig._lytrize_meta = {

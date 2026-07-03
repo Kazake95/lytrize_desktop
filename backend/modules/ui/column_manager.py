@@ -121,7 +121,11 @@ def show_column_manager(df):
                 ["Date (YYYY-MM-DD)", "Year", "Quarter", "Month (Number)", "Month Name", "Week Number",
                  "Day", "Weekday Name", "Hour (12h AM/PM)", "Hour (24h)"], key="date_part_ext")
             formula_str = "date_extraction_placeholder"
-
+            st.session_state["_date_extract_params"] = {
+                "date_col": date_col,
+                "part": part_to_extract,
+                "new_col_name": new_col_name.strip(),
+            }
 
         if st.button("➕ Add Column", key="btn_add_col"):
             if not new_col_name.strip() or not formula_str:
@@ -129,7 +133,10 @@ def show_column_manager(df):
             else:
                 try:
                     if calc_type == "Extract Date/Time Part":
-                        raw = df[date_col]
+                        _params = st.session_state.get("_date_extract_params", {})
+                        _date_col = _params.get("date_col") or date_col
+                        _part = _params.get("part") or part_to_extract
+                        raw = df[_date_col]
 
 
                         def _parse_datetime_robust(series: pd.Series) -> pd.Series:
@@ -203,10 +210,14 @@ def show_column_manager(df):
                             "Hour (12h AM/PM)":  temp_dates.dt.strftime("%-I %p"),
                             "Hour (24h)":        temp_dates.dt.hour,
                         }
-                        df[new_col_name.strip()] = mapping[part_to_extract]
+                        df[new_col_name.strip()] = mapping[_part]
                     else:
                         df[new_col_name.strip()] = _safe_formula_eval(df, formula_str)
                     st.session_state.df = df
+                    if "_date_extract_params" in st.session_state:
+                        del st.session_state["_date_extract_params"]
+                    for k in ("_ul_preview_cache", "_ul_preview_cache_key"):
+                        st.session_state.pop(k, None)
                     st.success(f"✅ Added {new_col_name.strip()}")
                     st.rerun()
                 except Exception as e:
@@ -222,6 +233,8 @@ def show_column_manager(df):
             for k in ["num_cols", "cat_cols"]:
                 if k in st.session_state:
                     st.session_state[k] = [c for c in st.session_state[k] if c != col_to_del]
+            for k in ("_ul_preview_cache", "_ul_preview_cache_key"):
+                st.session_state.pop(k, None)
             st.success(f"✅ Removed {col_to_del}")
             st.rerun()
 
@@ -262,6 +275,8 @@ def show_column_manager(df):
                             col_descs[new_name_clean] = col_descs.pop(col_to_rename)
                             st.session_state["col_descriptions"] = col_descs
 
+                    for k in ("_ul_preview_cache", "_ul_preview_cache_key"):
+                        st.session_state.pop(k, None)
 
                     st.success(f"✅ Renamed '{col_to_rename}' to '{new_name_clean}'")
                     st.rerun()

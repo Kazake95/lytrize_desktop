@@ -669,7 +669,7 @@ def _render_chart_list(charts, edit_mode=False):
             _stype_for_settings = chart_type
             if chart_type == "matrix_table" and _meta_view == "heatmap":
                 _stype_for_settings = "matrix_heatmap"
-            with st.expander("⚙️ Chart Settings", expanded=True):
+            with st.expander("⚙️ Chart Settings", expanded=False):
                 updates = render_chart_settings_controls(
                     uid, title, fig, _stype_for_settings, meta, auto_insights,
                     key_prefix="analysis",
@@ -731,7 +731,11 @@ def _render_chart_list(charts, edit_mode=False):
                     if yl: fig_show.update_yaxes(title_text=yl)
 
 
-                fig_show.update_layout(title_text="")
+                _custom_title = meta.get("custom_title", "")
+                if _custom_title:
+                    fig_show.update_layout(title_text=_custom_title)
+                else:
+                    fig_show.update_layout(title_text="")
 
 
                 stored_legend    = meta.get("legend_names", {})
@@ -779,14 +783,14 @@ def _render_chart_list(charts, edit_mode=False):
             _is_table = _chart_type_now == "matrix_table" and _meta_view != "heatmap"
             if _is_table:
                 st.markdown(
-                    '<div style="max-height:540px;overflow-y:auto;overflow-x:auto;'
+                    '<div style="max-height:540px;overflow-y:auto;overflow-x:hidden;'
                     'border:1px solid rgba(100,116,139,0.2);border-radius:6px;'
                     'padding-bottom:4px;">',
                     unsafe_allow_html=True,
                 )
             st.plotly_chart(
                 fig_show,
-                use_container_width=not _is_table,
+                use_container_width=True,
                 key=f"plotly_{uid}",
                 config={
                     "responsive": True,

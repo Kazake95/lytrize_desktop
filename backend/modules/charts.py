@@ -562,8 +562,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                     )
             else:
                 insights.append(
-                    f"No outliers detected in {_named(col)} using the standard "
-                    "IQR (1.5× interquartile range) threshold. The data looks clean."
+                    f"No outliers detected in {_named(col)} — the data looks clean."
                 )
         except Exception:
             pass
@@ -707,88 +706,79 @@ def generate_chart_insights(chart_type: str, title: str, fig,
             x_col = cols_match.group(1).strip() if cols_match else "X"
             y_col = cols_match.group(2).strip() if cols_match else "Y"
 
-
-            has_ols    = False
-            has_lowess = False
-            ols_slope  = None
+            has_straight = False
+            has_smooth   = False
+            slope_val    = None
             for _t in fig.data:
                 _mode = str(getattr(_t, "mode", ""))
                 _name = str(getattr(_t, "name", "")).lower()
                 if "lines" in _mode and "markers" not in _mode:
                     if "ols" in _name or "=" in _name or "trendline" in _name:
-                        has_ols = True
+                        has_straight = True
                         _slope_m = re.search(r"y\s*=\s*([+-]?[\d.]+)x", _name)
                         if _slope_m:
-                            try: ols_slope = float(_slope_m.group(1))
+                            try: slope_val = float(_slope_m.group(1))
                             except Exception: pass
                     else:
-                        has_lowess = True
-
+                        has_smooth = True
 
             r_match = re.search(r"r\s*=\s*([+-]?\d+\.\d+)", title)
             r_val   = float(r_match.group(1)) if r_match else None
 
-
             scatter_trace = next(
                 (t for t in fig.data if "markers" in str(getattr(t, "mode", ""))), None)
-
 
             if r_val is not None:
                 strength  = "strong" if abs(r_val) >= 0.7 else "moderate" if abs(r_val) >= 0.4 else "weak"
                 direction = "positive" if r_val > 0 else "negative"
                 insights.append(
                     f"{_named(x_col)} and {_named(y_col)} show a {strength} {direction} "
-                    f"linear correlation (r = {r_val:+.3f})."
+                    f"link (relationship score: {abs(r_val):+.2f})."
                 )
                 if abs(r_val) >= 0.7:
                     insights.append(
-                        "A strong correlation suggests a predictable relationship — "
-                        "consider a regression model, but verify causality before acting."
+                        "A strong link suggests a predictable pattern — when one moves, the other usually follows. "
+                        "Check whether this is a direct cause or influenced by a third factor."
                     )
                 elif abs(r_val) >= 0.4:
                     insights.append(
-                        "A moderate correlation exists. The relationship may be real "
-                        "but is likely influenced by other variables — check for confounders."
+                        "A moderate link exists. The two variables tend to move together, "
+                        "but other factors also play a role."
                     )
                 else:
                     insights.append(
-                        "The weak linear correlation suggests these variables move largely "
-                        "independently. A non-linear pattern may still exist — the LOWESS "
-                        "trendline option can reveal curved relationships."
+                        "The link is weak — these variables move largely on their own. "
+                        "A curved or more complex pattern may still be present."
                     )
 
-
-            if has_ols:
-                if ols_slope is not None:
-                    direction_word = "increases" if ols_slope > 0 else "decreases"
+            if has_straight:
+                if slope_val is not None:
+                    direction_word = "increases" if slope_val > 0 else "decreases"
                     insights.append(
-                        f"OLS trendline: each 1-unit increase in {_named(x_col)} is associated with "
-                        f"{_named(y_col)} {direction_word}ing by {abs(ols_slope):.3g} on average."
+                        f"On average, each 1-unit increase in {_named(x_col)} is associated with "
+                        f"{_named(y_col)} {direction_word}ing by {abs(slope_val):.3g}."
                     )
                 else:
-                    insights.append("OLS (best-fit straight line) trendline fitted.")
+                    insights.append("A straight trendline is fitted, showing the overall direction.")
                 insights.append(
-                    "Points far from the OLS line are outliers or high-leverage observations."
+                    "Points far from this line are unusual cases — they may be exceptions worth checking."
                 )
 
-
-            if has_lowess:
+            if has_smooth:
                 insights.append(
-                    "LOWESS trendline fitted — it follows the local shape of the data. "
-                    "Bends in the curve indicate non-linear relationships a straight-line model would miss."
+                    "A smooth trendline is fitted, following the natural shape of the data. "
+                    "Where it bends, the relationship between the variables changes."
                 )
                 insights.append(
-                    f"Where the LOWESS curve flattens, {_named(y_col)} stops responding to {_named(x_col)} — "
+                    f"Where the smooth line flattens, {_named(y_col)} stops responding to {_named(x_col)} — "
                     "a potential saturation or threshold effect."
                 )
 
-
-            if not has_ols and not has_lowess and r_val is None:
+            if not has_straight and not has_smooth and r_val is None:
                 insights.append(
-                    f"No trendline fitted yet. Add OLS to quantify a linear relationship, "
-                    "or LOWESS to reveal curved patterns."
+                    f"No trendline fitted yet. Add a straight line to quantify the overall direction, "
+                    "or a smooth line to reveal curved patterns."
                 )
-
 
             if scatter_trace:
                 n_pts = len(getattr(scatter_trace, "x", []) or [])
@@ -800,117 +790,18 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                             "Try colouring by a category column to separate groups."
                         )
 
-
         except Exception:
             pass
-
 
         if not insights:
             insights.append(
                 f"Scatter plot generated. Explore the relationship between the "
-                "X and Y axes — add a trendline to quantify the pattern."
+                "X and Y axes — add a trendline to reveal the pattern."
             )
-
-
     elif chart_type == "map_plot" or "map:" in tl:
-        try:
-            map_trace = fig.data[0] if fig.data else None
-            if map_trace:
-                lats = _as_number_series(getattr(map_trace, "lat", []) or [])
-                lons = _as_number_series(getattr(map_trace, "lon", []) or [])
-                n_pts = len(lats)
-
-
-                if n_pts:
-                    insights.append(f"Map shows {n_pts:,} location point(s).")
-
-
-                if len(lats) >= 2:
-                    lat_spread = float(lats.max() - lats.min())
-                    lon_spread = float(lons.max() - lons.min())
-                    if lat_spread < 2 and lon_spread < 2:
-                        insights.append(
-                            "Points are geographically concentrated — zoom in "
-                            "for detailed cluster analysis."
-                        )
-                    elif lat_spread > 50 or lon_spread > 50:
-                        insights.append(
-                            "Data spans a wide geographic area — "
-                            "consider filtering by region for more focused analysis."
-                        )
-
-
-                color_col = next(
-                    (c for c in col_desc if c.lower() in tl.lower()), None)
-                if color_col and col_desc.get(color_col):
-                    insights.append(
-                        f"Colour column context — {color_col}: "
-                        f"{col_desc[color_col].strip()[:80]}"
-                    )
-        except Exception:
-            pass
-
-
+        pass  # No auto-insights for map charts
     elif chart_type in ("matrix_heatmap", "matrix_table") or "matrix" in tl:
-        try:
-            heat_trace = next(
-                (t for t in fig.data
-                 if type(t).__name__.lower() == "heatmap"), None)
-            tbl_trace  = next(
-                (t for t in fig.data
-                 if type(t).__name__.lower() == "table"), None)
-
-
-            if heat_trace:
-                z = heat_trace.z
-                if z is not None:
-                    flat = [v for row in z for v in (row or [])
-                            if v is not None and not (isinstance(v, float) and v != v)]
-                    flat_nums = _as_number_series(flat)
-                    if not flat_nums.empty:
-                        vmax = float(flat_nums.max())
-                        vmin = float(flat_nums.min())
-                        insights.append(
-                            f"Values range from {_fmt_num(vmin)} to {_fmt_num(vmax)}. "
-                            "The darkest cells show the highest aggregated values."
-                        )
-                        x_labels = _as_list(getattr(heat_trace, "x", None))
-                        y_labels = _as_list(getattr(heat_trace, "y", None))
-                        best_r, best_c, best_v = None, None, None
-                        for ri, row in enumerate(z):
-                            for ci, v in enumerate(row or []):
-                                if v is not None and not (isinstance(v, float) and v != v):
-                                    if best_v is None or float(v) > best_v:
-                                        best_r, best_c, best_v = ri, ci, float(v)
-                        if best_r is not None and x_labels and y_labels:
-                            row_lbl = str(y_labels[best_r]) if best_r < len(y_labels) else f"Row {best_r}"
-                            col_lbl = str(x_labels[best_c]) if best_c < len(x_labels) else f"Col {best_c}"
-                            insights.append(
-                                f"Hotspot: {row_lbl} × {col_lbl} = {_fmt_num(best_v)} — "
-                                "highest aggregated value in the matrix."
-                            )
-                        n_total = sum(len(row or []) for row in z)
-                        n_blank = sum(
-                            1 for row in z for v in (row or [])
-                            if v is None or (isinstance(v, float) and v != v)
-                        )
-                        if n_total and n_blank / n_total > 0.25:
-                            insights.append(
-                                f"{n_blank / n_total:.0%} of cells are empty — "
-                                "sparse combinations might need more data or broader groupings."
-                            )
-
-
-            elif tbl_trace:
-                n_rows_t = len((tbl_trace.cells.values[0] or []) if tbl_trace.cells else [])
-                insights.append(
-                    f"Pivot table shows {n_rows_t} row(s). "
-                    "Sort by column average to find the highest-performing categories."
-                )
-        except Exception:
-            pass
-
-
+        pass  # No auto-insights for matrix heatmaps/tables
     elif (chart_type == "statistical"
           or any(k in tl for k in ("mean", "std", "min", "max"))):
         try:

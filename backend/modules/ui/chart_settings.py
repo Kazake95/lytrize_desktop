@@ -398,7 +398,12 @@ def apply_chart_display_options(
                 tr.textposition = label_pos if show_labels else "none"
                 if show_labels and opts.get("value_label_color"):
                     try:
-                        tr.textfont = dict(getattr(tr, "textfont", None) or {}, color=str(opts["value_label_color"]))
+                        _vlc = str(opts["value_label_color"])
+                        tr.textfont = dict(getattr(tr, "textfont", None) or {}, color=_vlc)
+                        if hasattr(tr, "insidetextfont"):
+                            tr.insidetextfont = dict(getattr(tr, "insidetextfont", None) or {}, color=_vlc)
+                        if hasattr(tr, "outsidetextfont"):
+                            tr.outsidetextfont = dict(getattr(tr, "outsidetextfont", None) or {}, color=_vlc)
                     except Exception:
                         pass
 
@@ -871,6 +876,21 @@ def apply_chart_display_options(
     except Exception:
         return fig
 
+    # Re-apply value_label_color after all text_style processing
+    _value_label_color_to_preserve = opts.get("value_label_color")
+    if _value_label_color_to_preserve:
+        for tr in f2.data:
+            ttype = str(getattr(tr, "type", "") or "").lower()
+            if ttype == "bar":
+                try:
+                    _vlc = str(_value_label_color_to_preserve)
+                    tr.textfont = dict(getattr(tr, "textfont", None) or {}, color=_vlc)
+                    if hasattr(tr, "insidetextfont"):
+                        tr.insidetextfont = dict(getattr(tr, "insidetextfont", None) or {}, color=_vlc)
+                    if hasattr(tr, "outsidetextfont"):
+                        tr.outsidetextfont = dict(getattr(tr, "outsidetextfont", None) or {}, color=_vlc)
+                except Exception:
+                    pass
 
     return f2
 

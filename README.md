@@ -33,7 +33,7 @@ Built for people who work with data regularly and want answers fast, without ope
 
 | | |
 |---|---|
-| **📂 CSV & Excel support** | Upload `.csv`, `.xlsx`, or `.xls` files up to 500 MB |
+| **📂 CSV & Excel support** | Upload `.csv`, `.xlsx`, or `.xls` files up to 400 MB |
 | **📊 10 chart types** | Bar, pie/donut, scatter, histogram, time series, correlation heatmap, matrix/pivot, geographic map, outlier, and data quality |
 | **🔍 Auto insights** | Automated plain-language observations generated for every chart |
 | **🗂️ Dashboard builder** | Arrange charts in a portrait or landscape grid, add KPI summary cards, set a title, and save |
