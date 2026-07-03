@@ -258,6 +258,9 @@ def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
         with _pb3:
             if st.button("🎲 Random",   key="ul_prev_rand", use_container_width=True):
                 st.session_state["_ul_preview_mode"] = "random"
+                st.session_state["_ul_random_seed"] = (
+                    st.session_state.get("_ul_random_seed", 0) + 1
+                )
         with _pb4:
             _num_c = len(df.select_dtypes("number").columns)
             _cat_c = len(df.select_dtypes("object").columns)
@@ -270,7 +273,8 @@ def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
 
 
         _ul_mode = st.session_state.get("_ul_preview_mode", "top")
-        _cache_key = ("ul_preview", _n_rows, _n_cols, _ul_mode)
+        _ul_rand_seed = st.session_state.get("_ul_random_seed", 0) if _ul_mode == "random" else 0
+        _cache_key = ("ul_preview", _n_rows, _n_cols, _ul_mode, _ul_rand_seed)
         if st.session_state.get("_ul_preview_cache_key") != _cache_key:
             try:
                 if _ul_mode == "bottom":

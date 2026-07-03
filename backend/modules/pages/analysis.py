@@ -382,6 +382,9 @@ def page_analysis():
         with _pb3:
             if st.button("🎲 Random",   key="prev_rand",   use_container_width=True):
                 st.session_state["_analysis_preview_mode"] = "random"
+                st.session_state["_analysis_random_seed"] = (
+                    st.session_state.get("_analysis_random_seed", 0) + 1
+                )
         with _pb4:
             st.caption(
                 f"Showing a sample of your loaded dataset. "
