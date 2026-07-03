@@ -10,5 +10,5 @@ textColor = "#eef2ff"
 font = "sans serif"
 
 [server]
-# Enable uploads up to the 500 MB limit supported in upload.py
+# Enable uploads up to the 400 MB limit supported in upload.py
 maxUploadSize = 400

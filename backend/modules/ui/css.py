@@ -1336,8 +1336,8 @@ hr {{
     .ag-card {{ min-height: 90px; }}
 }}
 
-/* Hide file uploader hint */
-[data-testid="stFileUploaderDropzoneInstructions"] > div > small {{
+/* Hide file uploader size/type hint (Streamlit 1.58+: text is a plain text node, not <small>) */
+[data-testid="stFileUploaderDropzoneInstructions"] {{
     display: none !important;
 }}
 
