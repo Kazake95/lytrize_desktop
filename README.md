@@ -19,6 +19,12 @@ Upload a CSV or Excel file and get interactive charts, dashboards, and insights 
 
 </div>
 
+### Highlights
+
+- **Saved session backups** — create local backup files for your analyses and dashboards.
+- **Restore from JSON backups** — import any compatible JSON backup file, including backups shared by other users.
+- **Local-first workflow** — no cloud, no account, no data leaving your device.
+
 ---
 
 ## What is Lytrize?
@@ -39,6 +45,7 @@ Built for people who work with data regularly and want answers fast, without ope
 | **🗂️ Dashboard builder**  | Arrange charts in a portrait or landscape grid, add KPI summary cards, set a title, and save                                  |
 | **📤 Export**              | Download as a self-contained HTML file (no server dependency) — then use your browser's DevTools to save as PNG               |
 | **🧹 Data tools**          | Column rename, type cast, outlier flagging, and missing-value handling before analysis                                        |
+| **💾 Session backup & restore** | Save local session backups and restore any compatible JSON backup file, including backups shared by other users           |
 | **💾 Session saving**      | Analyses and dashboards persist locally — pick up exactly where you left off after a restart                                  |
 | **🔄 Auto-save**           | Every meaningful action writes an in-progress draft so nothing is lost to an accidental close                                 |
 | **🔒 Fully offline**       | No telemetry, no analytics, no outbound network requests                                                                      |
@@ -115,8 +122,8 @@ On the Analysis page, click any chart-type card — bar chart, time series, scat
 **4. Build a dashboard**
 Generated charts collect in your session. Click **Proceed to Dashboard** to arrange them, add KPI summary cards, set a title, and choose a portrait (2-column) or landscape (3-column) layout.
 
-**5. Save and export**
-Your session saves automatically as you work. Use **Save Session** to lock in a named checkpoint visible on the home screen. Use **Download HTML** to download a standalone file you can open in any browser or share with a colleague. The downloaded HTML page can be saved as PNG using your browser's DevTools screenshot feature.
+**5. Save, back up, and export**
+Your session saves automatically as you work. Use **Save Session** to lock in a named checkpoint visible on the home screen. Use **Restore Backup** to import any compatible JSON backup file from another user or from your own archive. Use **Download HTML** to download a standalone file you can open in any browser or share with a colleague. The downloaded HTML page can be saved as PNG using your browser's DevTools screenshot feature.
 
 ---
 
