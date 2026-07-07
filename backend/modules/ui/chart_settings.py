@@ -1119,7 +1119,7 @@ def render_chart_settings_controls(
             placeholder="Optional", key=f"{key_prefix}_sub_{uid}",
         )
     with b:
-        _legend_applicable = caps["has_legend"] and chart_type not in ("matrix_heatmap",)
+        _legend_applicable = caps["has_legend"] and chart_type not in ("matrix_heatmap", "distribution")
         show_legend = st.checkbox(
             "Show legend",
             value=bool(opts.get("show_legend", True)),
@@ -1220,7 +1220,9 @@ def render_chart_settings_controls(
             )
 
 
-        if caps["has_scatter"] or caps["has_line"]:
+        # Only show scatter/line value labels when there are no bar traces
+        # (bar traces have their own value labels control above, so we avoid duplicates)
+        if (caps["has_scatter"] or caps["has_line"]) and not caps["has_bar"]:
             opts["show_value_labels"] = st.checkbox(
                 "Value labels",
                 value=bool(opts.get("show_value_labels", False)),

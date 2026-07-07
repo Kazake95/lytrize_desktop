@@ -325,6 +325,13 @@ def page_analysis():
             st.caption("Adjust options below then click **Apply Changes** to replace the chart.")
 
 
+            # Sync latest generation config into the edit keys before rendering
+            # the scoped panel, so previously selected options are retained.
+            _cfg_prefix = f"_cfg_{regen_type}_"
+            for _k, _v in list(st.session_state.items()):
+                if _k.startswith(_cfg_prefix):
+                    _suffix = _k[len(_cfg_prefix):]
+                    st.session_state[f"_edit_{regen_uid}_{regen_type}_{_suffix}"] = _v
             render_config_panel_scoped(regen_uid, regen_type, df)
 
 
@@ -735,11 +742,10 @@ def _render_chart_list(charts, edit_mode=False):
                     if yl: fig_show.update_yaxes(title_text=yl)
 
 
-                _custom_title = meta.get("custom_title", "")
-                if _custom_title:
-                    fig_show.update_layout(title_text=_custom_title)
-                else:
-                    fig_show.update_layout(title_text="")
+                # In edit/preview mode, the chart title is already shown
+                # as an HTML header in the left column. Suppress the
+                # Plotly-embedded title to avoid duplicates.
+                fig_show.update_layout(title_text="")
 
 
                 stored_legend    = meta.get("legend_names", {})
