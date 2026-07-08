@@ -1112,20 +1112,10 @@ def render_chart_settings_controls(
         value=meta.get("custom_title", "") or title,
         key=f"{key_prefix}_title_{uid}",
     )
-    a, b = st.columns(2)
-    with a:
-        sub = st.text_input(
-            "Subtitle", value=meta.get("subtitle", ""),
-            placeholder="Optional", key=f"{key_prefix}_sub_{uid}",
-        )
-    with b:
-        _legend_applicable = caps["has_legend"] and chart_type not in ("matrix_heatmap", "distribution")
-        show_legend = st.checkbox(
-            "Show legend",
-            value=bool(opts.get("show_legend", True)),
-            key=f"{key_prefix}_legend_show_{uid}",
-            disabled=not _legend_applicable,
-        )
+    sub = st.text_input(
+        "Subtitle", value=meta.get("subtitle", ""),
+        placeholder="Optional", key=f"{key_prefix}_sub_{uid}",
+    )
 
 
     c, d = st.columns(2)

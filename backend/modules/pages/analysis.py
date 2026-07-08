@@ -9,6 +9,7 @@ from modules.analysis import (
     ANALYSIS_OPTIONS, _NEEDS_AXES, _NO_FORM,
     render_config_panel, _collect_kwargs, _run,
     render_config_panel_scoped, _collect_kwargs_scoped,
+    _WIDGET_SPEC, _collect_widget_state, _collect_widget_state_scoped,
 )
 from modules.analysis.descriptive import run_descriptive
 from modules.analysis.data_quality import run_data_quality
@@ -207,23 +208,32 @@ def _persist_draft(page="analysis"):
 
 def _add_charts(new_charts, active):
     col_descs = st.session_state.get("col_descriptions", {})
+    try:
+        _gen_kwargs = _collect_kwargs(active, st.session_state.get("df"))
+        _widget_state = _collect_widget_state(active)
+    except Exception:
+        _gen_kwargs = {}
+        _widget_state = {}
     for uid, title, fig in new_charts:
         st.session_state[f"chart_type_{uid}"]    = active
         st.session_state[f"auto_insights_{uid}"] = generate_chart_insights(
             active, title, fig, col_descs)
+        _edit_prefix = f"_edit_{uid}_{active}_"
+        for _k in list(st.session_state.keys()):
+            if _k.startswith(_edit_prefix):
+                del st.session_state[_k]
         _cfg_prefix = f"_cfg_{active}_"
         for _k, _v in list(st.session_state.items()):
             if _k.startswith(_cfg_prefix):
                 _suffix = _k[len(_cfg_prefix):]
                 st.session_state[f"_edit_{uid}_{active}_{_suffix}"] = _v
-        # Persist generation kwargs in chart_meta so they survive app restarts
-        # and can be restored when user clicks "Edit Chart" later.
-        try:
-            from modules.analysis import _collect_kwargs
-            _gen_kwargs = _collect_kwargs(active, st.session_state.get("df"))
-            _set_chart_meta(uid, _generation_kwargs=_gen_kwargs)
-        except Exception:
-            pass
+        # Persist generation snapshot in chart_meta so chart options can be
+        # restored later when the user clicks "Edit Chart".
+        _set_chart_meta(
+            uid,
+            _generation_kwargs=_gen_kwargs,
+            widget_state={k: _widget_state.get(k) for k in _widget_state},
+        )
     st.session_state.charts.extend(new_charts)
     st.session_state._last_analysis_type = active
     if active not in st.session_state.selected_analyses:
@@ -336,57 +346,40 @@ def page_analysis():
             # Restore original chart options into _edit_ keys so the scoped
             # panel shows the chart's saved selections instead of hardcoded defaults.
             _edit_prefix = f"_edit_{regen_uid}_{regen_type}_"
-            _has_saved_keys = any(k.startswith(_edit_prefix) for k in st.session_state)
-            if not _has_saved_keys:
+            _restore_flag = st.session_state.get("_regen_restore", False)
+            if _restore_flag:
                 meta = _chart_meta(regen_uid)
-                restored = False
-                # Priority 1: restore from persisted generation kwargs
-                gen_kwargs = meta.get("_generation_kwargs", {})
-                if isinstance(gen_kwargs, dict) and gen_kwargs:
-                    _gen_key_map = {
-                        "statistical":    {"x": "x_cols", "y": "y_cols"},
-                        "distribution":   {"x": "x_cols", "color": "y_cols"},
-                        "correlation":    {"x": "x_cols", "y": "y_cols"},
-                        "categorical":    {"x": "x_cols", "y": "y_cols", "agg": "agg", "sort": "sort_by", "top_n": "top_n", "direction": "direction", "dual_y": "dual_y_col", "dual_y_agg": "dual_y_agg"},
-                        "pie_chart":      {"x": "x_cols", "y": "y_cols", "agg": "agg", "sort": "sort_by", "top_n": "top_n"},
-                        "time_series":    {"x": "x_cols", "y": "y_cols", "date_part": "date_part", "agg": "agg", "dual_y_ts": "dual_y_col", "dual_y_agg": "dual_y_agg"},
-                        "scatter_plot":   {"x_col": "x_col", "y_col": "y_col", "color_col": "color_col", "size_col": "size_col", "trendline": "trendline"},
-                        "matrix_table":   {"index_col": "index_col", "columns_col": "columns_col", "values_col": "values_col", "agg": "agg", "view_type": "view_type", "sort_rows": "sort_rows", "top_n_rows": "top_n_rows"},
-                        "map_plot":       {"map_mode": "map_mode", "lat_col": "lat_col", "lon_col": "lon_col", "location_col": "location_col", "color_col": "color_col", "value_col": "value_col", "agg_func": "agg_func", "map_style": "map_style", "marker_opacity": "marker_opacity", "invert_colorscale": "invert_colorscale", "show_borders": "show_borders", "geo_col": "geo_col", "choropleth_colorscale": "choropleth_colorscale", "choropleth_projection": "choropleth_projection", "choropleth_scope": "choropleth_scope", "choropleth_show_borders": "choropleth_show_borders"},
-                    }
-                    _rev_map = {v: k for k, v in _gen_key_map.get(regen_type, {}).items()}
-                    for widget_key, gen_key in _rev_map.items():
-                        if gen_key in gen_kwargs:
-                            val = gen_kwargs[gen_key]
-                            if val is not None and val != "None":
-                                st.session_state[f"_edit_{regen_uid}_{regen_type}_{widget_key}"] = val
-                                restored = True
-                # Priority 2: restore from display_options
-                if not restored:
-                    opts = meta.get("display_options", {})
-                    if isinstance(opts, dict) and opts:
-                        _prefix_map = {
-                            "statistical":    ("x", "y"),
-                            "distribution":   ("x", "color"),
-                            "correlation":    ("x", "y"),
-                            "categorical":    ("x", "y", "agg", "sort", "top_n", "direction", "dual_y", "dual_y_agg"),
-                            "pie_chart":      ("x", "y", "agg", "sort", "top_n"),
-                            "time_series":    ("x", "y", "date_part", "agg", "dual_y_ts", "dual_y_agg"),
-                            "scatter_plot":   ("x_col", "y_col", "color_col", "size_col", "trendline"),
-                            "matrix_table":   ("index_col", "columns_col", "values_col", "agg", "view_type", "sort_rows", "top_n_rows"),
-                            "map_plot":       ("map_mode", "lat_col", "lon_col", "location_col", "color_col", "value_col", "agg_func", "map_style", "marker_opacity", "invert_colorscale", "show_borders", "geo_col", "choropleth_colorscale", "choropleth_projection", "choropleth_scope", "choropleth_show_borders"),
+                ws = meta.get("widget_state", {})
+                if not ws:
+                    # Backward-compat fallback: rebuild a snapshots dict from
+                    # persisted generation kwargs on old charts that predate
+                    # widget_state.
+                    ws = {}
+                    gen_kwargs = meta.get("_generation_kwargs", {})
+                    if isinstance(gen_kwargs, dict) and gen_kwargs:
+                        _compat_map = {
+                            "statistical":    [("x", "x_cols"), ("y", "y_cols"), ("palette", "palette")],
+                            "distribution":   [("x", "x_cols"), ("color", "y_cols"), ("palette", "palette")],
+                            "correlation":    [("x", "x_cols"), ("y", "y_cols"), ("palette", "palette")],
+                            "categorical":    [("x","x_cols"), ("y","y_cols"), ("agg","agg"), ("sort","sort_by"), ("top_n","top_n"), ("direction","direction"), ("dual_y","dual_y_col"), ("dual_y_agg","dual_y_agg"), ("palette","palette")],
+                            "pie_chart":      [("x","x_cols"), ("y","y_cols"), ("agg","agg"), ("sort","sort_by"), ("top_n","top_n"), ("palette","palette")],
+                            "time_series":    [("x","x_cols"), ("y","y_cols"), ("date_part","date_part"), ("agg","agg"), ("dual_y_ts","dual_y_col"), ("dual_y_agg","dual_y_agg"), ("palette","palette")],
+                            "scatter_plot":   [("x_col","x_col"), ("y_col","y_col"), ("color_col","color_col"), ("size_col","size_col"), ("trendline","trendline"), ("palette","palette")],
+                            "matrix_table":   [("index_col","index_col"), ("columns_col","columns_col"), ("values_col","values_col"), ("agg","agg"), ("view_type","view_type"), ("sort_rows","sort_rows"), ("top_n_rows","top_n_rows")],
+                            "map_plot":       [("map_mode","map_mode"), ("lat_col","lat_col"), ("lon_col","lon_col"), ("location_col","location_col"), ("color_col","color_col"), ("value_col","value_col"), ("agg_func","agg_func"), ("map_style","map_style"), ("marker_opacity","marker_opacity"), ("invert_colorscale","invert_colorscale"), ("show_borders","show_borders"), ("geo_col","geo_col"), ("choropleth_colorscale","choropleth_colorscale"), ("choropleth_projection","choropleth_projection"), ("choropleth_scope","choropleth_scope"), ("choropleth_show_borders","choropleth_show_borders")],
                         }
-                        for k in _prefix_map.get(regen_type, []):
-                            if k in opts:
-                                st.session_state[f"_edit_{regen_uid}_{regen_type}_{k}"] = opts[k]
-                        restored = True
-                # Fallback: copy from generation config panel
-                if not restored:
-                    _cfg_prefix = f"_cfg_{regen_type}_"
-                    for _k, _v in list(st.session_state.items()):
-                        if _k.startswith(_cfg_prefix):
-                            _suffix = _k[len(_cfg_prefix):]
-                            st.session_state[f"_edit_{regen_uid}_{regen_type}_{_suffix}"] = _v
+                        for widget_key, gen_key in _compat_map.get(regen_type, []):
+                            if gen_key in gen_kwargs:
+                                _v = gen_kwargs[gen_key]
+                                if _v is not None and _v != "None":
+                                    ws[widget_key] = _v
+                # Always refresh from saved chart options when explicitly
+                # entering regenerate mode, then wipe the flag so a later
+                # cancel + re-edit still re-restores from saved chart options.
+                for key, _kwarg, kind in _WIDGET_SPEC.get(regen_type, []):
+                    if key in ws and ws[key] is not None:
+                        st.session_state[f"_edit_{regen_uid}_{regen_type}_{key}"] = ws[key]
+                st.session_state.pop("_regen_restore", None)
             render_config_panel_scoped(regen_uid, regen_type, df)
 
 
@@ -410,6 +403,22 @@ def page_analysis():
                         ]
                         st.session_state.pop(f"auto_insights_{regen_uid}", None)
                         st.session_state[f"chart_type_{regen_uid}"] = regen_type
+                        # Persist the latest scoped widget state so the next
+                        # edit opens with these exact selections.
+                        try:
+                            _new_ws = _collect_widget_state_scoped(regen_uid, regen_type)
+                            _set_chart_meta(
+                                regen_uid,
+                                _generation_kwargs=_collect_kwargs_scoped(
+                                    regen_uid, regen_type, st.session_state.get("df")
+                                ),
+                                widget_state={
+                                    k: _new_ws.get(k)
+                                    for k in _WIDGET_SPEC.get(regen_type, {})
+                                },
+                            )
+                        except Exception:
+                            pass
                     st.session_state.pop("_regen_uid",  None)
                     st.session_state.pop("_regen_type", None)
                     _autosave()
@@ -697,6 +706,7 @@ def _render_chart_list(charts, edit_mode=False):
                                  help="Re-run this chart with new columns / settings"):
                         st.session_state._regen_uid  = uid
                         st.session_state._regen_type = chart_type
+                        st.session_state["_regen_restore"] = True
                         _shadow_notes_sync()
                         st.rerun()
                 else:

@@ -60,6 +60,107 @@ _NEEDS_AXES = {"statistical", "distribution", "correlation", "categorical",
 _NO_FORM = set()
 
 
+_WIDGET_SPEC = {
+    "statistical": [
+        ("x", "x_cols", "scalar"),
+        ("y", "y_cols", "list"),
+        ("palette", "palette", "palette"),
+    ],
+    "distribution": [
+        ("x", "x_cols", "list"),
+        ("color", "y_cols", "scalar"),
+        ("palette", "palette", "palette"),
+    ],
+    "correlation": [
+        ("x", "x_cols", "list"),
+        ("palette", "palette", "palette"),
+    ],
+    "categorical": [
+        ("x", "x_cols", "list"),
+        ("y", "y_cols", "list"),
+        ("agg", "agg", "scalar"),
+        ("sort", "sort_by", "scalar_map"),
+        ("top_n", "top_n", "number"),
+        ("direction", "direction", "scalar"),
+        ("dual_y", "dual_y_col", "scalar"),
+        ("dual_y_agg", "dual_y_agg", "scalar"),
+        ("palette", "palette", "palette"),
+    ],
+    "pie_chart": [
+        ("x", "x_cols", "list"),
+        ("y", "y_cols", "list"),
+        ("agg", "agg", "scalar"),
+        ("sort", "sort_by", "scalar_map"),
+        ("top_n", "top_n", "number"),
+        ("palette", "palette", "palette"),
+    ],
+    "time_series": [
+        ("x", "x_cols", "scalar"),
+        ("y", "y_cols", "list"),
+        ("date_part", "date_part", "scalar"),
+        ("agg", "agg", "scalar"),
+        ("dual_y_ts", "dual_y_col", "scalar"),
+        ("dual_y_agg", "dual_y_agg", "scalar"),
+        ("palette", "palette", "palette"),
+    ],
+    "scatter_plot": [
+        ("x_col", "x_col", "scalar"),
+        ("y_col", "y_col", "scalar"),
+        ("color_col", "color_col", "scalar"),
+        ("size_col", "size_col", "scalar"),
+        ("trendline", "trendline", "scalar"),
+        ("palette", "palette", "palette"),
+    ],
+    "matrix_table": [
+        ("index_col", "index_col", "scalar"),
+        ("columns_col", "columns_col", "scalar"),
+        ("values_col", "values_col", "scalar"),
+        ("agg", "agg", "scalar"),
+        ("view_type", "view_type", "scalar"),
+        ("sort_rows", "sort_rows", "scalar_map"),
+        ("top_n_rows", "top_n_rows", "number"),
+    ],
+    "map_plot": [
+        ("map_mode", "map_mode", "scalar"),
+        ("lat_col", "lat_col", "scalar"),
+        ("lon_col", "lon_col", "scalar"),
+        ("location_col", "location_col", "scalar"),
+        ("color_col", "color_col", "scalar"),
+        ("value_col", "value_col", "scalar"),
+        ("agg_func", "agg_func", "scalar"),
+        ("map_style", "map_style", "scalar"),
+        ("marker_opacity", "marker_opacity", "number"),
+        ("invert_colorscale", "invert_colorscale", "bool"),
+        ("show_borders", "show_borders", "bool"),
+        ("geo_col", "geo_col", "scalar"),
+        ("choropleth_colorscale", "choropleth_colorscale", "scalar"),
+        ("choropleth_projection", "choropleth_projection", "scalar"),
+        ("choropleth_scope", "choropleth_scope", "scalar"),
+        ("choropleth_show_borders", "choropleth_show_borders", "bool"),
+    ],
+}
+
+
+def _collect_widget_state(aid: str) -> dict:
+    """Capture current widget values for an analysis type."""
+    state = {}
+    for key, _kwarg, kind in _WIDGET_SPEC.get(aid, []):
+        wkey = _sk(aid, key)
+        if wkey in st.session_state:
+            state[key] = st.session_state[wkey]
+    return state
+
+
+def _collect_widget_state_scoped(uid: str, aid: str) -> dict:
+    """Capture current scoped widget values for an analysis type."""
+    state = {}
+    for key, _kwarg, kind in _WIDGET_SPEC.get(aid, []):
+        wkey = _sk_uid(uid, aid, key)
+        if wkey in st.session_state:
+            state[key] = st.session_state[wkey]
+    return state
+
+
 _AGG_FUNCS = {
     "Avg": "mean",
     "Sum":        "sum",

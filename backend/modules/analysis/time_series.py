@@ -131,12 +131,14 @@ def run_time_series(df, x_cols=None, y_cols=None, agg="mean", date_part=None,
         if dual_valid and y2_vals is not None:
             fig = make_subplots(specs=[[{"secondary_y": True}]])
             fig.add_trace(go.Scatter(
-                x=x_vals, y=y_vals, mode="lines+markers",
+                x=x_vals, y=y_vals, mode="lines+markers+text",
                 name=f"{agg_lbl} {col}",
                 line=dict(color=c_pri, width=2), marker=dict(size=5),
+                text=[f"{v:,.1f}" for v in y_vals],
+                textposition="top center",
             ), secondary_y=False)
             fig.add_trace(go.Scatter(
-                x=x_vals, y=y2_vals, mode="lines+markers",
+                x=x_vals, y=y2_vals, mode="lines+markers+text",
                 name=f"{dual_agg_lbl} {dual}",
                 line=dict(color=c_sec, width=2, dash="dash"),
                 marker=dict(size=5),

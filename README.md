@@ -47,7 +47,6 @@ Built for people who work with data regularly and want answers fast, without ope
 | **🧹 Data tools**          | Column rename, type cast, outlier flagging, and missing-value handling before analysis                                        |
 | **💾 Session backup & restore** | Save local session backups and restore any compatible JSON backup file, including backups shared by other users           |
 | **💾 Session saving**      | Analyses and dashboards persist locally — pick up exactly where you left off after a restart                                  |
-| **🔄 Auto-save**           | Every meaningful action writes an in-progress draft so nothing is lost to an accidental close                                 |
 | **🔒 Fully offline**       | No telemetry, no analytics, no outbound network requests                                                                      |
 
 
