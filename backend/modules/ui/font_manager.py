@@ -425,6 +425,9 @@ def inject_font_preview_css() -> None:
     """Inject a <style> block with font-family classes for every registered font."""
     inject_bundled_font_css()
 
+    if st.session_state.get("_lytrize_font_preview_injected"):
+        return
+
     css_rules = ""
     for entry in FONT_ENTRIES:
         cls = _css_class(entry["name"])
@@ -433,6 +436,7 @@ def inject_font_preview_css() -> None:
         f"""<style id="lytrize_font_preview_css">{css_rules}</style>""",
         unsafe_allow_html=True,
     )
+    st.session_state["_lytrize_font_preview_injected"] = True
 
 
 def font_select(label: str, default: str, key: str) -> str:

@@ -216,6 +216,14 @@ def _add_charts(new_charts, active):
             if _k.startswith(_cfg_prefix):
                 _suffix = _k[len(_cfg_prefix):]
                 st.session_state[f"_edit_{uid}_{active}_{_suffix}"] = _v
+        # Persist generation kwargs in chart_meta so they survive app restarts
+        # and can be restored when user clicks "Edit Chart" later.
+        try:
+            from modules.analysis import _collect_kwargs
+            _gen_kwargs = _collect_kwargs(active, st.session_state.get("df"))
+            _set_chart_meta(uid, _generation_kwargs=_gen_kwargs)
+        except Exception:
+            pass
     st.session_state.charts.extend(new_charts)
     st.session_state._last_analysis_type = active
     if active not in st.session_state.selected_analyses:
@@ -325,13 +333,60 @@ def page_analysis():
             st.caption("Adjust options below then click **Apply Changes** to replace the chart.")
 
 
-            # Sync latest generation config into the edit keys before rendering
-            # the scoped panel, so previously selected options are retained.
-            _cfg_prefix = f"_cfg_{regen_type}_"
-            for _k, _v in list(st.session_state.items()):
-                if _k.startswith(_cfg_prefix):
-                    _suffix = _k[len(_cfg_prefix):]
-                    st.session_state[f"_edit_{regen_uid}_{regen_type}_{_suffix}"] = _v
+            # Restore original chart options into _edit_ keys so the scoped
+            # panel shows the chart's saved selections instead of hardcoded defaults.
+            _edit_prefix = f"_edit_{regen_uid}_{regen_type}_"
+            _has_saved_keys = any(k.startswith(_edit_prefix) for k in st.session_state)
+            if not _has_saved_keys:
+                meta = _chart_meta(regen_uid)
+                restored = False
+                # Priority 1: restore from persisted generation kwargs
+                gen_kwargs = meta.get("_generation_kwargs", {})
+                if isinstance(gen_kwargs, dict) and gen_kwargs:
+                    _gen_key_map = {
+                        "statistical":    {"x": "x_cols", "y": "y_cols"},
+                        "distribution":   {"x": "x_cols", "color": "y_cols"},
+                        "correlation":    {"x": "x_cols", "y": "y_cols"},
+                        "categorical":    {"x": "x_cols", "y": "y_cols", "agg": "agg", "sort": "sort_by", "top_n": "top_n", "direction": "direction", "dual_y": "dual_y_col", "dual_y_agg": "dual_y_agg"},
+                        "pie_chart":      {"x": "x_cols", "y": "y_cols", "agg": "agg", "sort": "sort_by", "top_n": "top_n"},
+                        "time_series":    {"x": "x_cols", "y": "y_cols", "date_part": "date_part", "agg": "agg", "dual_y_ts": "dual_y_col", "dual_y_agg": "dual_y_agg"},
+                        "scatter_plot":   {"x_col": "x_col", "y_col": "y_col", "color_col": "color_col", "size_col": "size_col", "trendline": "trendline"},
+                        "matrix_table":   {"index_col": "index_col", "columns_col": "columns_col", "values_col": "values_col", "agg": "agg", "view_type": "view_type", "sort_rows": "sort_rows", "top_n_rows": "top_n_rows"},
+                        "map_plot":       {"map_mode": "map_mode", "lat_col": "lat_col", "lon_col": "lon_col", "location_col": "location_col", "color_col": "color_col", "value_col": "value_col", "agg_func": "agg_func", "map_style": "map_style", "marker_opacity": "marker_opacity", "invert_colorscale": "invert_colorscale", "show_borders": "show_borders", "geo_col": "geo_col", "choropleth_colorscale": "choropleth_colorscale", "choropleth_projection": "choropleth_projection", "choropleth_scope": "choropleth_scope", "choropleth_show_borders": "choropleth_show_borders"},
+                    }
+                    _rev_map = {v: k for k, v in _gen_key_map.get(regen_type, {}).items()}
+                    for widget_key, gen_key in _rev_map.items():
+                        if gen_key in gen_kwargs:
+                            val = gen_kwargs[gen_key]
+                            if val is not None and val != "None":
+                                st.session_state[f"_edit_{regen_uid}_{regen_type}_{widget_key}"] = val
+                                restored = True
+                # Priority 2: restore from display_options
+                if not restored:
+                    opts = meta.get("display_options", {})
+                    if isinstance(opts, dict) and opts:
+                        _prefix_map = {
+                            "statistical":    ("x", "y"),
+                            "distribution":   ("x", "color"),
+                            "correlation":    ("x", "y"),
+                            "categorical":    ("x", "y", "agg", "sort", "top_n", "direction", "dual_y", "dual_y_agg"),
+                            "pie_chart":      ("x", "y", "agg", "sort", "top_n"),
+                            "time_series":    ("x", "y", "date_part", "agg", "dual_y_ts", "dual_y_agg"),
+                            "scatter_plot":   ("x_col", "y_col", "color_col", "size_col", "trendline"),
+                            "matrix_table":   ("index_col", "columns_col", "values_col", "agg", "view_type", "sort_rows", "top_n_rows"),
+                            "map_plot":       ("map_mode", "lat_col", "lon_col", "location_col", "color_col", "value_col", "agg_func", "map_style", "marker_opacity", "invert_colorscale", "show_borders", "geo_col", "choropleth_colorscale", "choropleth_projection", "choropleth_scope", "choropleth_show_borders"),
+                        }
+                        for k in _prefix_map.get(regen_type, []):
+                            if k in opts:
+                                st.session_state[f"_edit_{regen_uid}_{regen_type}_{k}"] = opts[k]
+                        restored = True
+                # Fallback: copy from generation config panel
+                if not restored:
+                    _cfg_prefix = f"_cfg_{regen_type}_"
+                    for _k, _v in list(st.session_state.items()):
+                        if _k.startswith(_cfg_prefix):
+                            _suffix = _k[len(_cfg_prefix):]
+                            st.session_state[f"_edit_{regen_uid}_{regen_type}_{_suffix}"] = _v
             render_config_panel_scoped(regen_uid, regen_type, df)
 
 

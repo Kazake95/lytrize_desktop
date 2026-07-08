@@ -102,7 +102,7 @@ CHART_TYPE_SETTINGS: dict[str, dict[str, Any]] = {
     "correlation": {
         "has_axes": False, "has_legend": False,
         "controls": ["title", "subtitle",
-                    "heatmap_colorscale", "colorbar_range", "colorbar_title",
+                    "colorbar_range", "colorbar_title",
                     "heatmap_show_text", "heatmap_annotation_precision",
                     "heatmap_annotation_size", "heatmap_annotation_color"],
         "typography": ["family", "font_style", "header", "subtitle",
@@ -1310,7 +1310,7 @@ def render_chart_settings_controls(
             )
 
 
-        if caps["has_heatmap"]:
+        if caps["has_heatmap"] and chart_type != "correlation":
             opts["heatmap_colorscale"] = st.selectbox(
                 "Colorscale",
                 COLORSCALES_ALL,

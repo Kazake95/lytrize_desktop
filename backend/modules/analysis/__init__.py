@@ -161,9 +161,7 @@ def render_config_panel_scoped(uid: str, aid: str, df) -> None:
 
 
     elif aid == "correlation":
-        c1, c2 = st.columns(2)
-        with c1: st.multiselect("Columns", num, default=num, key=sk("x"))
-        with c2: st.multiselect("Additional (optional)", num, key=sk("y"))
+        st.multiselect("Columns", num, default=num, key=sk("x"))
 
 
     elif aid in ("categorical", "pie_chart"):
@@ -200,7 +198,7 @@ def render_config_panel_scoped(uid: str, aid: str, df) -> None:
             default_dt = dt_candidates[0] if dt_candidates else NONE
             _ensure_single_choice_state(sk("x"), [NONE] + dt_candidates, default_dt)
             st.selectbox("Date / Time column", [NONE] + dt_candidates, key=sk("x"))
-        with c2: st.multiselect("Primary metric(s)", num, default=num[:2], key=sk("y"))
+        with c2: st.selectbox("Primary metric(s)", num, index=0 if num else None, key=sk("y"))
         with c3: st.selectbox("Date grouping", list(_DATE_PARTS.keys()), key=sk("date_part"))
         with c4: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=sk("agg"))
         st.markdown("---")
@@ -317,7 +315,7 @@ def _collect_kwargs_scoped(uid: str, aid: str, df) -> dict:
         color = _single_choice_value(g("color", NONE), NONE)
         kwargs.update(x_cols=g("x", num[:4]) or num[:4], y_cols=None if color is None else [color])
     elif aid == "correlation":
-        kwargs.update(x_cols=g("x", num) or num, y_cols=g("y", []) or None)
+        kwargs.update(x_cols=g("x", num) or num)
     elif aid in ("categorical","pie_chart"):
         x = g("x",cat[:2]) or cat[:2]
         y = g("y",[]) or None
@@ -336,15 +334,15 @@ def _collect_kwargs_scoped(uid: str, aid: str, df) -> dict:
             kwargs.update(direction=direction, dual_y_col=dual_y, dual_y_agg=dual_y_agg)
     elif aid == "time_series":
         x = _single_choice_value(g("x", NONE), NONE)
-        y = g("y", num[:2]) or num[:2]
+        y = _single_choice_value(g("y", num[0] if num else NONE), num[0] if num else NONE)
         agg = _AGG_FUNCS.get(g("agg", "Avg"), "mean")
         date_part = _DATE_PARTS.get(g("date_part", "None"))
         raw_dual = g("dual_y_ts", NONE)
         dual_y = None if (not raw_dual or raw_dual == NONE) else raw_dual
-        if dual_y and dual_y in (y if isinstance(y,list) else [y]):
+        if dual_y and dual_y in ([y] if y else []):
             dual_y = None
         dual_y_agg = _AGG_FUNCS.get(g("dual_y_agg", "Avg"), "mean") if dual_y else None
-        kwargs.update(x_cols=None if x in (NONE, None, "") else [x], y_cols=y, agg=agg,
+        kwargs.update(x_cols=None if x in (NONE, None, "") else [x], y_cols=[y] if y else [], agg=agg,
                       date_part=date_part, dual_y_col=dual_y, dual_y_agg=dual_y_agg)
 
 
@@ -443,9 +441,7 @@ def render_config_panel(aid: str, df) -> None:
 
 
     elif aid == "correlation":
-        c1, c2 = st.columns(2)
-        with c1: st.multiselect("Columns", num, default=num, key=_sk(aid, "x"))
-        with c2: st.multiselect("Additional (optional)", num, key=_sk(aid, "y"))
+        st.multiselect("Columns", num, default=num, key=_sk(aid, "x"))
 
 
     elif aid in ("categorical", "pie_chart"):
@@ -584,7 +580,7 @@ def render_config_panel(aid: str, df) -> None:
             default_dt = dt_candidates[0] if dt_candidates else NONE
             _ensure_single_choice_state(_sk(aid, "x"), [NONE] + dt_candidates, default_dt)
             st.selectbox("Date / Time column", [NONE] + dt_candidates, key=_sk(aid, "x"))
-        with c2: st.multiselect("Primary metric(s)", num, default=num[:2], key=_sk(aid, "y"))
+        with c2: st.selectbox("Primary metric(s)", num, index=0, key=_sk(aid, "y"))
         with c3: st.selectbox("Date grouping", list(_DATE_PARTS.keys()), key=_sk(aid, "date_part"))
         with c4: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=_sk(aid, "agg"))
         st.markdown("---")
@@ -640,8 +636,7 @@ def _collect_kwargs(aid: str, df) -> dict:
 
     elif aid == "correlation":
         x = _g(aid, "x", num) or num
-        y = _g(aid, "y", [])
-        kwargs.update(x_cols=x, y_cols=y or None)
+        kwargs.update(x_cols=x)
 
 
     elif aid in ("categorical", "pie_chart"):
@@ -731,16 +726,16 @@ def _collect_kwargs(aid: str, df) -> dict:
 
     elif aid == "time_series":
         x         = _g(aid, "x", NONE)
-        y         = _g(aid, "y", num[:2]) or num[:2]
+        y         = _single_choice_value(_g(aid, "y", num[0] if num else NONE), num[0] if num else NONE)
         agg       = _AGG_FUNCS.get(_g(aid, "agg", "Avg"), "mean")
         date_part = _DATE_PARTS.get(_g(aid, "date_part", "None"))
         x_cols    = None if x in (NONE, None, "") else [x]
         raw_dual  = _g(aid, "dual_y_ts", NONE)
         dual_y    = None if (not raw_dual or raw_dual == NONE) else raw_dual
-        if dual_y and dual_y in (y if isinstance(y, list) else [y]):
+        if dual_y and dual_y in ([y] if y else []):
             dual_y = None
         dual_y_agg = _AGG_FUNCS.get(_g(aid, "dual_y_agg", "Avg"), "mean") if dual_y else None
-        kwargs.update(x_cols=None if x in (NONE, None, "") else [x], y_cols=y, agg=agg,
+        kwargs.update(x_cols=None if x in (NONE, None, "") else [x], y_cols=[y] if y else [], agg=agg,
                       date_part=date_part, dual_y_col=dual_y, dual_y_agg=dual_y_agg)
 
 
