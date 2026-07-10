@@ -639,260 +639,44 @@ def _set_chart_meta(uid, **kw) -> None:
 
 
 def _render_chart_list(charts, edit_mode=False):
-    """Render chart cards with full settings, insights, and notes in edit mode."""
-    col_descs = st.session_state.get("col_descriptions", {})
+    """Render chart cards with full settings, insights, and notes in edit mode.
+
+    Each card is wrapped in its own @st.fragment so interactions on one chart
+    do NOT rerun the rest of the page.  See modules/ui/chart_card.py.
+    """
+    from modules.ui.chart_card import render_chart_card
+
     for uid, title, fig in charts:
         meta = _chart_meta(uid)
 
+        # Resolve chart type; the fragment handles everything else
+        chart_type = st.session_state.get(f"chart_type_{uid}", "")
 
-        _ctype_apply   = st.session_state.get(f"chart_type_{uid}", "")
-        _meta_view     = meta.get("_matrix_view", "")
-        if not _meta_view:
-            _lytrize_l = getattr(fig, "_lytrize_meta", {}) or {}
-            _meta_view = _lytrize_l.get("matrix_view", "")
-            if _meta_view:
-                _set_chart_meta(uid, _matrix_view=_meta_view)
-                meta = st.session_state.get(f"chart_meta_{uid}", {})
+        # ------------------------------------------------------------------ #
+        # Hand off to the isolated fragment -- everything inside runs in its
+        # own rerun scope, so other charts stay frozen when this one changes.
+        # ------------------------------------------------------------------ #
+        render_chart_card(
+            uid, title, fig, chart_type, meta,
+            auto_insights=st.session_state.get(f"auto_insights_{uid}", []),
+            key_prefix="analysis",
+            edit_mode=edit_mode,
+            viewing_saved=False,
+            on_meta_changed=lambda u, k, v: _set_chart_meta(u, **{k: v}) if k != "__delete__" else None,
+        )
 
-
-        display_title = meta.get("custom_title") or title
-        df_available  = st.session_state.get("df") is not None
-        _ts          = meta.get("text_style") or {}
-        
-
-        _hdr_size   = int(st.session_state.get(f"analysis_hsize_{uid}", _ts.get("header_size", 28)))
-        _hdr_color  = str(st.session_state.get(f"analysis_hcolor_{uid}", _ts.get("header_color", "#6163df")))
-        _hdr_family = str(st.session_state.get(f"analysis_hfont_{uid}", _ts.get("header_family", "Inter, system-ui, sans-serif")))
-        _hdr_style  = str(st.session_state.get(f"analysis_hfont_style_{uid}", _ts.get("header_font_style", "Normal"))).lower()
-
-
-        _sub_size   = int(st.session_state.get(f"analysis_ssize_{uid}", _ts.get("subtitle_size", 11)))
-        _sub_color  = str(st.session_state.get(f"analysis_scolor_{uid}", _ts.get("subtitle_color", "#64748b")))
-        _sub_family = str(st.session_state.get(f"analysis_subfont_{uid}", _ts.get("subtitle_family", "Inter, system-ui, sans-serif")))
-        _sub_style  = str(st.session_state.get(f"analysis_subfont_style_{uid}", _ts.get("subtitle_font_style", "Normal"))).lower()
-
-
-        _hdr_weight = "700" if "bold" in _hdr_style or _hdr_style == "normal" else "normal"
-        _hdr_italic = "italic" if "italic" in _hdr_style else "normal"
-        _hdr_decor  = "underline" if "underline" in _hdr_style else "none"
-
-
-        _sub_weight = "bold" if "bold" in _sub_style else "normal"
-        _sub_italic = "italic" if "italic" in _sub_style else "normal"
-        _sub_decor  = "underline" if "underline" in _sub_style else "none"
-
-
-        ctrl = st.columns([9, 2, 1])
-        with ctrl[0]:
-            st.markdown(
-                f'<div style="font-size:{_hdr_size}px; font-family:\'{_hdr_family}\'; '
-                f'font-weight:{_hdr_weight}; font-style:{_hdr_italic}; text-decoration:{_hdr_decor}; '
-                f'color:{_hdr_color}; margin-bottom:0.2rem;">'
-                f'{display_title}</div>',
-                unsafe_allow_html=True)
-            if meta.get("subtitle"):
-                st.markdown(
-                    f'<div style="font-size:{_sub_size}px; font-family:\'{_sub_family}\'; '
-                    f'font-weight:{_sub_weight}; font-style:{_sub_italic}; text-decoration:{_sub_decor}; '
-                    f'color:{_sub_color}; margin-top:-4px; margin-bottom:4px;">'
-                    f'{meta["subtitle"]}</div>',
-                    unsafe_allow_html=True)
-        with ctrl[1]:
-            chart_type = st.session_state.get(f"chart_type_{uid}", "")
-            if chart_type and chart_type not in ("descriptive", "data_quality"):
-                if df_available:
-                    if st.button("🔄 Edit Chart", key=f"regen_btn_{uid}",
-                                 use_container_width=True,
-                                 help="Re-run this chart with new columns / settings"):
-                        st.session_state._regen_uid  = uid
-                        st.session_state._regen_type = chart_type
-                        st.session_state["_regen_restore"] = True
-                        _shadow_notes_sync()
-                        st.rerun()
-                else:
-                    st.button("🔄 Edit Chart", key=f"regen_btn_{uid}",
-                              use_container_width=True, disabled=True,
-                              help="Upload the original dataset first to regenerate this chart")
-        with ctrl[2]:
-            if st.button("✕", key=f"del_{uid}", help="Remove this chart"):
-                log_activity(st.session_state.get("user_id",0),"chart_deleted",f"title='{title}'")
-                st.session_state.charts = [c for c in st.session_state.charts if c[0] != uid]
-                st.session_state.pop("_regen_uid", None)
-                st.session_state.get("_notes_shadow", {}).pop(uid, None)
-                _autosave()
-                st.rerun()
-
-
-        _cache_key       = f"_fig_cache_{uid}"
-        _cache_meta_key  = f"_fig_cache_meta_{uid}"
-        _cached_fig      = st.session_state.get(_cache_key)
-        _cached_hash = st.session_state.get(_cache_meta_key, "")
-
-
-        chart_type    = st.session_state.get(f"chart_type_{uid}", "")
-        auto_insights = st.session_state.get(f"auto_insights_{uid}")
-        if auto_insights is None:
-            auto_insights = generate_chart_insights(chart_type, title, fig, col_descs)
-            st.session_state[f"auto_insights_{uid}"] = auto_insights
-
-
-        _settings_col, _chart_col = st.columns([1, 2])
-        with _settings_col:
-            st.caption(
-                "✨ **Live Preview** — changes appear instantly on the chart →",
-                unsafe_allow_html=False,
-            )
-            _stype_for_settings = chart_type
-            if chart_type == "matrix_table" and _meta_view == "heatmap":
-                _stype_for_settings = "matrix_heatmap"
-            with st.expander("⚙️ Chart Settings", expanded=False):
-                updates = render_chart_settings_controls(
-                    uid, title, fig, _stype_for_settings, meta, auto_insights,
-                    key_prefix="analysis",
-                    show_text_style=False,
-                )
-                _set_chart_meta(uid, **updates)
-                if updates.get("custom_title"):
-                    st.session_state.charts = [
-                        (c[0], updates["custom_title"] if c[0] == uid else c[1], c[2])
-                        for c in st.session_state.get("charts", [])
-                    ]
-
-
-            from modules.ui.chart_settings import render_typography_controls
-            with st.expander("🎨 Typography", expanded=False):
-                text_style = render_typography_controls(
-                    uid, fig, _stype_for_settings, meta,
-                    key_prefix="analysis",
-                )
-                _set_chart_meta(uid, text_style=text_style)
-
-
-        meta       = _chart_meta(uid)
-        _post_hash = compute_meta_hash(meta)
-
-
-        _need_rebuild = (_cached_fig is None or _cached_hash != _post_hash)
-
-
-        with _chart_col:
-            _chart_type_for_opts = _ctype_apply
-            if _ctype_apply == "matrix_table" and _meta_view == "heatmap":
-                _chart_type_for_opts = "matrix_heatmap"
-
-
-            if _need_rebuild:
-                import copy as _acopy
-                fig_show = _acopy.deepcopy(fig)
-
-
-                xl = meta.get("x_label", "")
-                yl = meta.get("y_label", "")
-                if _ctype_apply == "matrix_table":
-                    for _tr in fig_show.data:
-                        if not (hasattr(_tr, "header") and hasattr(_tr, "cells")):
-                            continue
-                        _hdr_vals = list(_tr.header.values) if _tr.header.values else []
-                        _is_footer = all(str(v).strip() in ("", "[]", "None") for v in _hdr_vals) and _hdr_vals
-                        if _is_footer:
-                            continue
-                        if xl and _hdr_vals:
-                            _hdr_vals[0] = f"<b>{xl}</b>"
-                            _tr.header.values = _hdr_vals
-                        break
-                elif _chart_type_for_opts == "matrix_heatmap":
-                    pass
-                else:
-                    if xl: fig_show.update_xaxes(title_text=xl)
-                    if yl: fig_show.update_yaxes(title_text=yl)
-
-
-                # In edit/preview mode, the chart title is already shown
-                # as an HTML header in the left column. Suppress the
-                # Plotly-embedded title to avoid duplicates.
-                fig_show.update_layout(title_text="")
-
-
-                stored_legend    = meta.get("legend_names", {})
-                stored_trace_idx = meta.get("trace_names", {})
-                for _ti, _trace in enumerate(fig_show.data):
-                    _orig = getattr(_trace, "name", None)
-                    if _orig is None:
-                        continue
-                    renamed = stored_legend.get(str(_orig)) or stored_trace_idx.get(str(_ti))
-                    if renamed:
-                        _trace.name = renamed
-
-
-                _leg_title = meta.get("legend_title", "")
-                if _leg_title:
-                    fig_show.update_layout(legend_title_text=_leg_title)
-
-
-                fig_show = apply_chart_display_options(fig_show, meta, _chart_type_for_opts, _inplace=True)
-
-
-                st.session_state[_cache_key]     = fig_show
-                st.session_state[_cache_meta_key] = _post_hash
-            else:
-                fig_show = _cached_fig
-
-
-            is_horiz = any(getattr(t, "orientation", "v") == "h"
-                           for t in fig_show.data if hasattr(t, "orientation"))
-            _skip_axis_post = (_ctype_apply == "matrix_table" and _meta_view != "heatmap")
-            if not _skip_axis_post:
-                if is_horiz:
-                    fig_show.update_yaxes(automargin=True)
-                    fig_show.update_layout(margin=dict(l=120, r=20, t=28, b=20))
-                else:
-                    fig_show.update_xaxes(tickangle=-35, automargin=True)
-                    fig_show.update_yaxes(automargin=True)
-                    fig_show.update_layout(margin=dict(l=20, r=20, t=28, b=80))
-
-
-            apply_hover_format(fig_show)
-
-
-            _chart_type_now = st.session_state.get(f"chart_type_{uid}", "")
-            _is_table = _chart_type_now == "matrix_table" and _meta_view != "heatmap"
-            if _is_table:
-                st.markdown(
-                    '<div style="max-height:540px;overflow-y:auto;overflow-x:hidden;'
-                    'border:1px solid rgba(100,116,139,0.2);border-radius:6px;'
-                    'padding-bottom:4px;">',
-                    unsafe_allow_html=True,
-                )
-            st.plotly_chart(
-                fig_show,
-                use_container_width=True,
-                key=f"plotly_{uid}",
-                config={
-                    "responsive": True,
-                    "displayModeBar": "hover",
-                    "mathjax": False,
-                },
-            )
-            if _is_table:
-                st.markdown("</div>", unsafe_allow_html=True)
-
-
-        st.markdown("---")
-        if auto_insights:
-            with st.expander("💡 Auto-Insights", expanded=False):
-                for ins in auto_insights:
-                    st.markdown(f"- {clean_insight_text(ins)}")
-
-
-        if f"desc_{uid}" not in st.session_state:
-            st.session_state[f"desc_{uid}"] = (
-                st.session_state.get("_notes_shadow", {}).get(uid, ""))
-        st.text_area(
-            "✍️ Analysis Notes (auto-saved to Dashboard)",
-            key=f"desc_{uid}",
-            on_change=_sync_one_note,
-            args=(uid,),
-            placeholder="Add your findings or observations here…")
-
+        # Actual list deletion is handled here on the next full run; a fragment
+        # cannot mutate the list it is iterating over.
+        if st.session_state.get(f"_delete_requested_{uid}"):
+            st.session_state.charts = [
+                c for c in st.session_state.get("charts", []) if c[0] != uid
+            ]
+            st.session_state.pop(f"_delete_requested_{uid}", None)
+            st.session_state.pop(f"_regen_uid", None)
+            st.session_state.get("_notes_shadow", {}).pop(uid, None)
+            log_activity(st.session_state.get("user_id", 0), "chart_deleted",
+                         f"title='{title}' (fragment)")
+            _autosave()
+            st.rerun()
 
         st.markdown("---")

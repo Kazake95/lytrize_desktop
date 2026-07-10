@@ -1,4 +1,5 @@
-"""modules/utils/session_cache.py — Per-user DataFrame parquet snapshot helpers."""
+"""modules/utils/session_cache.py — Per-user DataFrame parquet snapshot helpers +
+a lightweight Streamlit session_state-backed memo decorator for pure functions."""
 
 
 import logging
@@ -9,6 +10,33 @@ from typing import Optional
 
 import pandas as pd
 import streamlit as st
+
+
+# ---------------------------------------------------------------------------
+# Lightweight memoisation: cache by key inside st.session_state.
+# Useful for pure-ish helpers whose cost grows with chart count.
+# ---------------------------------------------------------------------------
+def session_cached(fn):
+    """Decorator that caches a function's return value in st.session_state,
+    keyed by the function name and arguments.  Callers must ensure arguments
+    are hashable (e.g. tuples, strings, ints)."""
+    _CACHE_KEY = f"_session_cache_{fn.__name__}"
+    _SIG_KEY   = f"_session_cache_sig_{fn.__name__}"
+
+    def _wrapped(*args):
+        try:
+            sig = (fn.__name__, args)
+            s = str(sig)
+            cached_sig = st.session_state.get(_SIG_KEY)
+            if cached_sig == s:
+                return st.session_state.get(_CACHE_KEY)
+            val = fn(*args)
+            st.session_state[_CACHE_KEY] = val
+            st.session_state[_SIG_KEY]   = s
+            return val
+        except Exception:
+            return fn(*args)
+    return _wrapped
 
 
 log = logging.getLogger(__name__)

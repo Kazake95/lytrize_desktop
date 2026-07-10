@@ -43,7 +43,4 @@ streamlit.log
 *.rpm
 
 # ── Temporary / scratch files ─────────────────────────────────────────────
-test_commands.txt
-Lytrize-Clip_ext.zip
-LIGHT_MODE_REMOVAL.md
-AI_CODEBASE_MAP.md
+extra

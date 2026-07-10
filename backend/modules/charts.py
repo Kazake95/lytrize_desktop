@@ -8,8 +8,104 @@ import pandas as pd
 import plotly.io as pio
 
 
+from modules.utils.session_cache import session_cached  # lightweight memo helper
+
+# ---------------------------------------------------------------------------
+# JSON-safe key sanitizer
+# ---------------------------------------------------------------------------
+def _json_safe(obj):
+    """Recursively walk obj and convert any non-JSON-safe dict keys to strings.
+
+    Plotly meta attributes can produce tuple keys (e.g. ``{(x, y): val}``),
+    which crash ``json.dumps``.  This helper guarantees every dict key in the
+    output is a ``str``, ``int``, ``float``, or ``bool`` so serialisation
+    always succeeds.
+    """
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            if not isinstance(k, (str, int, float, bool)):
+                k = str(k)
+            out[k] = _json_safe(v)
+        return out
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(i) for i in obj]
+    # Primitive types (str, int, float, bool, None) are safe as-is.
+    # Everything else is converted to a string repr for safety.
+    if obj is not None and not isinstance(obj, (str, int, float, bool)):
+        return str(obj)
+    return obj
 
 
+# ---------------------------------------------------------------------------
+# Cached charts->JSON helper (Phase 3: debounced autosave)
+# ---------------------------------------------------------------------------
+@session_cached
+def _charts_json_cached(chart_uids_tuple, notes_hash):
+    """Recompute charts_json only when the chart set or notes change."""
+    from modules.ui.chart_settings import compute_meta_hash  # local to avoid circular
+    # Rebuild the list from session_state live (charts tuple covers identity).
+    charts = st.session_state.get("charts", [])
+    # Attach fresh meta so the serialized payload is always up-to-date.
+    out = []
+    for uid, title, fig in charts:
+        meta  = _json_safe(st.session_state.get(f"chart_meta_{uid}", {}))
+        desc  = st.session_state.get(f"desc_{uid}", "")
+        auto  = st.session_state.get(f"auto_insights_{uid}", [])
+        ctype = st.session_state.get(f"chart_type_{uid}", "")
+        try:
+            out.append({
+                "uid":           uid,
+                "title":         title,
+                "fig_json":      pio.to_json(fig),
+                "desc":          desc,
+                "auto_insights": __import__("modules.charts", fromlist=["clean_insights"]).clean_insights(auto),
+                "chart_type":    ctype,
+                "meta":          meta,
+            })
+        except Exception:
+            pass
+    return json.dumps(out)
+
+
+def charts_json_cached() -> str:
+    """Return memoised charts JSON; only serialises when things actually change."""
+    charts = st.session_state.get("charts", [])
+    chart_sig = tuple(uid for uid, _, _ in charts)
+    notes_sig = hash(str(st.session_state.get("_notes_shadow", {})))
+    return _charts_json_cached(chart_sig, notes_sig)
+
+
+# ---------------------------------------------------------------------------
+# Persistent save wrappers (use the cached JSON)
+# ---------------------------------------------------------------------------
+def charts_to_json(charts: list) -> str:
+    """Serialise the active chart list to a JSON string for database storage."""
+    out = []
+    for chart in charts:
+        uid, title, fig = chart[:3]
+        desc          = st.session_state.get(f"desc_{uid}", "")
+        auto_insights = clean_insights(st.session_state.get(f"auto_insights_{uid}", []))
+        chart_type    = st.session_state.get(f"chart_type_{uid}", "")
+        meta          = _json_safe(st.session_state.get(f"chart_meta_{uid}", {}))
+        try:
+            out.append({
+                "uid":           uid,
+                "title":         title,
+                "fig_json":      pio.to_json(fig),
+                "desc":          desc,
+                "auto_insights": auto_insights,
+                "chart_type":    chart_type,
+                "meta":          meta,
+            })
+        except Exception:
+            pass
+    return json.dumps(out)
+
+
+# ---------------------------------------------------------------------------
+# Existing utilities (unchanged)
+# ---------------------------------------------------------------------------
 COLORS = ["#6163df", "#8566fc", "#3390c8", "#f59e0b",
           "#ef4444", "#10b981", "#ec4899", "#f97316"]
 
@@ -22,92 +118,62 @@ PALETTES = {
         "#6163df", "#8566fc", "#3390c8", "#f59e0b",
         "#ef4444", "#10b981", "#ec4899", "#f97316"
     ],
-
-
     "🌈 Vibrant": [
         "#e63946", "#f4a261", "#2a9d8f", "#457b9d",
         "#e9c46a", "#264653", "#a8dadc", "#f1faee"
     ],
-
-
     "🍃 Nature Green": [
         "#2d6a4f", "#40916c", "#52b788", "#74c69d",
         "#95d5b2", "#b7e4c7", "#d8f3dc", "#1b4332"
     ],
-
-
     "🌅 Warm Sunset": [
         "#e76f51", "#f4a261", "#e9c46a", "#264653",
         "#2a9d8f", "#e63946", "#f1faee", "#457b9d"
     ],
-
-
     "🩷 Pink & Coral": [
         "#ff6b6b", "#feca57", "#48dbfb", "#ff9ff3",
         "#54a0ff", "#5f27cd", "#01abc6", "#ff9f43"
     ],
-
-
     "🌊 Ocean Blues": [
         "#03045e", "#0077b6", "#00b4d8", "#90e0ef",
         "#caf0f8", "#023e8a", "#0096c7", "#ade8f4"
     ],
-
-
     "🟣 Monochrome Purple": [
         "#3c096c", "#5a189a", "#7b2fbe", "#9d4edd",
         "#c77dff", "#e0aaff", "#240046", "#10002b"
     ],
-
-
     "🔆 Pastel Light": [
         "#ffadad", "#ffd6a5", "#fdffb6", "#caffbf",
         "#9bf6ff", "#a0c4ff", "#bdb2ff", "#ffc6ff"
     ],
-
-
     "✨ Neo Mint": [
         "#14b8a6", "#06b6d4", "#22c55e", "#a3e635",
         "#f59e0b", "#fb7185", "#818cf8", "#0f766e"
     ],
-
-
     "⚡ Tech Neon": [
         "#00d1ff", "#7c3aed", "#22c55e", "#f97316",
         "#eab308", "#ec4899", "#38bdf8", "#1d4ed8"
     ],
-
-
     "🏙️ Urban Slate": [
         "#0f172a", "#334155", "#475569", "#14b8a6",
         "#3b82f6", "#8b5cf6", "#f59e0b", "#f43f5e"
     ],
-
-
     "🌇 Sunset Pro": [
         "#f97316", "#fb7185", "#f59e0b", "#7c3aed",
         "#2563eb", "#14b8a6", "#e11d48", "#0f172a"
     ],
-
-
     "🌌 Aurora Glow": [
         "#22c55e", "#06b6d4", "#3b82f6", "#8b5cf6",
         "#ec4899", "#f43f5e", "#f59e0b", "#14b8a6"
     ],
-
-
     "💼 Luxe Indigo": [
         "#1e3a8a", "#4338ca", "#6366f1", "#0f766e",
         "#14b8a6", "#d97706", "#db2777", "#334155"
     ],
-
-
     "🍊 Tropical Punch": [
         "#f97316", "#f43f5e", "#22c55e", "#06b6d4",
         "#3b82f6", "#a855f7", "#eab308", "#14b8a6"
     ],
-
-
     "🎯 Executive Accent": [
         "#1d4ed8", "#0f766e", "#7c3aed", "#d97706",
         "#be123c", "#2563eb", "#059669", "#334155"
@@ -115,8 +181,9 @@ PALETTES = {
 }
 
 
-
-
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 def chart_layout(height: int | None = None) -> dict:
     """Return a dict of Plotly layout kwargs used by every chart in Lytrize."""
     layout = dict(
@@ -140,8 +207,6 @@ def chart_layout(height: int | None = None) -> dict:
     return layout
 
 
-
-
 def apply_hover_format(fig) -> None:
     """Apply K/M/B-formatted hovertemplates to every trace in a Plotly figure."""
     for trace in fig.data:
@@ -149,9 +214,7 @@ def apply_hover_format(fig) -> None:
         if "customdata" in existing:
             continue
 
-
         ttype = type(trace).__name__.lower()
-
 
         if ttype == "bar":
             orient = getattr(trace, "orientation", "v") or "v"
@@ -168,7 +231,6 @@ def apply_hover_format(fig) -> None:
                     "<extra></extra>"
                 )
 
-
         elif ttype == "scatter":
             trace.hovertemplate = (
                 "<b>%{x}</b><br>"
@@ -176,14 +238,12 @@ def apply_hover_format(fig) -> None:
                 "<extra></extra>"
             )
 
-
         elif ttype == "histogram":
             trace.hovertemplate = (
                 "Range: <b>%{x}</b><br>"
                 "Count: <b>%{y:.3~s}</b>"
                 "<extra></extra>"
             )
-
 
         elif ttype in ("pie", "sunburst"):
             trace.hovertemplate = (
@@ -193,7 +253,6 @@ def apply_hover_format(fig) -> None:
                 "<extra></extra>"
             )
 
-
         elif ttype == "heatmap":
             trace.hovertemplate = (
                 "%{x} × %{y}<br>"
@@ -202,27 +261,19 @@ def apply_hover_format(fig) -> None:
             )
 
 
-
-
 def num_cols() -> list:
-    """Return the list of numeric column names confirmed by the user."""
     return st.session_state.get("num_cols", [])
 
 
 def cat_cols() -> list:
-    """Return the list of categorical column names confirmed by the user."""
     return st.session_state.get("cat_cols", [])
 
 
 def dt_cols() -> list:
-    """Return the list of date/time column names confirmed by the user."""
     return st.session_state.get("dt_cols", [])
 
 
-
-
 def clean_insight_text(text) -> str:
-    """Strip Markdown formatting from an auto-generated insight string."""
     s = str(text or "")
     s = re.sub(r"\*\*(.*?)\*\*", r"\1", s)
     s = s.replace("__", "")
@@ -230,17 +281,11 @@ def clean_insight_text(text) -> str:
     return s.strip()
 
 
-
-
 def clean_insights(insights) -> list:
-    """Clean and filter a list of raw insight strings. Removes empty entries."""
     return [s for s in (clean_insight_text(i) for i in (insights or [])) if s]
 
 
-
-
 def _fmt_num(value) -> str:
-    """Format a number as a compact, human-readable string."""
     try:
         v = float(value)
     except Exception:
@@ -256,27 +301,18 @@ def _fmt_num(value) -> str:
     return f"{v:,.2f}"
 
 
-
-
 def _fmt_pct(value) -> str:
-    """Format a float as a percentage string with sign: 0.123 → '+12.3%'."""
     try:
         return f"{float(value):+.1f}%"
     except Exception:
         return "n/a"
 
 
-
-
 def _plural(count, singular: str, plural: str = None) -> str:
-    """Return singular or plural noun based on count."""
     return singular if int(count) == 1 else (plural or f"{singular}s")
 
 
-
-
 def _fmt_label(value) -> str:
-    """Format a value as a readable label, auto-detecting datetime strings."""
     try:
         ts = pd.to_datetime(value, errors="coerce")
         if pd.notna(ts):
@@ -288,51 +324,17 @@ def _fmt_label(value) -> str:
     return str(value)
 
 
-
-
 def _as_number_series(values) -> pd.Series:
-    """Coerce any iterable of values to a numeric pd.Series, dropping non-numeric."""
     return pd.to_numeric(pd.Series(values), errors="coerce").dropna()
 
 
-
-
 def _as_list(values) -> list:
-    """Safely convert any value to a plain Python list. Returns [] on failure."""
     if values is None:
         return []
     try:
         return list(values)
     except Exception:
         return []
-
-
-
-
-def charts_to_json(charts: list) -> str:
-    """Serialise the active chart list to a JSON string for database storage."""
-    out = []
-    for chart in charts:
-        uid, title, fig = chart[:3]
-        desc          = st.session_state.get(f"desc_{uid}", "")
-        auto_insights = clean_insights(st.session_state.get(f"auto_insights_{uid}", []))
-        chart_type    = st.session_state.get(f"chart_type_{uid}", "")
-        meta          = st.session_state.get(f"chart_meta_{uid}", {})
-        try:
-            out.append({
-                "uid":           uid,
-                "title":         title,
-                "fig_json":      pio.to_json(fig),
-                "desc":          desc,
-                "auto_insights": auto_insights,
-                "chart_type":    chart_type,
-                "meta":          meta,
-            })
-        except Exception:
-            pass
-    return json.dumps(out)
-
-
 
 
 def generate_chart_insights(chart_type: str, title: str, fig,
@@ -342,41 +344,31 @@ def generate_chart_insights(chart_type: str, title: str, fig,
     tl = title.lower()
     col_desc = col_descriptions or {}
 
-
-
-
     def _named(col: str) -> str:
-        """Return 'col (description)' when a description exists, else 'col'."""
         desc = col_desc.get(col, "").strip()
         if desc:
             short = desc[:55] + "…" if len(desc) > 55 else desc
             return f"{col} ({short})"
         return col
 
-
     def _primary_col_from_title() -> str:
-        """Extract the primary column name from known title prefixes."""
         for prefix in ("Dist: ", "TS: ", "Outliers: ", "Trend: ",
                        "Counts: ", "Time Series: "):
             if title.startswith(prefix):
                 return title[len(prefix):]
         return ""
 
-
     def _cols_in_title() -> list:
-        """Return all col_description keys whose name appears in the chart title."""
         return [c for c in col_desc if c and c.lower() in tl and col_desc[c].strip()]
 
-
     def _append_desc_context():
-        """Append a short 'What these columns mean' footnote for any columns"""
         relevant = _cols_in_title()
         for col in relevant:
             desc = col_desc[col].strip()
             if desc and col not in " ".join(insights):
                 insights.append(f"Column context — {col}: {desc}")
 
-
+    # ----- distribution -----
     if chart_type == "distribution" or "dist:" in tl:
         try:
             arr = _as_number_series(fig.data[0].x)
@@ -386,13 +378,11 @@ def generate_chart_insights(chart_type: str, title: str, fig,
             mean, median, std = arr.mean(), arr.median(), arr.std()
             skew = float(arr.skew())
 
-
             insights.append(
                 f"{_named(col)} centres around {_fmt_num(median)} "
                 f"(median). The average is {_fmt_num(mean)}, "
                 f"with a typical spread of ±{_fmt_num(std)}."
             )
-
 
             if abs(skew) > 1.5:
                 if skew > 0:
@@ -417,7 +407,6 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                     "are close, making either a reliable summary."
                 )
 
-
             q1, q3 = arr.quantile(0.25), arr.quantile(0.75)
             iqr = q3 - q1
             n_out = int(((arr < q1 - 1.5 * iqr) | (arr > q3 + 1.5 * iqr)).sum())
@@ -429,7 +418,6 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                     "check these before using totals or averages in reports."
                 )
 
-
             p10, p90 = arr.quantile(0.10), arr.quantile(0.90)
             insights.append(
                 f"The middle 80% of records fall between "
@@ -438,7 +426,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
         except Exception:
             pass
 
-
+    # ----- correlation -----
     elif chart_type == "correlation" or "correlation" in tl:
         try:
             z        = fig.data[0].z
@@ -481,7 +469,6 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                         "The selected columns appear largely independent of each other."
                     )
 
-
             try:
                 strong_pairs, total_pairs = 0, 0
                 for r, row in enumerate(z):
@@ -499,11 +486,10 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                     insights.append(
                         f"{strong_pairs} of {total_pairs} column pairs "
                         f"{'has' if strong_pairs == 1 else 'have'} a correlation "
-                        f"above 0.6 — scan the darkest cells for the most actionable links."
+                        "above 0.6 — scan the darkest cells for the most actionable links."
                     )
             except Exception:
                 pass
-
 
             insights.append(
                 "Correlation shows association, not causation — use it as a lead for deeper investigation."
@@ -511,7 +497,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
         except Exception:
             pass
 
-
+    # ----- outlier -----
     elif chart_type == "outlier" or "outlier" in tl:
         try:
             col = _primary_col_from_title() or "this column"
@@ -522,12 +508,10 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                 (t for t in fig.data
                  if "normal" in str(getattr(t, "name", "")).lower()), None)
 
-
             total_pts = sum(
                 len(getattr(t, "y", None) or []) for t in fig.data
                 if getattr(t, "y", None) is not None
             )
-
 
             if outlier_trace and len(getattr(outlier_trace, "y", []) or []) > 0:
                 n    = len(outlier_trace.y)
@@ -567,7 +551,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
         except Exception:
             pass
 
-
+    # ----- time series -----
     elif chart_type == "time_series" or "ts:" in tl or "trend" in tl:
         try:
             col = _primary_col_from_title() or "the metric"
@@ -584,7 +568,6 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                     f"({_fmt_pct(pct)} change from first to last period)."
                 )
 
-
                 peak_i = int(y.reset_index(drop=True).idxmax())
                 low_i  = int(y.reset_index(drop=True).idxmin())
                 peak_x = f" at {_fmt_label(x_vals[peak_i])}" if peak_i < len(x_vals) else ""
@@ -594,7 +577,6 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                     f"Lowest: {_fmt_num(y.min())}{low_x}. "
                     f"The range spans {_fmt_num(y.max() - y.min())}."
                 )
-
 
                 cv = y.std() / abs(y.mean()) if y.mean() != 0 else 0
                 if cv > 0.5:
@@ -617,7 +599,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                 "seasonality or operating patterns."
             )
 
-
+    # ----- categorical / pie -----
     elif (chart_type in ("categorical", "pie_chart")
           or any(k in tl for k in ("count", "bar", "pie", "donut"))):
         try:
@@ -638,7 +620,6 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                         if isinstance(v, (int, float))]
                 xs   = _as_list(getattr(data, "y", None))
 
-
             if vals:
                 vals    = [float(v) for v in vals]
                 total   = sum(v for v in vals if v)
@@ -648,14 +629,12 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                 bot_cat = xs[bot_i] if xs and bot_i < len(xs) else str(bot_i)
                 top_pct = (max(vals) / total * 100) if total else 0
 
-
                 cat_col = next((c for c in col_desc if c.lower() in tl), "")
                 cat_ctx = f" ({col_desc[cat_col].strip()[:50]})" if cat_col and col_desc.get(cat_col) else ""
                 insights.append(
                     f"{top_cat}{cat_ctx} leads at {_fmt_num(max(vals))}, "
                     f"representing {top_pct:.1f}% of the total."
                 )
-
 
                 n_cats = len(vals)
                 if n_cats > 1:
@@ -673,7 +652,6 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                                 "a meaningful but not extreme gap."
                             )
 
-
                     even_pct      = 100 / n_cats
                     concentration = max(vals) / total * 100
                     if concentration > 2.5 * even_pct:
@@ -688,7 +666,6 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                             "— no single category dominates."
                         )
 
-
                     if total and min(vals) > 0:
                         bot_pct = (min(vals) / total * 100)
                         if max(vals) / max(min(vals), 1) >= 3:
@@ -699,7 +676,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
         except Exception:
             pass
 
-
+    # ----- scatter -----
     elif chart_type in ("scatter", "scatter_plot") or "scatter:" in tl:
         try:
             cols_match = re.search(r"Scatter:\s*(.+?)\s+vs\s+(.+?)(\s|$|·|—)", title)
@@ -798,10 +775,16 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                 f"Scatter plot generated. Explore the relationship between the "
                 "X and Y axes — add a trendline to reveal the pattern."
             )
+
+    # ----- map -----
     elif chart_type == "map_plot" or "map:" in tl:
         pass  # No auto-insights for map charts
+
+    # ----- matrix -----
     elif chart_type in ("matrix_heatmap", "matrix_table") or "matrix" in tl:
         pass  # No auto-insights for matrix heatmaps/tables
+
+    # ----- statistical -----
     elif (chart_type == "statistical"
           or any(k in tl for k in ("mean", "std", "min", "max"))):
         try:
@@ -833,7 +816,7 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                 "they usually explain the main story."
             )
 
-
+    # ----- data quality -----
     elif (chart_type == "data_quality"
           or any(k in tl for k in ("missing", "duplicate", "quality"))):
         try:
@@ -854,12 +837,10 @@ def generate_chart_insights(chart_type: str, title: str, fig,
             "Resolve missing or duplicate rows before using these charts for decisions."
         )
 
-
     if col_desc:
         mentioned = " ".join(insights).lower()
         for col, desc in col_desc.items():
             if col and desc.strip() and col.lower() in tl and desc.strip().lower() not in mentioned:
                 insights.append(f"Column context — {col}: {desc.strip()}")
-
 
     return clean_insights(insights)

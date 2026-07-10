@@ -615,218 +615,98 @@ def _render_chart(item, idx, total, viewing_saved):
 
 
     if not viewing_saved:
-        from modules.ui.chart_settings import render_typography_controls
+        # Delegate the entire per-chart card to the isolated fragment.  This
+        # covers: Chart Settings expander, Typography expander, plotly_chart,
+        # auto-insights, and the notes text_area.  Grid-order buttons (⬆/⬇)
+        # remain here because they mutate the shared ordered_charts list.
+        from modules.ui.chart_card import render_chart_card
         chart_type = st.session_state.get(f"chart_type_{uid}", ctype or "")
-        _s_col, _t_col = st.columns(2)
-        with _s_col:
-            with st.expander("⚙️ Chart Settings", expanded=False):
-                updates = render_chart_settings_controls(
-                    uid, title, fig, chart_type, meta, autos,
-                    key_prefix="dash",
-                    show_text_style=True,
-                )
-                _set_meta(uid, **updates)
-                if updates.get("custom_title"):
-                    st.session_state.charts = [
-                        (c[0], updates["custom_title"] if c[0] == uid else c[1], c[2])
-                        for c in st.session_state.get("charts", [])
-                    ]
-        with _t_col:
-            with st.expander("🎨 Typography", expanded=False):
-                text_style_upd = render_typography_controls(
-                    uid, fig, chart_type, meta, key_prefix="dash_typo",
-                )
-                _set_meta(uid, text_style=text_style_upd)
+        render_chart_card(
+            uid, title, fig, chart_type, meta, autos,
+            key_prefix="dash",
+            edit_mode=not viewing_saved,
+            viewing_saved=viewing_saved,
+            on_meta_changed=lambda u, k, v: _set_meta(u, **{k: v}) if k != "__delete__" else None,
+        )
 
+        # Handle deferred deletion from inside the fragment.
+        if st.session_state.get(f"_delete_requested_{uid}"):
+            st.session_state.charts = [
+                c for c in st.session_state.get("charts", []) if c[0] != uid
+            ]
+            if "grid_order" in st.session_state:
+                st.session_state.grid_order = [u for u in st.session_state.grid_order if u != uid]
+            st.session_state.pop(f"_delete_requested_{uid}", None)
+            st.session_state.get("_notes_shadow", {}).pop(uid, None)
+            _dash_sync_notes()
+            _persist()
+            st.rerun()
 
+        # Re-read meta after any mutation the fragment may have made.
         meta = _meta(uid)
 
-
-    display    = meta.get("custom_title") or title
-    sub        = meta.get("subtitle", "")
-    xl         = meta.get("x_label", "")
-    yl         = meta.get("y_label", "")
-    text_style = _merge_text_style(meta.get("text_style", {}))
-
-
-    _cache_key      = f"_dash_fig_cache_{uid}"
-    _cache_meta_key = f"_dash_fig_cache_meta_{uid}"
-    _cached_fig     = st.session_state.get(_cache_key)
-    _cached_hash    = st.session_state.get(_cache_meta_key, "")
-    _current_hash   = compute_meta_hash(meta)
-
-
-    if _cached_fig is not None and _cached_hash == _current_hash:
-        fig_show = _cached_fig
+        # ------------------------------------------------------------------ #
+        # Grid-order buttons (⬆ / ⬇ / 🗑) live here, outside the fragment,
+        # because they mutate the shared ordered_charts list.  The fragment
+        # itself also has a "✕" delete button; both call through the same
+        # deferred-deletion path above.
+        # ------------------------------------------------------------------ #
+        if not viewing_saved and total > 1:
+            _btn_cols = st.columns([1, 1, 1, 6])
+            with _btn_cols[0]:
+                if idx > 0 and st.button("⬆", key=f"up_{uid}", help="Move up"):
+                    _cl = list(st.session_state.get("charts", []))
+                    _ci = next((j for j,c in enumerate(_cl) if c[0]==uid), -1)
+                    if _ci > 0:
+                        _cl[_ci-1], _cl[_ci] = _cl[_ci], _cl[_ci-1]
+                        st.session_state.charts = _cl
+                        _go = list(st.session_state.get("grid_order", []))
+                        _gi = next((j for j,u in enumerate(_go) if u==uid), -1)
+                        if _gi > 0:
+                            _go[_gi-1], _go[_gi] = _go[_gi], _go[_gi-1]
+                            st.session_state.grid_order = _go
+                        _dash_sync_notes(); _persist(); st.rerun()
+            with _btn_cols[1]:
+                if idx < total-1 and st.button("⬇", key=f"dn_{uid}", help="Move down"):
+                    _cl = list(st.session_state.get("charts", []))
+                    _ci = next((j for j,c in enumerate(_cl) if c[0]==uid), -1)
+                    if _ci >= 0 and _ci < len(_cl)-1:
+                        _cl[_ci], _cl[_ci+1] = _cl[_ci+1], _cl[_ci]
+                        st.session_state.charts = _cl
+                        _go = list(st.session_state.get("grid_order", []))
+                        _gi = next((j for j,u in enumerate(_go) if u==uid), -1)
+                        if _gi >= 0 and _gi < len(_go)-1:
+                            _go[_gi], _go[_gi+1] = _go[_gi+1], _go[_gi]
+                            st.session_state.grid_order = _go
+                        _dash_sync_notes(); _persist(); st.rerun()
     else:
-        fig_show = _apply_axes(fig, xl, yl, text_style)
-        fig_show = _apply_legend_names(fig_show, meta.get("legend_names", {}), meta.get("legend_title", ""), text_style, _inplace=True)
-        fig_show = apply_chart_display_options(fig_show, meta, ctype, _inplace=True)
-        try:
-            apply_hover_format(fig_show)
-
-
-            if sub:
-                safe_sub = escape(str(sub))
-                fig_show.update_layout(title=dict(
-                    text=(
-                        f'<sup style="font-size:{text_style["subtitle_size"]}px;'
-                        f'color:{text_style["subtitle_color"]};font-family:{text_style["family"]}">'
-                        f'{safe_sub}</sup>'
-                    ),
-                    font=dict(size=int(text_style["subtitle_size"])),
-                ))
-            else:
-                fig_show.update_layout(title_text="")
-
-
-            is_horiz = any(getattr(t, "orientation", "v") == "h"
-                           for t in fig_show.data if hasattr(t, "orientation"))
-            tick_font = dict(
-                size=int(text_style["axis_tick_size"]),
-                color=str(text_style["axis_tick_color"]),
-                family=str(text_style["family"]),
-            )
-            if is_horiz:
-                fig_show.update_yaxes(tickfont=tick_font, automargin=True)
-                fig_show.update_xaxes(tickfont=tick_font)
-                fig_show.update_layout(margin=dict(l=120, r=20, t=28, b=20))
-            else:
-                fig_show.update_xaxes(tickangle=-35, tickfont=tick_font, automargin=True)
-                fig_show.update_yaxes(tickfont=tick_font, automargin=True)
-                fig_show.update_layout(margin=dict(l=20, r=20, t=28, b=80))
-        except Exception:
-            pass
-
-
-        st.session_state[_cache_key]      = fig_show
-        st.session_state[_cache_meta_key] = _current_hash
-
-
-    if not viewing_saved:
-        btn_cols = st.columns([9, 1, 1, 1])
-        with btn_cols[1]:
-            if idx > 0 and st.button("⬆", key=f"up_{uid}"):
-                cl = st.session_state.get("charts",[])
-                i  = next((j for j,c in enumerate(cl) if c[0]==uid),-1)
-                if i > 0:
-                    cl[i-1],cl[i] = cl[i],cl[i-1]
-                    go = st.session_state.get("grid_order",[])
-                    gi = next((j for j,u in enumerate(go) if u==uid),-1)
-                    if gi > 0: go[gi-1],go[gi] = go[gi],go[gi-1]
-                    _dash_sync_notes(); _persist(); st.rerun()
-        with btn_cols[2]:
-            if idx < total-1 and st.button("⬇", key=f"dn_{uid}"):
-                cl = st.session_state.get("charts",[])
-                i  = next((j for j,c in enumerate(cl) if c[0]==uid),-1)
-                if i >= 0 and i < len(cl)-1:
-                    cl[i],cl[i+1] = cl[i+1],cl[i]
-                    go = st.session_state.get("grid_order",[])
-                    gi = next((j for j,u in enumerate(go) if u==uid),-1)
-                    if gi >= 0 and gi < len(go)-1: go[gi],go[gi+1] = go[gi+1],go[gi]
-                    _dash_sync_notes(); _persist(); st.rerun()
-        with btn_cols[3]:
-            if st.button("🗑", key=f"rm_{uid}"):
-                st.session_state.charts = [c for c in st.session_state.get("charts",[])
-                                           if c[0] != uid]
-                if "grid_order" in st.session_state:
-                    st.session_state.grid_order = [u for u in st.session_state.grid_order
-                                                   if u != uid]
-                st.session_state.get("_notes_shadow", {}).pop(uid, None)
-                _dash_sync_notes(); _persist(); st.rerun()
-
-
-    st.markdown(
-        f'<div style="font-size:0.93rem;font-weight:700;color:#1e293b;margin-bottom:2px;">'
-        f'{escape(str(display))}</div>'
-        + (f'<div style="font-size:0.78rem;color:#64748b;margin-bottom:4px;">'
-           f'{escape(str(sub))}</div>' if sub else ""),
-        unsafe_allow_html=True)
-
-
-    _db_chart_type = st.session_state.get(f"chart_type_{uid}", ctype or "")
-    _db_fig_height = getattr(getattr(fig_show, "layout", None), "height", 0) or 0
-    _db_is_matrix = _db_chart_type == "matrix_table"
-    if _db_is_matrix:
-        st.markdown(
-            '<div style="max-height:540px;overflow-y:auto;overflow-x:auto;'
-            'border:1px solid rgba(100,116,139,0.2);border-radius:6px;'
-            'padding-bottom:4px;">',
-            unsafe_allow_html=True,
+        # viewing_saved path: render chart without settings controls
+        from modules.ui.chart_card import get_display_fig
+        fig_show = get_display_fig(uid, fig, meta, ctype)
+        st.plotly_chart(
+            fig_show,
+            use_container_width=True,
+            key=f"dash_plotly_{uid}",
+            config={"responsive": True, "displayModeBar": "hover", "mathjax": False},
         )
-    st.plotly_chart(
-        fig_show,
-        use_container_width=not _db_is_matrix,
-        key=f"dash_plotly_{uid}",
-        config={
-            "responsive": True,
-            "displayModeBar": "hover",
-            "mathjax": False,
-        },
-    )
-    if _db_is_matrix:
-        st.markdown("</div>", unsafe_allow_html=True)
-
-
-    show_ai = meta.get("show_auto_insights", True)
-    hidden  = set(meta.get("hidden_insights",[]))
-    if autos and show_ai:
-        visible = [ins for i,ins in enumerate(autos) if i not in hidden]
-        if visible:
+        if autos:
             with st.expander("💡 Insights", expanded=False):
-                _ins_font = st.session_state.get("ex_insights_font", "Inter")
-                _ins_style = st.session_state.get("ex_insights_style", "Normal")
-                _ins_size = st.session_state.get("ex_insights_size", 14)
-                _ins_color = st.session_state.get("ex_insights_color", "#f5f7ff")
-                _style_parts_ins = [f"font-family:{_ins_font};", f"font-size:{_ins_size}px;", f"color:{_ins_color};"]
-                if "Bold" in _ins_style:
-                    _style_parts_ins.append("font-weight:bold;")
-                if "Italic" in _ins_style:
-                    _style_parts_ins.append("font-style:italic;")
-                if "Underline" in _ins_style:
-                    _style_parts_ins.append("text-decoration:underline;")
-                _ins_style_str = " ".join(_style_parts_ins)
-                for ins in visible:
-                    st.markdown(f'<div style="{_ins_style_str}">{clean_insight_text(ins)}</div>', unsafe_allow_html=True)
-
-
-    live_desc = st.session_state.get(note_key, "") if not viewing_saved else (desc or "")
-    if viewing_saved:
+                from modules.charts import clean_insight_text
+                for ins in autos:
+                    st.markdown(f"- {clean_insight_text(ins)}")
+        live_desc = st.session_state.get(note_key, "") or (desc or "")
         if live_desc:
             safe_desc = escape(str(live_desc))
-            _notes_font = st.session_state.get("ex_notes_font", "Inter")
-            _notes_style = st.session_state.get("ex_notes_style", "Normal")
-            _notes_size = st.session_state.get("ex_notes_size", 14)
-            _notes_color = st.session_state.get("ex_notes_color", "#f5f7ff")
-            _notes_style_parts = [f"font-family:{_notes_font};", f"font-size:{_notes_size}px;", f"color:{_notes_color};"]
-            if "Bold" in _notes_style:
-                _notes_style_parts.append("font-weight:bold;")
-            if "Italic" in _notes_style:
-                _notes_style_parts.append("font-style:italic;")
-            if "Underline" in _notes_style:
-                _notes_style_parts.append("text-decoration:underline;")
-            _notes_style_str = " ".join(_notes_style_parts)
             st.markdown(
                 f'<div style="background:rgba(133,102,252,0.07);border-left:3px solid #8566fc;'
-                f'border-radius:6px;padding:.6rem .9rem;font-size:.87rem;margin-top:.3rem;{_notes_style_str}">'
-                f'<strong>Analysis Notes:</strong> {safe_desc}</div>', unsafe_allow_html=True)
-    else:
-        def _sync_note(u=uid):
-            val = st.session_state.get(f"desc_{u}", "")
-            st.session_state.setdefault("_notes_shadow", {})[u] = val
-        st.text_area(
-            "✍️ Analysis Notes",
-            key=note_key,
-            on_change=_sync_note,
-            placeholder="Add your findings or observations here…")
-        if "editing_session_id" in st.session_state:
-            if st.button("💾 Update Session Notes", key=f"update_notes_{uid}",
-                         use_container_width=True):
-                _do_update(
-                    st.session_state.get("editing_session_name", "Session"),
-                    st.session_state.get("charts", []),
-                    clear_editing=False)
-                st.rerun()
+                f'border-radius:6px;padding:.6rem .9rem;font-size:.87rem;margin-top:.3rem;">'
+                f'<strong>Analysis Notes:</strong> {safe_desc}</div>',
+                unsafe_allow_html=True,
+            )
+
+
+
+
 
 
 

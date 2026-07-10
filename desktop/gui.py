@@ -94,8 +94,7 @@ def _find_icon() -> Path:
         candidate = assets / name
         if candidate.exists():
             return candidate
-    return assets / "lytrize.png"   # may not exist; _make_icon() handles that
-
+    return assets / "lytrize.png"   
 
 ICON_PATH = _find_icon()
 

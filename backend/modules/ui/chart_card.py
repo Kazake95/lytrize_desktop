@@ -1,0 +1,398 @@
+"""modules/ui/chart_card.py -- Per-chart card rendered inside an isolated @st.fragment.
+
+Isolating each chart behind its own fragment means that tweaking Chart 8's
+typography slider only reruns Chart 8's fragment — Chart 1..7 and the rest of
+the page (nav, preview, config panel, KPIs) stay inert.  This is the single
+largest win in the Power BI-class responsiveness plan.
+
+Public surface
+~~~~~~~~~~~~~~
+* render_chart_card(...)  -- drop-in replacement for the per-chart block that
+                            used to live in analysis._render_chart_list and
+                            dashboard._render_chart.
+* _apply_axes / _apply_legend_names are re-exported from dashboard so
+  chart_card can reuse them without duplicating logic.
+"""
+
+from __future__ import annotations
+
+import copy
+import html
+import re
+from typing import Any
+
+import streamlit as st
+
+# ---------------------------------------------------------------------------
+# Re-use axis / legend helpers that already exist in dashboard.py
+# ---------------------------------------------------------------------------
+def _apply_axes(fig, x_lbl, y_lbl, text_style: dict | None = None, *, _inplace: bool = False):
+    """Apply axis labels + tick fonts.  Kept here so chart_card is self-contained."""
+    try:
+        f2 = fig if _inplace else copy.deepcopy(fig)
+        style = _default_text_style()
+        if isinstance(text_style, dict):
+            for _k, _v in text_style.items():
+                if _v not in (None, ""):
+                    style[_k] = _v
+        axis_title_font = dict(
+            size=int(style["axis_title_size"]),
+            color=str(style["axis_title_color"]),
+            family=str(style["family"]),
+        )
+        axis_tick_font = dict(
+            size=int(style["axis_tick_size"]),
+            color=str(style["axis_tick_color"]),
+            family=str(style["family"]),
+        )
+        if x_lbl:
+            f2.update_xaxes(title_text=x_lbl, title_font=axis_title_font)
+        else:
+            f2.update_xaxes(title_font=axis_title_font)
+        if y_lbl:
+            f2.update_yaxes(title_text=y_lbl, title_font=axis_title_font)
+        else:
+            f2.update_yaxes(title_font=axis_title_font)
+        f2.update_xaxes(tickfont=axis_tick_font)
+        f2.update_yaxes(tickfont=axis_tick_font)
+        return f2
+    except Exception:
+        return fig
+
+
+def _apply_legend_names(fig, legend_names: dict, legend_title: str = "",
+                       text_style: dict | None = None, *, _inplace: bool = False):
+    """Rename Plotly traces using the {original_name: custom_name} mapping."""
+    try:
+        f2 = fig if _inplace else copy.deepcopy(fig)
+        style = _default_text_style()
+        if isinstance(text_style, dict):
+            for _k, _v in text_style.items():
+                if _v not in (None, ""):
+                    style[_k] = _v
+        legend_font = dict(
+            size=int(style["legend_item_size"]),
+            color=str(style["legend_item_color"]),
+            family=str(style["family"]),
+        )
+        legend_title_font = dict(
+            size=int(style["legend_title_size"]),
+            color=str(style["legend_title_color"]),
+            family=str(style["family"]),
+        )
+        if legend_names:
+            for trace in f2.data:
+                original = getattr(trace, "name", None)
+                if original is not None and str(original) in legend_names:
+                    custom = legend_names[str(original)]
+                    if custom:
+                        trace.name = custom
+        if legend_title is not None:
+            f2.update_layout(
+                legend_title_text=legend_title,
+                legend=dict(font=legend_font, title=dict(font=legend_title_font)),
+            )
+        return f2
+    except Exception:
+        return fig
+
+
+def _default_text_style() -> dict:
+    """Minimal text_style defaults needed for axis / legend helpers."""
+    return {
+        "family": "Inter",
+        "axis_title_size": 12,
+        "axis_title_color": "#cbd5e1",
+        "axis_tick_size": 10,
+        "axis_tick_color": "#94a3b8",
+        "legend_item_size": 11,
+        "legend_item_color": "#e2e8f0",
+        "legend_title_size": 12,
+        "legend_title_color": "#cbd5e1",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Display-figure cache helper (Phase 2: shared, memoized)
+# ---------------------------------------------------------------------------
+from modules.ui.chart_settings import (
+    apply_chart_display_options,
+    compute_meta_hash,
+    _apply_font_only,
+    _font_only_hash,
+)
+
+
+def get_display_fig(uid: str, base_fig, meta: dict, chart_type: str, *,
+                    force: bool = False):
+    """Return the *display-ready* figure, recomputed only when meta changes.
+
+    Multi-level cache:
+      1) If the full meta hash (incl. structural options) matches, return the
+         cached figure directly — O(1).
+      2) Else if *only* font-related keys changed, run the lightweight
+         ``_apply_font_only`` post-processor on a cheap shallow copy of the
+         previously cached figure — avoids deepcopy + full trace iteration.
+      3) Otherwise (structural option changed) do a full
+         ``apply_chart_display_options`` (deepcopy + all traces).
+
+    Cache keys live in st.session_state so they survive the fragment rerun.
+    """
+    struct_key   = f"_display_fig_{uid}"
+    struct_hkey  = f"_display_fig_hash_{uid}"
+    font_key     = f"_display_fig_font_{uid}"
+    font_hkey    = f"_display_fig_fonthash_{uid}"
+
+    struct_hash  = compute_meta_hash(meta)
+    font_hash    = _font_only_hash(meta)
+
+    # Level 1: full match — return cached figure as-is
+    if not force and st.session_state.get(struct_hkey) == struct_hash:
+        return st.session_state.get(struct_key, base_fig)
+
+    # Level 2: only fonts changed — apply lightweight post-processor to the
+    # previously cached deep figure (avoids deepcopy + trace iteration).
+    prev_struct = st.session_state.get(struct_key, None)
+    if prev_struct is not None and st.session_state.get(font_hkey) != font_hash:
+        try:
+            fig_show = copy.deepcopy(prev_struct)
+            fig_show = _apply_font_only(fig_show, meta, chart_type)
+            st.session_state[struct_key]  = fig_show
+            st.session_state[struct_hkey] = struct_hash
+            st.session_state[font_key]    = fig_show
+            st.session_state[font_hkey]   = font_hash
+            return fig_show
+        except Exception:
+            pass  # Fall through to full rebuild on error
+
+    # Level 3: full rebuild (structural option changed or no cache yet)
+    fig = apply_chart_display_options(base_fig, meta, chart_type, _inplace=False)
+    st.session_state[struct_key]  = fig
+    st.session_state[struct_hkey] = struct_hash
+    st.session_state[font_key]    = fig
+    st.session_state[font_hkey]   = font_hash
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# Main renderer -- this is the @st.fragment
+# ---------------------------------------------------------------------------
+@st.fragment(run_every=None)  # manual reruns only -- no polling
+def render_chart_card(uid: str, title: str, fig, chart_type: str,
+                      meta: dict, auto_insights: list[str],
+                      *, key_prefix: str, edit_mode: bool,
+                      viewing_saved: bool = False,
+                      on_meta_changed=None) -> None:
+    """Render a single chart card inside an isolated Streamlit fragment.
+
+    Parameters
+    ----------
+    uid / title / fig / chart_type / meta / auto_insights:
+        Standard chart identity and content.
+    key_prefix:
+        "analysis" or "dash_typo" to avoid widget-key collisions when the same
+        chart appears on multiple pages.
+    edit_mode / viewing_saved:
+        Flags controlling which controls to show.
+    on_meta_changed:
+        Optional callback(uid, changed_key, new_value) the parent uses to
+        persist/notebook the change without re-entering the fragment.
+
+    UI layout
+    ---------
+    * Top bar:  Edit button | Delete button (title/subtitle rendered inside Plotly).
+    * Two-column body:
+        - Left  (1/3): Chart Settings expander + Typography expander.
+        - Right (2/3): plotly_chart + auto-insights + notes text_area.
+    Every widget gets a stable `key` derived from uid so Streamlit's diff engine
+    can recognise it across fragment reruns.
+    """
+    from modules.ui.chart_settings import (
+        render_chart_settings_controls,
+        render_typography_controls,
+        resolve_font_stack,
+    )
+
+    # ------------------------------------------------------------------ #
+    # Resolve title / subtitle display + typography
+    # ------------------------------------------------------------------ #
+    display_title = meta.get("custom_title") or title
+    subtitle = meta.get("subtitle", "")
+    text_style = meta.get("text_style") or {}
+
+    # Read typography widget values from session_state (set by render_typography_controls).
+    # The font-family values from the widget are raw names (e.g. "Georgia"), so we
+    # resolve them to CSS font stacks (with fallbacks) via resolve_font_stack.
+    _hdr_size   = int(st.session_state.get(f"{key_prefix}_hsize_{uid}",
+                     text_style.get("header_size", 28)))
+    _hdr_color  = str(st.session_state.get(f"{key_prefix}_hcolor_{uid}",
+                     text_style.get("header_color", "#6163df")))
+    _hdr_family_raw = str(st.session_state.get(f"{key_prefix}_hfont_{uid}",
+                         text_style.get("header_family", "Inter")))
+    _hdr_family = resolve_font_stack(_hdr_family_raw) if _hdr_family_raw else "Inter, system-ui, sans-serif"
+    _hdr_style  = str(st.session_state.get(f"{key_prefix}_hfont_style_{uid}",
+                     text_style.get("header_font_style", "Normal"))).lower()
+
+    _sub_size   = int(st.session_state.get(f"{key_prefix}_ssize_{uid}",
+                     text_style.get("subtitle_size", 11)))
+    _sub_color  = str(st.session_state.get(f"{key_prefix}_scolor_{uid}",
+                     text_style.get("subtitle_color", "#64748b")))
+    _sub_family_raw = str(st.session_state.get(f"{key_prefix}_subfont_{uid}",
+                         text_style.get("subtitle_family", "Inter")))
+    _sub_family = resolve_font_stack(_sub_family_raw) if _sub_family_raw else "Inter, system-ui, sans-serif"
+    _sub_style  = str(st.session_state.get(f"{key_prefix}_subfont_style_{uid}",
+                     text_style.get("subtitle_font_style", "Normal"))).lower()
+
+    # Resolve HTML-safe style
+    _hdr_weight = "700" if "bold" in _hdr_style else "400"
+    _hdr_italic = "italic" if "italic" in _hdr_style else "normal"
+    _hdr_decor  = "underline" if "underline" in _hdr_style else "none"
+
+    _sub_weight = "bold" if "bold" in _sub_style else "normal"
+    _sub_italic = "italic" if "italic" in _sub_style else "normal"
+    _sub_decor  = "underline" if "underline" in _sub_style else "none"
+
+    # ------------------------------------------------------------------ #
+    # Top control bar: title preview (left) + Edit / Delete buttons (right)
+    # ------------------------------------------------------------------ #
+    ctrl = st.columns([9, 2, 1])
+    with ctrl[0]:
+        # HTML title preview — uses typography controls for style.
+        # _hdr_family / _sub_family are already CSS font stacks (e.g. "Georgia, serif"),
+        # so they must NOT be wrapped in extra quotes.
+        st.markdown(
+            f'<div style="font-size:{_hdr_size}px;font-weight:{_hdr_weight};'
+            f'font-style:{_hdr_italic};text-decoration:{_hdr_decor};'
+            f'color:{_hdr_color};font-family:{_hdr_family};'
+            f'margin-bottom:0.1rem;">{html.escape(str(display_title))}</div>',
+            unsafe_allow_html=True,
+        )
+        if subtitle:
+            st.markdown(
+                f'<div style="font-size:{_sub_size}px;font-weight:{_sub_weight};'
+                f'font-style:{_sub_italic};text-decoration:{_sub_decor};'
+                f'color:{_sub_color};font-family:{_sub_family};'
+                f'margin-top:-2px;margin-bottom:4px;">{html.escape(str(subtitle))}</div>',
+                unsafe_allow_html=True,
+            )
+    with ctrl[1]:
+        # Show Edit button whenever we are NOT in read-only (viewing_saved) mode
+        # and the chart type supports regeneration.
+        if not viewing_saved and chart_type and chart_type not in ("descriptive", "data_quality"):
+            df_available = st.session_state.get("df") is not None
+            if df_available:
+                if st.button("🔄 Edit Chart", key=f"regen_btn_{key_prefix}_{uid}",
+                             use_container_width=True,
+                             help="Re-run this chart with new columns / settings"):
+                    st.session_state._regen_uid  = uid
+                    st.session_state._regen_type = chart_type
+                    st.session_state["_regen_restore"] = True
+                    st.session_state.page = "analysis"
+                    st.rerun()
+            else:
+                st.button("🔄 Edit Chart", key=f"regen_btn_{key_prefix}_{uid}",
+                          use_container_width=True, disabled=True,
+                          help="Upload the original dataset first to regenerate this chart")
+    with ctrl[2]:
+        if st.button("✕", key=f"del_{uid}", help="Remove this chart"):
+            st.session_state[f"_delete_requested_{uid}"] = True
+            st.rerun()
+
+    # ------------------------------------------------------------------ #
+    # Two-column body: settings LEFT | chart RIGHT
+    # ------------------------------------------------------------------ #
+    settings_col, chart_col = st.columns([1, 2])
+
+    # ---- LEFT: settings expanders -------------------------------------- #
+    with settings_col:
+        if not viewing_saved:
+            st.caption(
+                "✨ **Live Preview** — changes appear instantly on the chart →",
+                unsafe_allow_html=False,
+            )
+            _stype = chart_type
+
+            # Chart Settings ---------------------------------------------------
+            with st.expander("⚙️ Chart Settings", expanded=False):
+                updates = render_chart_settings_controls(
+                    uid, title, fig, _stype, meta, auto_insights,
+                    key_prefix=key_prefix,
+                    show_text_style=False,
+                )
+                # Persist any changed meta keys via callback
+                if on_meta_changed:
+                    for _ckey, _cval in updates.items():
+                        on_meta_changed(uid, _ckey, _cval)
+
+            # Typography -------------------------------------------------------
+            from modules.ui.font_manager import inject_font_preview_css
+            with st.expander("🎨 Typography", expanded=False):
+                inject_font_preview_css()  # session-guarded; idempotent
+                text_updates = render_typography_controls(
+                    uid, fig, _stype, meta, key_prefix=key_prefix,
+                )
+                if on_meta_changed:
+                    on_meta_changed(uid, "text_style", text_updates)
+
+    # ---- RIGHT: figure render + insights + notes ---------------------- #
+    with chart_col:
+        # Re-read meta in case settings above mutated it
+        meta = st.session_state.get(f"chart_meta_{uid}", meta)
+
+        # Use the shared memoized cache: only rebuild if meta actually changed
+        fig_show = get_display_fig(uid, fig, meta, chart_type)
+
+        # Axis post-processing that depends on the *display* meta
+        _ctype_now = st.session_state.get(f"chart_type_{uid}", chart_type)
+        _meta_view = meta.get("_matrix_view", "") or getattr(
+            fig, "_lytrize_meta", {}
+        ).get("matrix_view", "")
+        _is_table = _ctype_now == "matrix_table" and _meta_view != "heatmap"
+
+        if _is_table:
+            st.markdown(
+                '<div style="max-height:540px;overflow-y:auto;overflow-x:hidden;'
+                'border:1px solid rgba(100,116,139,0.2);border-radius:6px;'
+                'padding-bottom:4px;">',
+                unsafe_allow_html=True,
+            )
+
+        st.plotly_chart(
+            fig_show,
+            use_container_width=True,
+            key=f"plotly_{key_prefix}_{uid}",
+            config={
+                "responsive": True,
+                "displayModeBar": "hover",
+                "mathjax": False,
+            },
+        )
+
+        if _is_table:
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        # Auto-insights ------------------------------------------------------
+        if auto_insights:
+            with st.expander("💡 Auto-Insights", expanded=False):
+                from modules.charts import clean_insight_text
+                for ins in auto_insights:
+                    st.markdown(f"- {clean_insight_text(ins)}")
+
+        # Notes --------------------------------------------------------------
+        note_key = f"desc_{uid}"
+        if note_key not in st.session_state:
+            st.session_state[note_key] = (
+                st.session_state.get("_notes_shadow", {}).get(uid, "")
+            )
+
+        def _sync_note(_u=uid):
+            val = st.session_state.get(f"desc_{_u}", "")
+            st.session_state.setdefault("_notes_shadow", {})[_u] = val
+
+        st.text_area(
+            "✍️ Analysis Notes (auto-saved to Dashboard)",
+            key=note_key,
+            on_change=_sync_note,
+            args=(uid,),
+            placeholder="Add your findings or observations here…",
+        )

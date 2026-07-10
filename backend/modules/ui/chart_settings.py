@@ -130,10 +130,9 @@ CHART_TYPE_SETTINGS: dict[str, dict[str, Any]] = {
                     "table_font_size", "table_font_color",
                     "table_header_font_size", "table_header_color",
                     "table_row_height", "table_header_height",
-                    "table_index_align", "table_data_align", "table_show_footer",
-                    "table_gradient_cells", "table_show_row_totals",
+                    "table_index_align", "table_data_align",
                     "table_stripe_even_color", "table_stripe_odd_color",
-                    "table_number_format", "table_show_borders",
+                    "table_number_format",
                     "row_index_header"],
         "typography": ["family", "font_style", "header", "subtitle"],
     },
@@ -364,6 +363,75 @@ def _safe_get_font_attr(font_obj, attr: str, default=None):
         return default
 
 
+
+
+def _apply_font_only(fig, meta: dict | None, chart_type: str = ""):
+    """Lightweight font-only post-processor — no deepcopy, no trace iteration.
+
+    Only touches ``fig.layout.title.font`` and ``fig.layout.font`` so that
+    font-family / size / colour changes for the (suppressed) title and subtitle
+    are reflected without the cost of a full ``apply_chart_display_options``.
+    Returns the same figure object (mutated in-place).
+    """
+    if not meta:
+        return fig
+    text_style = meta.get("text_style", {})
+    if not isinstance(text_style, dict) or not text_style:
+        return fig
+    ts = merge_text_style(text_style)
+
+    _raw_family  = str(ts.get("family", "Inter"))
+    _font_family = resolve_font_stack(_raw_family)
+
+    _hdr_family_raw = str(ts.get("header_family") or _raw_family)
+    if _hdr_family_raw == "Inter" and _raw_family not in ("Inter", ""):
+        _hdr_family_raw = _raw_family
+    _hdr_family = resolve_font_stack(_hdr_family_raw)
+    _hdr_size   = int(ts.get("header_size", 28))
+    _hdr_color  = str(ts.get("header_color", "#6163df"))
+
+    _sub_family_raw = str(ts.get("subtitle_family") or _raw_family)
+    if _sub_family_raw == "Inter" and _raw_family not in ("Inter", ""):
+        _sub_family_raw = _raw_family
+    _sub_family = resolve_font_stack(_sub_family_raw)
+    _sub_size   = int(ts.get("subtitle_size", 11))
+    _sub_color  = str(ts.get("subtitle_color", "#64748b"))
+
+    _fs_lower = str(ts.get("font_style", "Normal")).lower()
+    _weight = "bold" if "bold" in _fs_lower else "normal"
+    _style  = "italic" if "italic" in _fs_lower else "normal"
+
+    try:
+        fig.update_layout(
+            title=dict(
+                text="",
+                font=dict(size=_hdr_size, color=_hdr_color, family=_hdr_family),
+            ),
+            font=dict(family=_font_family, weight=_weight, style=_style),
+        )
+    except Exception:
+        pass
+    return fig
+
+
+def _font_only_hash(meta: dict | None) -> str:
+    """Compute a hash that only covers font-related meta keys.
+
+    This is used by the multi-level cache to detect "only fonts changed"
+    without busting on structural display options.
+    """
+    if not meta:
+        return ""
+    text_style = meta.get("text_style", {})
+    if not isinstance(text_style, dict):
+        return ""
+    relevant = {}
+    for key in ("family", "font_style", "header_size", "header_color",
+                "header_family", "header_font_style", "subtitle_size",
+                "subtitle_color", "subtitle_family", "subtitle_font_style"):
+        if key in text_style:
+            relevant[key] = text_style[key]
+    return json.dumps(relevant, sort_keys=True, default=str)
 
 
 def apply_chart_display_options(
@@ -640,10 +708,6 @@ def apply_chart_display_options(
                         [_even if ri % 2 == 0 else _odd for ri in range(n_rows)]
                         for _ in range(n_cols_t)
                     ]
-                elif opts.get("table_gradient_cells") is False:
-                    n_rows = len(tr.cells.values[0]) if tr.cells.values else 0
-                    flat_fills = ["#1e293b" if i % 2 == 0 else "#0f172a" ]
-                    tr.cells.fill.color = [flat_fills] * len(tr.cells.values)
 
 
             # Apply font family to textfont if it exists
@@ -689,41 +753,25 @@ def apply_chart_display_options(
         )
 
 
-        show_footer  = opts.get("table_show_footer", True)
-        table_traces = [
-            t for t in f2.data
-            if str(getattr(t, "type", "")).lower() == "table"
-        ]
-        _footer_trs = [
-            t for t in table_traces
-            if all(str(v).strip() in ("", "[]", "None")
-                   for v in (getattr(t.header, "values", None) or []))
-            and len(getattr(t.header, "values", None) or []) > 0
-        ]
-        if _footer_trs:
-            footer_tr = _footer_trs[0]
-            if not show_footer:
-                footer_tr.cells.height  = 0
-                footer_tr.header.height = 0
-            else:
-                if (footer_tr.cells.height or 0) == 0:
-                    footer_tr.cells.height  = 28
-                    footer_tr.header.height = 0
-
-
         text_style = meta.get("text_style", {})
         if isinstance(text_style, dict) and text_style:
             ts = merge_text_style(text_style)
 
 
-            _hdr_family_raw = str(ts.get("header_family", _raw_family))
+            # The global "family" is the master control.  Header / subtitle
+            # fonts follow it unless explicitly customized to a non-default.
+            _hdr_family_raw = str(ts.get("header_family") or _raw_family)
+            if _hdr_family_raw == "Inter" and _raw_family not in ("Inter", ""):
+                _hdr_family_raw = _raw_family
             _hdr_family     = resolve_font_stack(_hdr_family_raw)
             _hdr_style      = str(ts.get("header_font_style", "Normal"))
             _hdr_size       = int(ts.get("header_size", 28))
             _hdr_color      = str(ts.get("header_color", "#6163df"))
 
 
-            _sub_family_raw = str(ts.get("subtitle_family", _raw_family))
+            _sub_family_raw = str(ts.get("subtitle_family") or _raw_family)
+            if _sub_family_raw == "Inter" and _raw_family not in ("Inter", ""):
+                _sub_family_raw = _raw_family
             _sub_family     = resolve_font_stack(_sub_family_raw)
             _sub_style      = str(ts.get("subtitle_font_style", "Normal"))
             _sub_size       = int(ts.get("subtitle_size", 11))
@@ -770,29 +818,15 @@ def apply_chart_display_options(
                     pass
 
 
-            try:
-                _title_text = f2.layout.title.text if hasattr(f2.layout, "title") and f2.layout.title else ""
-                if _title_text and _hdr_style != "Normal":
-                    _title_text = _wrap_html_style(str(_title_text), _hdr_style)
-                f2.update_layout(
-                    title=dict(
-                        text=_title_text,
-                        font=dict(size=_hdr_size, color=_hdr_color, family=_hdr_family),
-                        subtitle=dict(
-                            font=dict(size=_sub_size, color=_sub_color, family=_sub_family),
-                        ),
-                    ),
-                )
-                try:
-                    _sub_obj = f2.layout.title.subtitle
-                    if _sub_obj and hasattr(_sub_obj, "text") and _sub_obj.text:
-                        _sub_text = _wrap_html_style(str(_sub_obj.text), _sub_style)
-                        if _sub_text != _sub_obj.text:
-                            f2.update_layout(title_subtitle_text=_sub_text)
-                except Exception:
-                    pass
-            except Exception:
-                pass
+            # The title/subtitle are rendered in the HTML preview area (chart_card ctrl[0]),
+            # so the Plotly native title is suppressed here to avoid the duplicate.
+            # Font settings are still applied to other chart elements.
+            f2.update_layout(
+                title=dict(
+                    text="",
+                    font=dict(size=_hdr_size, color=_hdr_color, family=_hdr_family),
+                ),
+            )
 
 
             _is_map_chart = chart_type in ("map_plot",) or any(
@@ -1410,26 +1444,6 @@ def render_chart_settings_controls(
                     index=_option_index(["left", "center", "right"], opts.get("table_data_align", "right"), "right"),
                     key=f"{key_prefix}_t_data_align_{uid}",
                 )
-            opts["table_show_footer"] = st.checkbox(
-                "Show totals row",
-                value=opts.get("table_show_footer", True),
-                key=f"{key_prefix}_t_footer_{uid}",
-            )
-            opts["table_gradient_cells"] = st.checkbox(
-                "Gradient cell colours",
-                value=opts.get("table_gradient_cells", True),
-                key=f"{key_prefix}_t_gradient_{uid}",
-            )
-            opts["table_show_borders"] = st.checkbox(
-                "Show cell borders",
-                value=opts.get("table_show_borders", False),
-                key=f"{key_prefix}_t_borders_{uid}",
-            )
-            opts["table_show_row_totals"] = st.checkbox(
-                "Show row totals",
-                value=opts.get("table_show_row_totals", False),
-                key=f"{key_prefix}_t_row_totals_{uid}",
-            )
             opts["table_stripe_even_color"] = st.color_picker(
                 "Even row colour",
                 value=str(opts.get("table_stripe_even_color", "#1e293b")),

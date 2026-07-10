@@ -16,6 +16,7 @@ _HEX_GRADIENT     = [
 
 
 
+
 def _trim_pivot(pivot: pd.DataFrame, max_cats: int) -> pd.DataFrame:
     if pivot.shape[0] > max_cats:
         pivot = pivot.loc[pivot.abs().sum(axis=1).nlargest(max_cats).index]
@@ -79,7 +80,7 @@ def _cell_bg_gradient(val, vmin, vmax, base_dark="#0f172a", accent="#2563eb") ->
 
 def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
                      agg="mean", view_type="Heatmap", palette=None,
-                     sort_rows="value_desc", top_n_rows=None, **kwargs):
+                     sort_rows="value_desc", top_n_rows=None, show_row_totals=False, **kwargs):
     charts = []
     cats   = _cat_cols()
     num    = _num_cols()
@@ -221,64 +222,23 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
 
 
     else:
-        _show_row_totals = agg in ("sum", "count")
-
-
-        _dedup_agg_col = _show_row_totals and agg in ("sum", "count")
-
-
-        row_totals = []
-        if _show_row_totals:
-            for row in z_values:
-                clean = [v for v in row if v is not None and not (isinstance(v, float) and np.isnan(v))]
-                row_totals.append(float(np.sum(clean)) if clean else np.nan)
-        else:
-            row_totals = [np.nan] * len(z_values)
-
-
-        col_totals = []
-        if _show_row_totals:
-            for j in range(n_cols_p):
-                clean = [row[j] for row in z_values
-                         if row[j] is not None and not (isinstance(row[j], float) and np.isnan(row[j]))]
-                col_totals.append(float(np.sum(clean)) if clean else np.nan)
-        else:
-            col_totals = [np.nan] * n_cols_p
-
-
-        grand_total = sum(v for v in col_totals if not np.isnan(v)) if _show_row_totals else np.nan
-
-
-        col_ranges = []
-        for j in range(n_cols_p):
-            clean = [row[j] for row in z_values
-                     if row[j] is not None and not (isinstance(row[j], float) and np.isnan(row[j]))]
-            col_ranges.append((min(clean) if clean else 0, max(clean) if clean else 0))
-
-
         _idx_w  = min(max(max((len(str(r)) for r in y_labels), default=6), len(str(idx)), 8), 30)
         _hdr_len  = max((len(str(h)) for h in x_labels), default=4)
         _val_len  = max((len(str(v)) for row in z_values for v in row
                          if v is not None and not (isinstance(v, float) and np.isnan(v))),
                         default=4)
         _data_w = max(_hdr_len, _val_len, 6)
-        _tot_w  = max(len("Total"), _data_w)
         _VALUE_HEADER_MAP = {
             "sum":    "Overall Total",
             "mean":   "Overall Average",
             "median": "Overall Median",
-            "min":    "Overall Minimun",
+            "min":    "Overall Minimum",
             "max":    "Overall Maximum",
             "count":  "Overall Count",
             "std":    "Overall Std. Dev",
         }
         _val_hdr_w = max(len(_VALUE_HEADER_MAP.get(agg, f"{agg.upper()}({vals})")), _data_w)
-        if _show_row_totals and not _dedup_agg_col:
-            _col_widths = [_idx_w] + [_data_w] * n_cols_p + [_val_hdr_w] + [_tot_w]
-        elif _show_row_totals:
-            _col_widths = [_idx_w] + [_data_w] * n_cols_p + [_tot_w]
-        else:
-            _col_widths = [_idx_w] + [_data_w] * n_cols_p + [_val_hdr_w]
+        _col_widths = [_idx_w] + [_data_w] * n_cols_p + [_val_hdr_w]
 
 
         _px_per_unit = 8
@@ -294,11 +254,7 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
         hdr_alt   = pal[1] if len(pal) > 1 else "#6366f1"
         hdr_fills = [hdr_color] + [hdr_color if i % 2 == 0 else hdr_alt
                                     for i in range(n_cols_p)]
-        if _show_row_totals and not _dedup_agg_col:
-            hdr_fills = hdr_fills + [hdr_color if n_cols_p % 2 == 0 else hdr_alt]
-        if _show_row_totals:
-            _tot_idx = n_cols_p + (1 if _dedup_agg_col else 2)
-            hdr_fills = hdr_fills + [hdr_color if _tot_idx % 2 == 0 else hdr_alt]
+        hdr_fills = hdr_fills + [hdr_color if n_cols_p % 2 == 0 else hdr_alt]
 
 
         n_data_rows = len(y_labels)
@@ -308,7 +264,14 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
         cell_fills_by_col = []
         cell_fills_by_col.append(row_fills_base)
         for j in range(n_cols_p):
-            vmin, vmax = col_ranges[j]
+            vmin, vmax = 0, 0
+            try:
+                clean = [row[j] for row in z_values
+                         if row[j] is not None and not (isinstance(row[j], float) and np.isnan(row[j]))]
+                if clean:
+                    vmin, vmax = min(clean), max(clean)
+            except Exception:
+                pass
             col_bg = []
             for i, row in enumerate(z_values):
                 v = row[j]
@@ -321,17 +284,6 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
                 else:
                     col_bg.append(base)
             cell_fills_by_col.append(col_bg)
-        if not _dedup_agg_col:
-            val_col_base = ["#0f2a3a" if i % 2 == 0 else "#0a1e2a" for i in range(n_data_rows)]
-            cell_fills_by_col.append(val_col_base)
-        if _show_row_totals:
-            row_tot_base = ["#1e3a5f" if i % 2 == 0 else "#172554" for i in range(n_data_rows)]
-            cell_fills_by_col.append(row_tot_base)
-
-
-        index_vals_disp = y_labels
-        data_cols_fmt   = [[_fmt(row[j]) for row in z_values] for j in range(n_cols_p)]
-        row_totals_fmt  = [_fmt(v) for v in row_totals] if _show_row_totals else []
 
 
         _value_col_method = "std" if agg == "std" else agg
@@ -346,77 +298,28 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
             _val_series = pd.Series(index=pivot.index, dtype=float)
         _val_series = _val_series.reindex(pivot.index)
         value_col_fmt = [_fmt(v) for v in _val_series.tolist()]
+        val_col_base = ["#0f2a3a" if i % 2 == 0 else "#0a1e2a" for i in range(n_data_rows)]
+        cell_fills_by_col.append(val_col_base)
 
+        index_vals_disp = y_labels
+        data_cols_fmt   = [[_fmt(row[j]) for row in z_values] for j in range(n_cols_p)]
+        _data_cells = [index_vals_disp] + data_cols_fmt + [value_col_fmt]
 
         value_header_label = _VALUE_HEADER_MAP.get(agg, f"{agg.upper()}({vals})")
-
-
-        total_header_label = _VALUE_HEADER_MAP.get(agg, "Total ▸")
-        if not total_header_label.endswith(" ▸"):
-            total_header_label = f"{total_header_label} ▸"
-        if _show_row_totals:
-            if _dedup_agg_col:
-                col_headers = ([f"<b>{idx}</b>"] + [f"<b>{h}</b>" for h in x_labels]
-                               + [f"<b>{total_header_label}</b>"])
-            else:
-                col_headers = ([f"<b>{idx}</b>"] + [f"<b>{h}</b>" for h in x_labels]
-                               + [f"<b>{value_header_label}</b>"]
-                               + [f"<b>{total_header_label}</b>"])
-        else:
-            col_headers = ([f"<b>{idx}</b>"] + [f"<b>{h}</b>" for h in x_labels]
-                           + [f"<b>{value_header_label}</b>"])
+        col_headers = ([f"<b>{idx}</b>"] + [f"<b>{h}</b>" for h in x_labels]
+                       + [f"<b>{value_header_label}</b>"])
 
 
         height = max(n_rows * 28 + 200, 480)
 
 
-        totals_fmt   = [_fmt_total(v) for v in col_totals]
-        grand_fmt    = _fmt_total(grand_total) if _show_row_totals else ""
-        if _show_row_totals:
-            footer_label = _VALUE_HEADER_MAP.get(agg, "Total")
-            if _dedup_agg_col:
-                footer_vals  = ([[f"<b>◀ {footer_label}</b>"]] + [[v] for v in totals_fmt]
-                                + [[grand_fmt]])
-                footer_fills = ["#0f172a"] + ["#0f2a4a"] * n_cols_p + ["#0a1628"]
-            else:
-                footer_vals  = ([[f"<b>◀ {footer_label}</b>"]] + [[v] for v in totals_fmt]
-                                + [[""]] + [[grand_fmt]])
-                footer_fills = ["#0f172a"] + ["#0f2a4a"] * n_cols_p + ["#0f172a"] + ["#0a1628"]
-        else:
-            footer_vals  = [["<b>◀ Total</b>"]] + [[v] for v in totals_fmt] + [[""]]
-            footer_fills = ["#0f172a"] + ["#0f2a4a"] * n_cols_p + ["#0f172a"]
-
-
         fig = go.Figure(go.Table(
-            columnwidth=_col_widths,
-            header=dict(values=[""] * len(col_headers),
-                        fill_color="rgba(0,0,0,0)",
-                        line_color="rgba(0,0,0,0)", height=0),
-            cells=dict(
-                values=footer_vals,
-                fill_color=footer_fills,
-                font=dict(color="#818cf8", size=12,
-                          family="Inter, system-ui, sans-serif"),
-                align=["left"] + ["right"] * n_cols_p + ["right"] + (["right"] if (_show_row_totals and not _dedup_agg_col) else []),
-                line_color="rgba(100,116,139,0.2)",
-                height=30,
-            ),
-        ))
-
-
-        if _dedup_agg_col:
-            _data_cells = [index_vals_disp] + data_cols_fmt + [row_totals_fmt]
-        else:
-            _data_cells = [index_vals_disp] + data_cols_fmt + [value_col_fmt]
-            if _show_row_totals:
-                _data_cells = _data_cells + [row_totals_fmt]
-        fig.add_trace(go.Table(
             columnwidth=_col_widths,
             header=dict(
                 values=col_headers,
                 fill_color=hdr_fills,
                 font=dict(color="white", size=12, family="Inter, system-ui, sans-serif"),
-                align=["left"] + ["right"] * n_cols_p + ["right"] + (["right"] if _show_row_totals else []),
+                align=["left"] + ["right"] * (n_cols_p + 1),
                 line_color="rgba(255,255,255,0.1)",
                 height=34,
             ),
@@ -424,7 +327,7 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
                 values=_data_cells,
                 fill_color=cell_fills_by_col,
                 font=dict(color="#f1f5f9", size=11, family="Inter, system-ui, sans-serif"),
-                align=["left"] + ["right"] * n_cols_p + ["right"] + (["right"] if _show_row_totals else []),
+                align=["left"] + ["right"] * (n_cols_p + 1),
                 line_color="rgba(255,255,255,0.05)",
                 height=26,
             ),
