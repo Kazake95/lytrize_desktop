@@ -368,7 +368,10 @@ def generate_html_report(
 
 
     *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    html, body {{ height: 100%; }}
+    /* Do NOT set height: 100% on html,body — that locks the document to the
+       viewport height and cuts off content below the fold.  Instead, use
+       min-height so the page scrolls naturally when content overflows. */
+    html, body {{ min-height: 100vh; }}
     body {{
       font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont,
                    'Inter', 'DejaVu Sans', 'Liberation Sans', Arial, sans-serif;
@@ -377,7 +380,7 @@ def generate_html_report(
       padding: {padding_px}px;
       background: {t['bg_color']};
       color: {t['text_color']};
-      min-height: 100vh;
+      overflow-y: auto;
     }}
     .wrapper {{
       max-width: {max_width};

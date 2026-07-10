@@ -2,6 +2,7 @@
 import json, copy, datetime
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as _comp  # used for live preview iframe
 from html import escape
 import re
 
@@ -1015,11 +1016,19 @@ def page_dashboard():
 
 
 
-def _export_row(charts, sname, viewing_saved):
+def _generate_export_html(
+    charts: list,
+    sname: str,
+    viewing_saved: bool,
+) -> tuple[str, str]:
+    """
+    Pure function: return (html_string, safe_file_name) for the export-ready
+    dashboard.  Shared by the preview iframe and the download button.
+    Does NOT render any Streamlit widgets.
+    """
     orient     = st.session_state.get("layout_mode","portrait")
     kpis       = st.session_state.get("kpis",[])
     dash_title = st.session_state.get("dashboard_title","") or sname
-
 
     export_charts = []
     full_width = st.session_state.get("grid_fullwidth", {})
@@ -1036,8 +1045,75 @@ def _export_row(charts, sname, viewing_saved):
         export_charts.append((uid, item[1], fig, notes, item[4] if len(item)>4 else [],
                               item[5] if len(item)>5 else "", meta))
 
-
     safe_file = re.sub(r"[^A-Za-z0-9_.-]+", "_", dash_title).strip("._") or "lytrize_report"
+
+    _EX_DEFAULTS = {
+        "ex_bg": "#121a2e", "ex_card": "#1b2245", "ex_kpi": "#1b2245",
+        "ex_accent": "#6163df", "ex_border": "#2c3564", "ex_text": "#f5f7ff",
+        "ex_ins_bg": "#1a2441", "ex_ins_bd": "#6163df",
+        "ex_not_bg": "#1a1732", "ex_not_bd": "#8566fc",
+        "ex_density": "Comfortable", "ex_radius": 12, "ex_chart_h": 400,
+        "ex_width": "Auto", "ex_meta": True,
+        "ex_kpi_text_color": "#f5f7ff", "ex_kpi_val_size": 14,
+    }
+    _density = {
+        "Compact": {"gap": 14, "padding": 20},
+        "Comfortable": {"gap": 24, "padding": 32},
+        "Spacious": {"gap": 34, "padding": 44},
+    }.get(st.session_state.get("ex_density", _EX_DEFAULTS["ex_density"]), {"gap": 24, "padding": 32})
+    _width = {
+        "Auto": "",
+        "Narrow": "960px",
+        "Wide": "1440px",
+        "Full": "100%",
+    }.get(st.session_state.get("ex_width", _EX_DEFAULTS["ex_width"]), "")
+
+    export_theme = {
+        "bg_color":       st.session_state.get("ex_bg",     _EX_DEFAULTS["ex_bg"]),
+        "card_bg":        st.session_state.get("ex_card",   _EX_DEFAULTS["ex_card"]),
+        "kpi_bg":         st.session_state.get("ex_kpi",    _EX_DEFAULTS["ex_kpi"]),
+        "accent_color":   st.session_state.get("ex_accent", _EX_DEFAULTS["ex_accent"]),
+        "card_border":    st.session_state.get("ex_border", _EX_DEFAULTS["ex_border"]),
+        "text_color":     st.session_state.get("ex_text",   _EX_DEFAULTS["ex_text"]),
+        "insight_bg":     st.session_state.get("ex_ins_bg", _EX_DEFAULTS["ex_ins_bg"]),
+        "insight_border": st.session_state.get("ex_ins_bd", _EX_DEFAULTS["ex_ins_bd"]),
+        "notes_bg":       st.session_state.get("ex_not_bg", _EX_DEFAULTS["ex_not_bg"]),
+        "notes_border":   st.session_state.get("ex_not_bd", _EX_DEFAULTS["ex_not_bd"]),
+        "card_radius":    st.session_state.get("ex_radius", _EX_DEFAULTS["ex_radius"]),
+        "gap":            _density["gap"],
+        "body_padding":   _density["padding"],
+        "chart_height":   st.session_state.get("ex_chart_h",  _EX_DEFAULTS["ex_chart_h"]),
+        "max_width":      _width,
+        "show_meta":      st.session_state.get("ex_meta",     _EX_DEFAULTS["ex_meta"]),
+        "kpi_text_color": st.session_state.get("ex_kpi_text_color", _EX_DEFAULTS["ex_kpi_text_color"]),
+        "kpi_val_size":   st.session_state.get("ex_kpi_val_size",   _EX_DEFAULTS["ex_kpi_val_size"]),
+        "title_font":    st.session_state.get("ex_title_font",   "Inter"),
+        "title_style":  st.session_state.get("ex_title_style",  "Normal"),
+        "title_size":   st.session_state.get("ex_title_size",   28),
+        "title_color":  st.session_state.get("ex_title_color",  "#6163df"),
+        "insights_font": st.session_state.get("ex_insights_font", "Inter"),
+        "insights_style": st.session_state.get("ex_insights_style", "Normal"),
+        "insights_size": st.session_state.get("ex_insights_size", 14),
+        "insights_color": st.session_state.get("ex_insights_color", "#f5f7ff"),
+        "notes_font":    st.session_state.get("ex_notes_font",    "Inter"),
+        "notes_style":  st.session_state.get("ex_notes_style",  "Normal"),
+        "notes_size":   st.session_state.get("ex_notes_size",   14),
+        "notes_color":  st.session_state.get("ex_notes_color",   "#f5f7ff"),
+    }
+
+    html = generate_html_report(
+        export_charts, sname,
+        orientation=orient, kpis=kpis,
+        dashboard_title=dash_title,
+        grid_cols_n=st.session_state.get("grid_cols_n", 2),
+        theme=export_theme,
+    )
+    return html, safe_file
+
+
+def _export_row(charts, sname, viewing_saved):
+    dash_title = st.session_state.get("dashboard_title","") or sname
+    safe_file  = re.sub(r"[^A-Za-z0-9_.-]+", "_", dash_title).strip("._") or "lytrize_report"
 
 
     _EX_DEFAULTS = {
@@ -1372,42 +1448,23 @@ def _export_row(charts, sname, viewing_saved):
     }.get(st.session_state.get("ex_width", _EX_DEFAULTS["ex_width"]), "")
 
 
-    export_theme = {
-        "bg_color":       ex_bg,     "card_bg":        ex_card,
-        "kpi_bg":         ex_kpi,    "accent_color":   ex_accent,
-        "card_border":    ex_border, "text_color":     ex_text,
-        "insight_bg":     ex_ins_bg, "insight_border": ex_ins_bd,
-        "notes_bg":       ex_not_bg, "notes_border":   ex_not_bd,
-        "card_radius":    st.session_state.get("ex_radius", _EX_DEFAULTS["ex_radius"]),
-        "gap":            _density["gap"],
-        "body_padding":   _density["padding"],
-        "chart_height":   st.session_state.get("ex_chart_h", _EX_DEFAULTS["ex_chart_h"]),
-        "max_width":      _width,
-        "show_meta":      st.session_state.get("ex_meta", _EX_DEFAULTS["ex_meta"]),
-        "kpi_text_color": st.session_state.get("ex_kpi_text_color", _EX_DEFAULTS["ex_kpi_text_color"]),
-        "kpi_val_size":   st.session_state.get("ex_kpi_val_size",   _EX_DEFAULTS["ex_kpi_val_size"]),
-        "title_font":    st.session_state.get("ex_title_font", "Inter"),
-        "title_style":  st.session_state.get("ex_title_style", "Normal"),
-        "title_size":   st.session_state.get("ex_title_size", 28),
-        "title_color":  st.session_state.get("ex_title_color", "#6163df"),
-        "insights_font": st.session_state.get("ex_insights_font", "Inter"),
-        "insights_style": st.session_state.get("ex_insights_style", "Normal"),
-        "insights_size": st.session_state.get("ex_insights_size", 14),
-        "insights_color": st.session_state.get("ex_insights_color", "#f5f7ff"),
-        "notes_font":    st.session_state.get("ex_notes_font", "Inter"),
-        "notes_style":  st.session_state.get("ex_notes_style", "Normal"),
-        "notes_size":   st.session_state.get("ex_notes_size", 14),
-        "notes_color":  st.session_state.get("ex_notes_color", "#f5f7ff"),
-    }
+    # ----- Generate the export HTML using the shared function -----
+    html, safe_file = _generate_export_html(charts, sname, viewing_saved)
 
+    # ----- Live Preview expander -----
+    with st.expander("👁️ Preview Dashboard", expanded=False):
+        st.caption(
+            "Live preview of the download-ready HTML dashboard. "
+            "Uses the current export colours, text, and layout settings. "
+        )
+        # Render the full export HTML inside an iframe via streamlit.components.v1
+        # Height is auto-adjusted by the scrolling flag; default 700px is enough
+        # for most dashboards without overwhelming the UI.
+        # Use a generous height for the preview iframe so most dashboards
+        # are fully visible without needing to scroll within the iframe.
+        _comp.html(html, height=1200, scrolling=True)
 
-    html = generate_html_report(
-        export_charts, sname,
-        orientation=orient, kpis=kpis,
-        dashboard_title=dash_title,
-        grid_cols_n=st.session_state.get("grid_cols_n", 2),
-        theme=export_theme,
-    )
+    # ----- Download & screenshot info row -----
     c1, c2, c3 = st.columns([2, 2, 3])
     with c1:
         st.download_button("⬇️ Download HTML", html,
