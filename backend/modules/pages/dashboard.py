@@ -632,6 +632,10 @@ def _render_chart(item, idx, total, viewing_saved):
 
         # Handle deferred deletion from inside the fragment.
         if st.session_state.get(f"_delete_requested_{uid}"):
+            # Also invalidate the display-figure cache for this chart.
+            for _ck in (f"_display_fig_{uid}", f"_display_fig_hash_{uid}",
+                        f"_display_fig_font_{uid}", f"_display_fig_fonthash_{uid}"):
+                st.session_state.pop(_ck, None)
             st.session_state.charts = [
                 c for c in st.session_state.get("charts", []) if c[0] != uid
             ]
@@ -888,6 +892,10 @@ def page_dashboard():
 
     render_logo()
     if st.button("← Back"):
+        # Clear any stale regenerate markers that may have been set by an
+        # Edit Chart click inside the dashboard's chart-card fragment.
+        for _k in ("_regen_uid", "_regen_type", "_regen_restore"):
+            st.session_state.pop(_k, None)
         if viewing_saved:
             for k in ["view_session_id","_view_charts","_vsid",
                       "dashboard_title","kpis","layout_mode"]:

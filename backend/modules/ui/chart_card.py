@@ -123,6 +123,25 @@ from modules.ui.chart_settings import (
 )
 
 
+import hashlib
+
+
+def _fig_signature(fig) -> str:
+    """Return a fast, content-aware signature for a Plotly figure.
+
+    The md5 of the figure's JSON is deterministic for a given figure state and
+    changes automatically when the figure is regenerated.  This is used as part
+    of the display-figure cache key so that changing the *base* figure (e.g.
+    after Edit Chart → Apply Changes) immediately busts the cache even when
+    the display meta (title, labels, palette …) is unchanged.
+    """
+    try:
+        j = fig.to_json()
+        return hashlib.md5(j.encode("utf-8", "ignore")).hexdigest()[:16]
+    except Exception:
+        return str(id(fig))
+
+
 def get_display_fig(uid: str, base_fig, meta: dict, chart_type: str, *,
                     force: bool = False):
     """Return the *display-ready* figure, recomputed only when meta changes.
@@ -136,6 +155,10 @@ def get_display_fig(uid: str, base_fig, meta: dict, chart_type: str, *,
       3) Otherwise (structural option changed) do a full
          ``apply_chart_display_options`` (deepcopy + all traces).
 
+    The cache hash includes both the display meta *and* a signature of the
+    base figure so that regeneration (which swaps ``base_fig``) automatically
+    invalidates the cache.
+
     Cache keys live in st.session_state so they survive the fragment rerun.
     """
     struct_key   = f"_display_fig_{uid}"
@@ -143,18 +166,24 @@ def get_display_fig(uid: str, base_fig, meta: dict, chart_type: str, *,
     font_key     = f"_display_fig_font_{uid}"
     font_hkey    = f"_display_fig_fonthash_{uid}"
 
-    struct_hash  = compute_meta_hash(meta)
-    font_hash    = _font_only_hash(meta)
+    fig_sig      = _fig_signature(base_fig)
+    struct_hash  = compute_meta_hash(meta) + "|" + fig_sig
+    font_hash    = _font_only_hash(meta)    + "|" + fig_sig
 
     # Level 1: full match — return cached figure as-is
     if not force and st.session_state.get(struct_hkey) == struct_hash:
         return st.session_state.get(struct_key, base_fig)
 
-    # Level 2: only fonts changed — apply lightweight post-processor to the
-    # previously cached deep figure (avoids deepcopy + trace iteration).
+    # Level 2: only fonts changed — apply lightweight post-processor to a
+    # fresh deep copy of base_fig using the SAME meta (so structural options are
+    # still correctly applied), but skip the expensive full trace iteration by
+    # reusing the previously cached display figure's structure.
     prev_struct = st.session_state.get(struct_key, None)
     if prev_struct is not None and st.session_state.get(font_hkey) != font_hash:
         try:
+            # Reuse the previously cached full display figure and only refresh
+            # the font-related attributes. This avoids deepcopy + full rebuild
+            # while guaranteeing structural options remain intact.
             fig_show = copy.deepcopy(prev_struct)
             fig_show = _apply_font_only(fig_show, meta, chart_type)
             st.session_state[struct_key]  = fig_show
@@ -288,7 +317,12 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
                     st.session_state._regen_type = chart_type
                     st.session_state["_regen_restore"] = True
                     st.session_state.page = "analysis"
-                    st.rerun()
+                    # We are inside an @st.fragment; a plain st.rerun() would
+                    # only rerun *this fragment*, leaving the parent page
+                    # (page_analysis / page_dashboard) ignorant of _regen_uid
+                    # and never rendering the regenerate panel.  scope="app"
+                    # is required to make the app router re-enter the page.
+                    st.rerun(scope="app")
             else:
                 st.button("🔄 Edit Chart", key=f"regen_btn_{key_prefix}_{uid}",
                           use_container_width=True, disabled=True,
@@ -296,7 +330,10 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
     with ctrl[2]:
         if st.button("✕", key=f"del_{uid}", help="Remove this chart"):
             st.session_state[f"_delete_requested_{uid}"] = True
-            st.rerun()
+            # _delete_requested_ is consumed by the parent render loop which
+            # runs on a full page rerun.  scope="app" ensures the parent code
+            # (page_analysis or page_dashboard) actually executes.
+            st.rerun(scope="app")
 
     # ------------------------------------------------------------------ #
     # Two-column body: settings LEFT | chart RIGHT

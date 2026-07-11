@@ -131,6 +131,12 @@ def _restore_edit_notes() -> None:
 
 
 
+def _clear_regen_state() -> None:
+    """Remove regeneration markers so they don't accidentally bleed across nav."""
+    for _k in ("_regen_uid", "_regen_type", "_regen_restore"):
+        st.session_state.pop(_k, None)
+
+
 def _persist_draft(page="analysis"):
     uid = st.session_state.get("user_id")
     if not uid:
@@ -272,6 +278,7 @@ def page_analysis():
 
 
         if st.button("← Home"):
+            _clear_regen_state()
             for k in ["editing_session_id","editing_session_name","editing_file_name"]:
                 st.session_state.pop(k, None)
             st.session_state.page = "home"; st.rerun()
@@ -286,11 +293,13 @@ def page_analysis():
         c1, c2 = st.columns(2)
         with c1:
             if st.button("📂 Upload Dataset to Add Charts", use_container_width=True):
+                _clear_regen_state()
                 _autosave()
                 st.session_state.pop("_analysis_notes_loaded", None)
                 st.session_state.page = "upload"; st.rerun()
         with c2:
             if st.button("📊 Go to Dashboard →", use_container_width=True):
+                _clear_regen_state()
                 _autosave()
                 st.session_state.page = "dashboard"; st.rerun()
 
@@ -311,11 +320,13 @@ def page_analysis():
     _nav_c1, _nav_c2, _nav_spacer = st.columns([1, 1, 6])
     with _nav_c1:
         if st.button("← Home", use_container_width=True):
+            _clear_regen_state()
             st.session_state.pop("_analysis_page_ready", None)
             st.session_state.page = "home"; st.rerun()
     with _nav_c2:
         if st.button("📂 Upload", use_container_width=True,
                      help="Go back to Upload & Transformation to re-upload or clean data"):
+            _clear_regen_state()
             _shadow_notes_sync()
             st.session_state.pop("_analysis_notes_loaded", None)
             st.session_state.pop("_analysis_page_ready", None)
@@ -390,8 +401,12 @@ def page_analysis():
                     kwargs = _collect_kwargs_scoped(regen_uid, regen_type, df)
                     new_charts = _run(regen_type, df, **kwargs)
                     if new_charts:
-                        st.session_state.pop(f"_fig_cache_{regen_uid}", None)
-                        st.session_state.pop(f"_fig_cache_meta_{regen_uid}", None)
+                        # Invalidate the display-figure cache so the fragment
+                        # rebuilds with the newly-generated figure instead of
+                        # returning the stale cached display version.
+                        for _ck in (f"_display_fig_{regen_uid}", f"_display_fig_hash_{regen_uid}",
+                                    f"_display_fig_font_{regen_uid}", f"_display_fig_fonthash_{regen_uid}"):
+                            st.session_state.pop(_ck, None)
 
 
                         new_fig   = new_charts[0][2]
@@ -407,6 +422,7 @@ def page_analysis():
                         # edit opens with these exact selections.
                         try:
                             _new_ws = _collect_widget_state_scoped(regen_uid, regen_type)
+                            _widget_spec_keys = [key for key, _kwarg, _kind in _WIDGET_SPEC.get(regen_type, [])]
                             _set_chart_meta(
                                 regen_uid,
                                 _generation_kwargs=_collect_kwargs_scoped(
@@ -414,7 +430,7 @@ def page_analysis():
                                 ),
                                 widget_state={
                                     k: _new_ws.get(k)
-                                    for k in _WIDGET_SPEC.get(regen_type, {})
+                                    for k in _widget_spec_keys
                                 },
                             )
                         except Exception:
@@ -606,6 +622,7 @@ def page_analysis():
 
         st.write("")
         if st.button("🎯 Proceed to Dashboard →", type="primary"):
+            _clear_regen_state()
             log_activity(st.session_state.get("user_id",0),"proceed_to_dashboard",
                          f"charts={len(st.session_state.charts)}")
             with st.spinner("Saving your work and preparing the dashboard…"):
