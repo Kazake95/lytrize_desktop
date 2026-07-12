@@ -1053,6 +1053,32 @@ button[kind="primary"],
     box-shadow:   0 6px 18px rgba(111, 99, 255, 0.12)       !important;
     transform:    translateY(-1px);
 }}
+.dashboard-panel, .dashboard-toolbar, .dashboard-builder-panel {{
+    background:      var(--secondary-background-color) !important;
+    border:          1px solid var(--border-subtle) !important;
+    border-radius:   22px !important;
+    box-shadow:      0 20px 40px rgba(10, 14, 44, 0.08) !important;
+    padding:         1.2rem 1.4rem !important;
+    margin-bottom:   1.25rem !important;
+}}
+.dashboard-panel-title {{
+    font-size: 1.45rem !important;
+    font-weight: 700 !important;
+    margin-bottom: 0.25rem !important;
+}}
+.dashboard-panel-subtitle {{
+    color: var(--text-secondary) !important;
+    font-size: 0.98rem !important;
+    line-height: 1.5 !important;
+}}
+.dashboard-toolbar {{
+    display: grid !important;
+    gap: 1rem !important;
+    grid-template-columns: repeat(3, minmax(180px, 1fr)) !important;
+}}
+.dashboard-builder-panel .stMarkdown {{
+    margin-bottom: 1rem !important;
+}}
 .kpi-icon {{
     font-size:   1.45rem;
     line-height: 1;
