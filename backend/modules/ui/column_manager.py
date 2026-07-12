@@ -8,6 +8,8 @@ import ast
 import operator
 import re
 
+from modules.utils.session_cache import set_df, update_df
+
 
 
 
@@ -98,7 +100,8 @@ def show_column_manager(df):
         with a2:
             calc_type = st.selectbox("Calculation type", [
                 "Custom formula (use col names)", "Column × Column", "Column ÷ Column",
-                "Column + Column", "Column − Column", "Extract Date/Time Part"
+                "Column + Column", "Column − Column", "Extract Date/Time Part",
+                "Date Difference"
             ], key="calc_type")
 
 
@@ -114,6 +117,46 @@ def show_column_manager(df):
             with b1: col_a = st.selectbox("First", num_cols, key="col_a")
             with b2: col_b = st.selectbox("Second", num_cols, key="col_b")
             formula_str = f"`{col_a}` {op} `{col_b}`"
+        elif calc_type == "Date Difference":
+            # Detect existing date-like columns (datetime types + parseable object columns)
+            date_like_cols = []
+            for col in df.columns:
+                if pd.api.types.is_datetime64_any_dtype(df[col]):
+                    date_like_cols.append(col)
+                elif pd.api.types.is_object_dtype(df[col]):
+                    try:
+                        sample = df[col].dropna().head(20).astype(str)
+                        pd.to_datetime(sample, errors="coerce")
+                        # Accept if at least 50% parseable
+                        if pd.to_datetime(sample, errors="coerce").notna().sum() >= len(sample) * 0.5:
+                            date_like_cols.append(col)
+                    except Exception:
+                        pass
+            if not date_like_cols:
+                st.warning("No date-like columns found in the dataset. Parsing any column as string.")
+                date_like_cols = df.columns.tolist()
+
+            b1, b2 = st.columns(2)
+            with b1:
+                date_col_a = st.selectbox("Start Date Column", date_like_cols, key="dd_col_a")
+            with b2:
+                dd_target = st.radio("End date", ["Another column", "Today's date"], key="dd_target",
+                                     horizontal=True)
+
+            date_col_b = None
+            if dd_target == "Another column":
+                date_col_b = st.selectbox(
+                    "End Date Column",
+                    [c for c in date_like_cols if c != date_col_a],
+                    key="dd_col_b",
+                )
+
+            diff_unit = st.selectbox("Difference unit", [
+                "Days", "Months", "Years", "Age (Years from DOB vs Today)",
+                "Previous Year (subtract 1 year)", "Previous Month (subtract 1 month)",
+            ], key="dd_unit")
+            formula_str = "date_diff_placeholder"
+
         elif calc_type == "Extract Date/Time Part":
             b1, b2 = st.columns(2)
             with b1: date_col = st.selectbox("Source Date Column", df.columns, key="date_col")
@@ -132,7 +175,66 @@ def show_column_manager(df):
                 st.error("Fill all fields.")
             else:
                 try:
-                    if calc_type == "Extract Date/Time Part":
+                    if calc_type == "Date Difference":
+                        def _parse_series(series: pd.Series) -> pd.Series:
+                            """Parse a Series to datetime, coercing errors to NaT."""
+                            return pd.to_datetime(series.astype(str).str.strip(), errors="coerce")
+
+                        series_a = _parse_series(df[date_col_a])
+
+                        if dd_target == "Today's date":
+                            end = pd.Timestamp.today()
+                            series_b = pd.Series([end] * len(df), index=df.index)
+                        else:
+                            series_b = _parse_series(df[date_col_b])
+
+                        null_count_a = int(series_a.isna().sum())
+                        null_count_b = int(series_b.isna().sum())
+                        total_null = null_count_a + null_count_b
+                        if total_null:
+                            st.warning(
+                                f"⚠️ {null_count_a} value(s) in `{date_col_a}` and "
+                                f"{null_count_b} in end date could not be parsed "
+                                f"and will produce NaN in the new column."
+                            )
+
+                        if diff_unit == "Days":
+                            result = (series_b - series_a).dt.days
+                        elif diff_unit == "Months":
+                            result = (series_b.dt.year - series_a.dt.year) * 12 + (
+                                series_b.dt.month - series_a.dt.month
+                            )
+                            # Day-of-month adjustment: subtract 1 if end day < start day
+                            adj = (series_b.dt.day < series_a.dt.day).astype(int)
+                            result = result - adj
+                        elif diff_unit == "Years":
+                            raw_years = (series_b.dt.year - series_a.dt.year) + (
+                                (series_b.dt.month - series_a.dt.month) / 12.0
+                            ) + (
+                                (series_b.dt.day - series_a.dt.day) / 365.0
+                            )
+                            result = raw_years
+                            # For display, keep as float (round to 2dp) — user can see fractional years
+                        elif diff_unit == "Age (Years from DOB vs Today)":
+                            # Age uses today as end date
+                            end = pd.Timestamp.today()
+                            series_b = pd.Series([end] * len(df), index=df.index)
+                            raw_years = (series_b.dt.year - series_a.dt.year) + (
+                                (series_b.dt.month - series_a.dt.month) / 12.0
+                            ) + (
+                                (series_b.dt.day - series_a.dt.day) / 365.0
+                            )
+                            result = raw_years
+                        elif diff_unit == "Previous Year (subtract 1 year)":
+                            result = series_a - pd.DateOffset(years=1)
+                        elif diff_unit == "Previous Month (subtract 1 month)":
+                            result = series_a - pd.DateOffset(months=1)
+                        else:
+                            result = (series_b - series_a).dt.days
+
+                        df[new_col_name.strip()] = result
+
+                    elif calc_type == "Extract Date/Time Part":
                         _params = st.session_state.get("_date_extract_params", {})
                         _date_col = _params.get("date_col") or date_col
                         _part = _params.get("part") or part_to_extract
@@ -213,11 +315,9 @@ def show_column_manager(df):
                         df[new_col_name.strip()] = mapping[_part]
                     else:
                         df[new_col_name.strip()] = _safe_formula_eval(df, formula_str)
-                    st.session_state.df = df
+                    update_df(df)
                     if "_date_extract_params" in st.session_state:
                         del st.session_state["_date_extract_params"]
-                    for k in ("_ul_preview_cache", "_ul_preview_cache_key"):
-                        st.session_state.pop(k, None)
                     st.success(f"✅ Added {new_col_name.strip()}")
                     st.rerun()
                 except Exception as e:
@@ -229,12 +329,10 @@ def show_column_manager(df):
         confirm = st.checkbox(f"Confirm removal of **{col_to_del}**", key="confirm_del")
         if st.button("🗑️ Remove", key="btn_del_col", disabled=not confirm):
             df = df.drop(columns=[col_to_del])
-            st.session_state.df = df
+            set_df(df)
             for k in ["num_cols", "cat_cols"]:
                 if k in st.session_state:
                     st.session_state[k] = [c for c in st.session_state[k] if c != col_to_del]
-            for k in ("_ul_preview_cache", "_ul_preview_cache_key"):
-                st.session_state.pop(k, None)
             st.success(f"✅ Removed {col_to_del}")
             st.rerun()
 
@@ -254,7 +352,7 @@ def show_column_manager(df):
             else:
                 try:
                     df = df.rename(columns={col_to_rename: new_name_clean})
-                    st.session_state.df = df
+                    set_df(df)
 
 
                     if "num_cols" in st.session_state:
@@ -274,9 +372,6 @@ def show_column_manager(df):
                         if col_to_rename in col_descs:
                             col_descs[new_name_clean] = col_descs.pop(col_to_rename)
                             st.session_state["col_descriptions"] = col_descs
-
-                    for k in ("_ul_preview_cache", "_ul_preview_cache_key"):
-                        st.session_state.pop(k, None)
 
                     st.success(f"✅ Renamed '{col_to_rename}' to '{new_name_clean}'")
                     st.rerun()

@@ -41,7 +41,7 @@ from modules.pages.home            import page_home
 from modules.pages.upload          import page_upload
 from modules.pages.analysis        import page_analysis
 from modules.pages.dashboard       import page_dashboard
-from modules.utils.session_cache   import save_df_snapshot, load_df_snapshot
+from modules.utils.session_cache   import save_df_snapshot, load_df_snapshot, set_df
 
 
 
@@ -79,6 +79,7 @@ def _restore_draft(user_id: int) -> None:
     if draft.get("editing_session_id"):
         st.session_state.editing_session_id   = draft["editing_session_id"]
         st.session_state.editing_session_name = draft.get("editing_session_name", "")
+        st.session_state.editing_file_name   = draft.get("editing_file_name", "")
 
 
     try:
@@ -124,7 +125,7 @@ def _restore_draft(user_id: int) -> None:
 
     df = load_df_snapshot(user_id)
     if df is not None:
-        st.session_state.df = df
+        set_df(df)
         try:
             col_descs = json.loads(draft.get("col_descriptions_json", "{}") or "{}")
             if col_descs:

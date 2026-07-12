@@ -6,6 +6,7 @@ import plotly.express as px
 import pandas as pd
 from modules.database import log_activity
 from modules.charts import chart_layout, DANGER
+from modules.utils.session_cache import set_df
 
 
 
@@ -113,7 +114,7 @@ def _missing_controls(df: pd.DataFrame):
     with cl1:
         if st.button("Drop rows with ANY NA", key="dq_dropna_all"):
             before = len(st.session_state.df)
-            st.session_state.df = st.session_state.df.dropna().reset_index(drop=True)
+            set_df(st.session_state.df.dropna().reset_index(drop=True))
             removed = before - len(st.session_state.df)
             log_activity(uid, "dropna_all", f"removed {removed} rows")
             st.toast(f"✅ Removed {removed:,} rows — {len(st.session_state.df):,} remain", icon="✅")
@@ -132,8 +133,8 @@ def _missing_controls(df: pd.DataFrame):
     with cl3:
         if st.button(f"Drop NA in '{col_to_drop}'", key="dq_dropna_col"):
             before = len(st.session_state.df)
-            st.session_state.df = st.session_state.df.dropna(
-                subset=[col_to_drop]).reset_index(drop=True)
+            set_df(st.session_state.df.dropna(
+                subset=[col_to_drop]).reset_index(drop=True))
             removed = before - len(st.session_state.df)
             log_activity(uid, "dropna_col", f"col={col_to_drop} removed={removed}")
             st.toast(f"✅ Removed {removed:,} rows where '{col_to_drop}' was NA", icon="✅")
@@ -194,7 +195,7 @@ def _dup_controls(df: pd.DataFrame):
             key="dq_del_selected",
             disabled=not del_idx,
         ):
-            st.session_state.df = (
+            set_df(
                 st.session_state.df.drop(index=del_idx).reset_index(drop=True)
             )
             log_activity(uid, "delete_rows_manual", f"deleted {len(del_idx)} rows")
@@ -207,7 +208,7 @@ def _dup_controls(df: pd.DataFrame):
         if st.button("Drop ALL duplicates (keep first)", key="dq_drop_dup"):
             subset = [pk_col] if pk_col else None
             before = len(st.session_state.df)
-            st.session_state.df = (
+            set_df(
                 st.session_state.df
                 .drop_duplicates(subset=subset, keep="first")
                 .reset_index(drop=True)
@@ -222,7 +223,7 @@ def _dup_controls(df: pd.DataFrame):
         if st.button("Drop ALL duplicates (keep last)", key="dq_drop_dup_last"):
             subset = [pk_col] if pk_col else None
             before = len(st.session_state.df)
-            st.session_state.df = (
+            set_df(
                 st.session_state.df
                 .drop_duplicates(subset=subset, keep="last")
                 .reset_index(drop=True)

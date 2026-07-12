@@ -92,6 +92,7 @@ def _persist():
         file_name            = st.session_state.get("file_name", ""),
         editing_session_id   = st.session_state.get("editing_session_id"),
         editing_session_name = st.session_state.get("editing_session_name"),
+        editing_file_name    = st.session_state.get("editing_file_name", ""),
         dashboard_title      = st.session_state.get("dashboard_title", ""),
         kpis_json            = json.dumps(st.session_state.get("kpis", [])),
         chart_meta_json      = chart_meta_json,

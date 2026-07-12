@@ -5,6 +5,7 @@ import uuid, json
 import streamlit as st
 import streamlit.components.v1 as _comp
 from modules.database import log_activity, save_draft, update_session_db, get_session_meta
+from modules.utils.session_cache import make_json_safe
 from modules.analysis import (
     ANALYSIS_OPTIONS, _NEEDS_AXES, _NO_FORM,
     render_config_panel, _collect_kwargs, _run,
@@ -146,7 +147,12 @@ def _persist_draft(page="analysis"):
     df = st.session_state.get("df")
     if df is not None:
         try:
-            df_sig = (id(df), df.shape, tuple(df.columns), hash(tuple(df.columns.tolist())))
+            df_sig = (
+                id(df),
+                df.shape,
+                tuple(df.columns),
+                int(df.memory_usage(deep=True).sum()) if hasattr(df, "memory_usage") else 0,
+            )
             if st.session_state.get("_df_snapshot_sig") != df_sig:
                 from modules.utils.session_cache import save_df_snapshot
                 save_df_snapshot(uid)
@@ -156,7 +162,7 @@ def _persist_draft(page="analysis"):
 
 
     charts = st.session_state.get("charts", [])
-    chart_sig = tuple(uid_t for uid_t, _, _ in charts)
+    chart_sig = tuple((uid_t, title, id(fig)) for uid_t, title, fig in charts)
     notes_sig = hash(str(st.session_state.get("_notes_shadow", {})))
     cache_key  = ("_charts_json_cache", chart_sig, notes_sig)
     cached_cj  = st.session_state.get("_charts_json_cache_val")
@@ -172,24 +178,7 @@ def _persist_draft(page="analysis"):
     chart_meta_raw = {}
     for _k in list(st.session_state.keys()):
         if _k.startswith("chart_meta_"):
-            _v = st.session_state[_k]
-            if isinstance(_v, dict):
-                _safe_v = {}
-                for _mk, _mv in _v.items():
-                    try:
-                        json.dumps(_mv, ensure_ascii=False)
-                        _safe_v[_mk] = _mv
-                    except (TypeError, ValueError, OverflowError):
-                        _safe_v[_mk] = str(_mv)
-                chart_meta_raw[_k] = _safe_v
-            elif isinstance(_v, (str, int, float, bool, list, tuple)):
-                try:
-                    json.dumps(_v, ensure_ascii=False)
-                    chart_meta_raw[_k] = _v
-                except (TypeError, ValueError, OverflowError):
-                    chart_meta_raw[_k] = str(_v)
-            else:
-                chart_meta_raw[_k] = str(_v)
+            chart_meta_raw[_k] = make_json_safe(st.session_state[_k])
     chart_meta_json = json.dumps(chart_meta_raw, ensure_ascii=False)
 
 
@@ -200,6 +189,7 @@ def _persist_draft(page="analysis"):
         file_name            = st.session_state.get("file_name", ""),
         editing_session_id   = st.session_state.get("editing_session_id"),
         editing_session_name = st.session_state.get("editing_session_name"),
+        editing_file_name    = st.session_state.get("editing_file_name", ""),
         dashboard_title      = st.session_state.get("dashboard_title", ""),
         kpis_json            = json.dumps(st.session_state.get("kpis", [])),
         chart_meta_json      = chart_meta_json,

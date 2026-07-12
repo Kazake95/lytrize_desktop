@@ -144,62 +144,28 @@ def _fig_signature(fig) -> str:
 
 def get_display_fig(uid: str, base_fig, meta: dict, chart_type: str, *,
                     force: bool = False):
-    """Return the *display-ready* figure, recomputed only when meta changes.
+    """Return the *display-ready* figure, recomputed only when meta or base_fig changes.
 
-    Multi-level cache:
-      1) If the full meta hash (incl. structural options) matches, return the
-         cached figure directly — O(1).
-      2) Else if *only* font-related keys changed, run the lightweight
-         ``_apply_font_only`` post-processor on a cheap shallow copy of the
-         previously cached figure — avoids deepcopy + full trace iteration.
-      3) Otherwise (structural option changed) do a full
-         ``apply_chart_display_options`` (deepcopy + all traces).
+    Single-level cache keyed on ``compute_meta_hash(meta)`` plus a signature of
+    ``base_fig``.  Because ``compute_meta_hash`` now hashes the full meta dict,
+    any change to display options, typography, labels, or future keys
+    automatically invalidates the cache.  Regeneration swaps ``base_fig`` and
+    the signature changes, so the cache is also invalidated automatically.
 
-    The cache hash includes both the display meta *and* a signature of the
-    base figure so that regeneration (which swaps ``base_fig``) automatically
-    invalidates the cache.
-
-    Cache keys live in st.session_state so they survive the fragment rerun.
+    Cache keys live in ``st.session_state`` so they survive fragment reruns.
     """
-    struct_key   = f"_display_fig_{uid}"
-    struct_hkey  = f"_display_fig_hash_{uid}"
-    font_key     = f"_display_fig_font_{uid}"
-    font_hkey    = f"_display_fig_fonthash_{uid}"
+    cache_key   = f"_display_fig_{uid}"
+    hash_key    = f"_display_fig_hash_{uid}"
 
-    fig_sig      = _fig_signature(base_fig)
-    struct_hash  = compute_meta_hash(meta) + "|" + fig_sig
-    font_hash    = _font_only_hash(meta)    + "|" + fig_sig
+    fig_sig     = _fig_signature(base_fig)
+    cache_hash  = compute_meta_hash(meta) + "|" + fig_sig
 
-    # Level 1: full match — return cached figure as-is
-    if not force and st.session_state.get(struct_hkey) == struct_hash:
-        return st.session_state.get(struct_key, base_fig)
+    if not force and st.session_state.get(hash_key) == cache_hash:
+        return st.session_state.get(cache_key, base_fig)
 
-    # Level 2: only fonts changed — apply lightweight post-processor to a
-    # fresh deep copy of base_fig using the SAME meta (so structural options are
-    # still correctly applied), but skip the expensive full trace iteration by
-    # reusing the previously cached display figure's structure.
-    prev_struct = st.session_state.get(struct_key, None)
-    if prev_struct is not None and st.session_state.get(font_hkey) != font_hash:
-        try:
-            # Reuse the previously cached full display figure and only refresh
-            # the font-related attributes. This avoids deepcopy + full rebuild
-            # while guaranteeing structural options remain intact.
-            fig_show = copy.deepcopy(prev_struct)
-            fig_show = _apply_font_only(fig_show, meta, chart_type)
-            st.session_state[struct_key]  = fig_show
-            st.session_state[struct_hkey] = struct_hash
-            st.session_state[font_key]    = fig_show
-            st.session_state[font_hkey]   = font_hash
-            return fig_show
-        except Exception:
-            pass  # Fall through to full rebuild on error
-
-    # Level 3: full rebuild (structural option changed or no cache yet)
     fig = apply_chart_display_options(base_fig, meta, chart_type, _inplace=False)
-    st.session_state[struct_key]  = fig
-    st.session_state[struct_hkey] = struct_hash
-    st.session_state[font_key]    = fig
-    st.session_state[font_hkey]   = font_hash
+    st.session_state[cache_key] = fig
+    st.session_state[hash_key]  = cache_hash
     return fig
 
 
@@ -362,14 +328,20 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
                         on_meta_changed(uid, _ckey, _cval)
 
             # Typography -------------------------------------------------------
+            # Re-read meta so we see any Chart Settings updates from this run,
+            # then merge typography updates onto the existing text_style so
+            # keys from other expanders are never dropped.
             from modules.ui.font_manager import inject_font_preview_css
             with st.expander("🎨 Typography", expanded=False):
                 inject_font_preview_css()  # session-guarded; idempotent
+                _meta_for_typo = st.session_state.get(f"chart_meta_{uid}", meta)
                 text_updates = render_typography_controls(
-                    uid, fig, _stype, meta, key_prefix=key_prefix,
+                    uid, fig, _stype, _meta_for_typo, key_prefix=key_prefix,
                 )
-                if on_meta_changed:
-                    on_meta_changed(uid, "text_style", text_updates)
+                if on_meta_changed and text_updates:
+                    _merged = dict(_meta_for_typo.get("text_style", {}))
+                    _merged.update(text_updates)
+                    on_meta_changed(uid, "text_style", _merged)
 
     # ---- RIGHT: figure render + insights + notes ---------------------- #
     with chart_col:

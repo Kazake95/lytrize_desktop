@@ -39,7 +39,7 @@ streamlit run backend/app.py --server.port 8501 --server.address 127.0.0.1
 The packaged launcher under `desktop/launcher.py` is for installed builds only. It expects the application to live under `/opt/lytrize`, so do not use it for a source checkout.
 
 
-If no automated tests are present yet, use the manual smoke-test steps in this file and in `test_commands.txt`.
+If no automated tests are present yet, use the manual smoke-test steps in this file and in `extra/test_commands.txt`.
 
 ---
 
@@ -297,7 +297,7 @@ Run the backend in isolation with a dummy file:
 streamlit run backend/app.py
 ```
 
-Use `test_commands.txt` in the repository root for manual smoke-test commands.
+Use `extra/test_commands.txt` for manual smoke-test commands.
 
 ---
 

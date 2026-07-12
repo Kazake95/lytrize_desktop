@@ -8,6 +8,7 @@ import plotly.graph_objects as go
 
 from modules.charts import chart_layout, COLORS
 from modules.database import log_activity
+from modules.utils.session_cache import set_df
 
 
 
@@ -252,7 +253,7 @@ def run_outlier_upload(df: pd.DataFrame) -> None:
             f"({len(all_outlier_indices):,} unique rows)",
             key="outlier_del_all_cols",
         ):
-            st.session_state.df = (
+            set_df(
                 st.session_state.df
                 .drop(index=list(all_outlier_indices))
                 .reset_index(drop=True)
@@ -305,7 +306,7 @@ def run_outlier_upload(df: pd.DataFrame) -> None:
                 f"🗑️ Delete all {len(out_rows):,} outlier rows in '{col}'",
                 key=f"out_del_all_{col}",
             ):
-                st.session_state.df = (
+                set_df(
                     st.session_state.df
                     .drop(index=out_rows.index.tolist())
                     .reset_index(drop=True)
@@ -335,7 +336,7 @@ def run_outlier_upload(df: pd.DataFrame) -> None:
                 key=f"out_del_sel_{col}",
                 disabled=(len(sel_indices) == 0),
             ):
-                st.session_state.df = (
+                set_df(
                     st.session_state.df
                     .drop(index=sel_indices)
                     .reset_index(drop=True)

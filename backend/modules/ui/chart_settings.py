@@ -64,11 +64,9 @@ FONT_STACK_MAP: dict[str, str] = {
 
 
 
-
 def resolve_font_stack(font_name: str) -> str:
     """Resolve a clean font name to a highly compatible CSS system font stack."""
     return FONT_STACK_MAP.get(font_name, font_name)
-
 
 
 
@@ -167,7 +165,6 @@ CHART_TYPE_SETTINGS: dict[str, dict[str, Any]] = {
 
 
 
-
 def get_chart_type_capabilities(chart_type: str) -> dict[str, Any]:
     return CHART_TYPE_SETTINGS.get(chart_type, {
         "has_axes": False, "has_legend": False,
@@ -177,10 +174,8 @@ def get_chart_type_capabilities(chart_type: str) -> dict[str, Any]:
 
 
 
-
 def has_control(chart_type: str, control: str) -> bool:
     return control in get_chart_type_capabilities(chart_type).get("controls", [])
-
 
 
 
@@ -189,27 +184,11 @@ def has_typography(chart_type: str, typo_category: str) -> bool:
 
 
 
-
 def compute_meta_hash(meta: dict | None) -> str:
+    """Hash the full meta dict so any future key auto-invalidates the display cache."""
     if not meta:
         return ""
-    relevant = {}
-    for key in ("custom_title", "subtitle", "x_label", "y_label",
-                "legend_title", "legend_names", "display_options",
-                "colorbar_zmin", "colorbar_zmax", "show_auto_insights",
-                "hidden_insights"):
-        if key in meta:
-            relevant[key] = meta[key]
-            
-
-    if "text_style" in meta:
-        ts = meta["text_style"]
-        if isinstance(ts, dict):
-            relevant["text_style"] = {k: v for k, v in ts.items()}
-            
-
-    return json.dumps(relevant, sort_keys=True, default=str)
-
+    return json.dumps(meta, sort_keys=True, default=str)
 
 
 
@@ -235,7 +214,6 @@ def default_text_style() -> dict:
         "axis_tick_color":    "#94a3b8",
         "legend_bgcolor":     "rgba(0,0,0,0)",
     }
-
 
 
 
@@ -279,7 +257,6 @@ def available_font_families() -> list[str]:
 
 
 
-
 def _wrap_html_style(text: str, style: str) -> str:
     text = str(text or "")
     style = str(style or "").lower()
@@ -296,7 +273,6 @@ def _wrap_html_style(text: str, style: str) -> str:
 
 
 
-
 def merge_text_style(raw: dict | None) -> dict:
     style = default_text_style()
     if not isinstance(raw, dict):
@@ -305,7 +281,6 @@ def merge_text_style(raw: dict | None) -> dict:
         if key in style and value not in (None, ""):
             style[key] = value
     return style
-
 
 
 
@@ -320,13 +295,12 @@ def trace_capabilities(fig, chart_type: str = "") -> dict[str, Any]:
             for t in getattr(fig, "data", [])
         ),
         "has_pie":       bool(types & {"pie", "sunburst", "treemap"}),
-        "has_heatmap":   bool(types & {"heatmap", "choropleth", "scattermapbox", "scattermap"}) or chart_type == "matrix_heatmap",
+        "has_heatmap":   bool(types & {"heatmap"}) or chart_type == "matrix_heatmap",
         "has_table":     "table" in types or chart_type == "matrix_table",
         "has_legend":    sum(
             1 for t in getattr(fig, "data", []) if getattr(t, "name", None)
         ) > 1,
     }
-
 
 
 
@@ -336,7 +310,6 @@ def _float_or_none(value) -> float | None:
         return float(text) if text else None
     except Exception:
         return None
-
 
 
 
@@ -351,7 +324,6 @@ def _option_index(options: list[str], value: str, default: str) -> int:
 
 
 
-
 def _safe_get_font_attr(font_obj, attr: str, default=None):
     """Safely get an attribute from a font object (which could be None, dict, or Plotly object)."""
     if font_obj is None:
@@ -361,7 +333,6 @@ def _safe_get_font_attr(font_obj, attr: str, default=None):
         return val if val is not None else default
     except Exception:
         return default
-
 
 
 
@@ -414,6 +385,7 @@ def _apply_font_only(fig, meta: dict | None, chart_type: str = ""):
     return fig
 
 
+
 def _font_only_hash(meta: dict | None) -> str:
     """Compute a hash that only covers font-related meta keys.
 
@@ -434,6 +406,7 @@ def _font_only_hash(meta: dict | None) -> str:
     return json.dumps(relevant, sort_keys=True, default=str)
 
 
+
 def apply_chart_display_options(
     fig,
     meta: dict | None,
@@ -447,38 +420,32 @@ def apply_chart_display_options(
         opts = {}
     f2 = fig if _inplace else copy.deepcopy(fig)
 
-    try:
-        text_style = meta.get("text_style", {})
-        ts = merge_text_style(text_style)
-        
+    # Capture value label settings early (outside try so the final section can always use them)
+    _show_value_labels = bool(opts.get("show_value_labels", False))
+    _value_label_color = str(opts.get("value_label_color", "#ffffff")) if _show_value_labels else None
+    _label_pos = opts.get("label_position", "outside")
 
-        _raw_family  = str(ts.get("family", "Inter"))
-        _font_family = resolve_font_stack(_raw_family)
-        _font_style  = str(ts.get("font_style", "Normal"))
+    text_style = meta.get("text_style", {})
+    ts = merge_text_style(text_style)
 
+    _raw_family  = str(ts.get("family", "Inter"))
+    _font_family = resolve_font_stack(_raw_family)
+    _font_style  = str(ts.get("font_style", "Normal"))
 
-        # Capture value label settings early
-        _show_value_labels = bool(opts.get("show_value_labels", False))
-        _value_label_color = str(opts.get("value_label_color", "#ffffff")) if _show_value_labels else None
-        _label_pos = opts.get("label_position", "outside")
+    if "show_legend" in opts:
+        f2.update_layout(showlegend=bool(opts["show_legend"]))
+    if "bar_gap" in opts:
+        f2.update_layout(bargap=float(opts["bar_gap"]))
+    if opts.get("bar_mode"):
+        f2.update_layout(barmode=str(opts["bar_mode"]))
 
+    for tr in f2.data:
+        ttype = str(getattr(tr, "type", "") or "").lower()
+        mode  = str(getattr(tr, "mode", "") or "")
 
-        if "show_legend" in opts:
-            f2.update_layout(showlegend=bool(opts["show_legend"]))
-        if "bar_gap" in opts:
-            f2.update_layout(bargap=float(opts["bar_gap"]))
-        if opts.get("bar_mode"):
-            f2.update_layout(barmode=str(opts["bar_mode"]))
-
-
-        for tr in f2.data:
-            ttype = str(getattr(tr, "type", "") or "").lower()
-            mode  = str(getattr(tr, "mode", "") or "")
-
-
+        try:
             if ttype == "bar":
                 tr.textposition = _label_pos if _show_value_labels else "none"
-
 
             if ttype in ("scatter", "scattergl") and "lines" in mode:
                 if _show_value_labels:
@@ -490,14 +457,12 @@ def apply_chart_display_options(
                         mode.replace("+text", "").replace("text+", "").replace("text", "")
                     ) or "lines"
 
-
             if ttype == "histogram":
                 nbins = opts.get("histogram_bins")
                 if nbins:
                     tr.nbinsx = int(nbins)
                 if opts.get("histogram_opacity") is not None:
                     tr.opacity = float(opts["histogram_opacity"])
-
 
             if ttype in ("scatter", "scattergl", "scattermap", "scattermapbox"):
                 if opts.get("marker_opacity") is not None and hasattr(tr, "marker"):
@@ -517,7 +482,6 @@ def apply_chart_display_options(
                             .replace("markers+", "")
                             .replace("markers", "lines")
                     )
-
 
             if ttype in ("pie", "sunburst", "treemap"):
                 if opts.get("donut_hole") is not None and hasattr(tr, "hole"):
@@ -550,7 +514,6 @@ def apply_chart_display_options(
                                             setattr(_pf, _k, _v)
                                 except Exception:
                                     pass
-
 
             if ttype in ("heatmap", "choropleth"):
                 if opts.get("heatmap_colorscale"):
@@ -640,7 +603,6 @@ def apply_chart_display_options(
                     if ann_color is not None: new_tf["color"] = ann_color
                     tr.textfont = new_tf
 
-
             if ttype == "table":
                 _hdr_vals = getattr(tr.header, "values", None) or []
                 _is_footer_trace = all(
@@ -650,18 +612,15 @@ def apply_chart_display_options(
                 if _is_footer_trace:
                     continue
 
-
                 cell_size    = int(opts.get("table_font_size", 11))
                 header_size  = int(opts.get("table_header_font_size", max(cell_size, 12)))
                 row_h        = int(opts.get("table_row_height", 26))
                 hdr_h        = max(int(opts.get("table_header_height", 22)), header_size + 12)
                 idx_align    = opts.get("table_index_align", "left")
                 data_align   = opts.get("table_data_align", "right")
-                
 
                 tr.cells.font = dict(size=cell_size, color=str(opts.get("table_font_color", "#f1f5f9")), family=_font_family)
                 tr.header.font = dict(size=header_size, color="white", family=_font_family)
-                
 
                 if hasattr(tr.header, "values") and tr.header.values:
                     tr.header.values = [_wrap_html_style(str(v), _font_style) for v in tr.header.values]
@@ -671,7 +630,6 @@ def apply_chart_display_options(
                         for col in tr.cells.values
                     ]
 
-
                 tr.cells.height  = row_h
                 tr.header.height = hdr_h
                 if hasattr(tr.cells, "align") and hasattr(tr.header, "values"):
@@ -680,7 +638,6 @@ def apply_chart_display_options(
                         tr.cells.align  = [idx_align] + [data_align] * (n_hdr_cols - 1)
                         tr.header.align = [idx_align] + ["center"] * (n_hdr_cols - 1)
 
-
                 hdr_color = opts.get("table_header_color")
                 if hdr_color and hasattr(tr.header, "values"):
                     n_hdr = len(tr.header.values) if tr.header.values else 0
@@ -688,14 +645,12 @@ def apply_chart_display_options(
                         new_hdr_fills = [hdr_color] * n_hdr
                         tr.header.fill.color = new_hdr_fills
 
-
                 hdr_text_color = opts.get("table_header_text_color")
                 if hdr_text_color and hasattr(tr.header, "font"):
                     try:
                         tr.header.font.color = str(hdr_text_color)
                     except Exception:
                         pass
-
 
                 stripe_even = opts.get("table_stripe_even_color")
                 stripe_odd  = opts.get("table_stripe_odd_color")
@@ -709,7 +664,6 @@ def apply_chart_display_options(
                         for _ in range(n_cols_t)
                     ]
 
-
             # Apply font family to textfont if it exists
             if hasattr(tr, "textfont") and tr.textfont is not None:
                 try:
@@ -717,210 +671,228 @@ def apply_chart_display_options(
                 except Exception:
                     pass
 
+        except Exception:
+            # One bad trace must not abort the rest of the figure.
+            continue
 
-        _leg_title = meta.get("legend_title", "")
-        if _leg_title:
-            f2.update_layout(legend_title_text=_leg_title)
+    _leg_title = meta.get("legend_title", "")
+    if _leg_title:
+        f2.update_layout(legend_title_text=_leg_title)
 
+    _fs_lower = _font_style.lower()
+    _weight = "normal"
+    _style = "normal"
+    if "bold" in _fs_lower:
+        _weight = "bold"
+    if "italic" in _fs_lower:
+        _style = "italic"
+    _font_style_dict = dict(family=_font_family, weight=_weight, style=_style)
 
-        _fs_lower = _font_style.lower()
-        _weight = "normal"
-        _style = "normal"
-        if "bold" in _fs_lower:
-            _weight = "bold"
-        if "italic" in _fs_lower:
-            _style = "italic"
-        _font_style_dict = dict(family=_font_family, weight=_weight, style=_style)
-        
-
-        f2.update_layout(
-            font=_font_style_dict,
+    f2.update_layout(
+        font=_font_style_dict,
+        title=dict(font=_font_style_dict),
+        legend=dict(
             title=dict(font=_font_style_dict),
-            legend=dict(
-                title=dict(font=_font_style_dict),
-                font=_font_style_dict,
+            font=_font_style_dict,
+        ),
+    )
+
+    f2.update_xaxes(
+        title=dict(font=_font_style_dict),
+        tickfont=_font_style_dict,
+    )
+    f2.update_yaxes(
+        title=dict(font=_font_style_dict),
+        tickfont=_font_style_dict,
+    )
+
+    text_style = meta.get("text_style", {})
+    if isinstance(text_style, dict) and text_style:
+        ts = merge_text_style(text_style)
+
+        # The global "family" is the master control.  Header / subtitle
+        # fonts follow it unless explicitly customized to a non-default.
+        _hdr_family_raw = str(ts.get("header_family") or _raw_family)
+        if _hdr_family_raw == "Inter" and _raw_family not in ("Inter", ""):
+            _hdr_family_raw = _raw_family
+        _hdr_family     = resolve_font_stack(_hdr_family_raw)
+        _hdr_style      = str(ts.get("header_font_style", "Normal"))
+        _hdr_size       = int(ts.get("header_size", 28))
+        _hdr_color      = str(ts.get("header_color", "#6163df"))
+
+        _sub_family_raw = str(ts.get("subtitle_family") or _raw_family)
+        if _sub_family_raw == "Inter" and _raw_family not in ("Inter", ""):
+            _sub_family_raw = _raw_family
+        _sub_family     = resolve_font_stack(_sub_family_raw)
+        _sub_style      = str(ts.get("subtitle_font_style", "Normal"))
+        _sub_size       = int(ts.get("subtitle_size", 11))
+        _sub_color      = str(ts.get("subtitle_color", "#64748b"))
+
+        _ax_title_size  = int(ts.get("axis_title_size", 12))
+        _ax_title_color = str(ts.get("axis_title_color", "#cbd5e1"))
+        _ax_tick_size   = int(ts.get("axis_tick_size", 10))
+        _ax_tick_color  = str(ts.get("axis_tick_color", "#94a3b8"))
+        _leg_title_size  = int(ts.get("legend_title_size", 12))
+        _leg_title_color = str(ts.get("legend_title_color", "#cbd5e1"))
+        _leg_item_size   = int(ts.get("legend_item_size", 11))
+        _leg_item_color  = str(ts.get("legend_item_color", "#e2e8f0"))
+
+        # Process text fonts with safe None handling
+        for tr in f2.data:
+            ttype = str(getattr(tr, "type", "") or "").lower()
+            if ttype == "table":
+                continue
+
+            # Skip bar/scatter with value labels - we'll handle them separately at the end
+            if ttype == "bar" and _show_value_labels:
+                continue
+            if ttype in ("scatter", "scattergl") and _show_value_labels:
+                continue
+
+            try:
+                for font_attr in ("textfont", "insidetextfont", "outsidetextfont"):
+                    if hasattr(tr, font_attr):
+                        existing_font = getattr(tr, font_attr, None)
+                        _existing_size = _safe_get_font_attr(existing_font, "size", 11) or 11
+                        _existing_color = _safe_get_font_attr(existing_font, "color", "#e2e8f0") or "#e2e8f0"
+                        new_font = dict(size=_existing_size, color=_existing_color)
+                        new_font["family"] = _font_family
+                        if ttype != "heatmap":
+                            tr_style = str(ts.get("font_style", "Normal"))
+                            txt = getattr(tr, "text", None)
+                            if txt is not None and isinstance(txt, (list, tuple)) and len(txt) <= 500:
+                                tr.text = [_wrap_html_style(str(v) if v is not None else "", tr_style) for v in txt]
+                        setattr(tr, font_attr, new_font)
+            except Exception:
+                pass
+
+        # The title/subtitle are rendered in the HTML preview area (chart_card ctrl[0]),
+        # so the Plotly native title is suppressed here to avoid the duplicate.
+        # Font settings are still applied to other chart elements.
+        f2.update_layout(
+            title=dict(
+                text="",
+                font=dict(size=_hdr_size, color=_hdr_color, family=_hdr_family),
             ),
         )
-        
 
-        f2.update_xaxes(
-            title=dict(font=_font_style_dict),
-            tickfont=_font_style_dict,
+        _is_map_chart = chart_type in ("map_plot",) or any(
+            str(getattr(t, "type", "")).lower() in ("choropleth", "scattermapbox", "scattermap")
+            for t in f2.data
         )
-        f2.update_yaxes(
-            title=dict(font=_font_style_dict),
-            tickfont=_font_style_dict,
+        if not _is_map_chart:
+            axis_title_font = dict(size=_ax_title_size, color=_ax_title_color, family=_font_family, weight=_weight, style=_style)
+            axis_tick_font  = dict(size=_ax_tick_size,  color=_ax_tick_color,  family=_font_family, weight=_weight, style=_style)
+            f2.update_xaxes(title_font=axis_title_font, tickfont=axis_tick_font)
+            f2.update_yaxes(title_font=axis_title_font, tickfont=axis_tick_font)
+
+        _leg_bgcolor = str(ts.get("legend_bgcolor", "rgba(0,0,0,0)"))
+        f2.update_layout(
+            legend=dict(
+                bgcolor=_leg_bgcolor,
+                title_font=dict(size=_leg_title_size, color=_leg_title_color, family=_font_family, weight=_weight, style=_style),
+                font=dict(size=_leg_item_size, color=_leg_item_color, family=_font_family, weight=_weight, style=_style),
+            )
         )
 
-
-        text_style = meta.get("text_style", {})
-        if isinstance(text_style, dict) and text_style:
-            ts = merge_text_style(text_style)
-
-
-            # The global "family" is the master control.  Header / subtitle
-            # fonts follow it unless explicitly customized to a non-default.
-            _hdr_family_raw = str(ts.get("header_family") or _raw_family)
-            if _hdr_family_raw == "Inter" and _raw_family not in ("Inter", ""):
-                _hdr_family_raw = _raw_family
-            _hdr_family     = resolve_font_stack(_hdr_family_raw)
-            _hdr_style      = str(ts.get("header_font_style", "Normal"))
-            _hdr_size       = int(ts.get("header_size", 28))
-            _hdr_color      = str(ts.get("header_color", "#6163df"))
-
-
-            _sub_family_raw = str(ts.get("subtitle_family") or _raw_family)
-            if _sub_family_raw == "Inter" and _raw_family not in ("Inter", ""):
-                _sub_family_raw = _raw_family
-            _sub_family     = resolve_font_stack(_sub_family_raw)
-            _sub_style      = str(ts.get("subtitle_font_style", "Normal"))
-            _sub_size       = int(ts.get("subtitle_size", 11))
-            _sub_color      = str(ts.get("subtitle_color", "#64748b"))
-
-
-            _ax_title_size  = int(ts.get("axis_title_size", 12))
-            _ax_title_color = str(ts.get("axis_title_color", "#cbd5e1"))
-            _ax_tick_size   = int(ts.get("axis_tick_size", 10))
-            _ax_tick_color  = str(ts.get("axis_tick_color", "#94a3b8"))
-            _leg_title_size  = int(ts.get("legend_title_size", 12))
-            _leg_title_color = str(ts.get("legend_title_color", "#cbd5e1"))
-            _leg_item_size   = int(ts.get("legend_item_size", 11))
-            _leg_item_color  = str(ts.get("legend_item_color", "#e2e8f0"))
-
-
-            # Process text fonts with safe None handling
+    if chart_type in ("matrix_heatmap", "correlation", "map_plot"):
+        if chart_type == "map_plot":
+            cb_tick_sz   = int(opts.get("colorbar_tick_size", 10))
+            cb_tick_col  = str(opts.get("colorbar_tick_color", "#94a3b8"))
+            cb_title_sz  = int(opts.get("colorbar_title_size", 11))
+            cb_title_col = str(opts.get("colorbar_title_color", "#cbd5e1"))
+            cb_family    = resolve_font_stack(str(opts.get("colorbar_font_family", _raw_family)))
+            cb_title     = opts.get("colorbar_title", "")
+            _cb_font_suffix = dict(weight=_weight, style=_style)
             for tr in f2.data:
-                ttype = str(getattr(tr, "type", "") or "").lower()
-                if ttype == "table":
-                    continue
-                
-                # Skip bar/scatter with value labels - we'll handle them separately at the end
-                if ttype == "bar" and _show_value_labels:
-                    continue
-                if ttype in ("scatter", "scattergl") and _show_value_labels:
-                    continue
-                
                 try:
-                    for font_attr in ("textfont", "insidetextfont", "outsidetextfont"):
-                        if hasattr(tr, font_attr):
-                            existing_font = getattr(tr, font_attr, None)
-                            _existing_size = _safe_get_font_attr(existing_font, "size", 11) or 11
-                            _existing_color = _safe_get_font_attr(existing_font, "color", "#e2e8f0") or "#e2e8f0"
-                            new_font = dict(size=_existing_size, color=_existing_color)
-                            new_font["family"] = _font_family
-                            if ttype != "heatmap":
-                                tr_style = str(ts.get("font_style", "Normal"))
-                                txt = getattr(tr, "text", None)
-                                if txt is not None and isinstance(txt, (list, tuple)) and len(txt) <= 500:
-                                    tr.text = [_wrap_html_style(str(v) if v is not None else "", tr_style) for v in txt]
-                            setattr(tr, font_attr, new_font)
+                    tr.colorbar.tickfont = dict(
+                        size=cb_tick_sz, color=cb_tick_col, family=cb_family, **_cb_font_suffix)
+                    if cb_title:
+                        tr.colorbar.title.text = cb_title
+                    tr.colorbar.title.font = dict(
+                        size=cb_title_sz, color=cb_title_col, family=cb_family, **_cb_font_suffix)
                 except Exception:
                     pass
-
-
-            # The title/subtitle are rendered in the HTML preview area (chart_card ctrl[0]),
-            # so the Plotly native title is suppressed here to avoid the duplicate.
-            # Font settings are still applied to other chart elements.
-            f2.update_layout(
-                title=dict(
-                    text="",
-                    font=dict(size=_hdr_size, color=_hdr_color, family=_hdr_family),
-                ),
-            )
-
-
-            _is_map_chart = chart_type in ("map_plot",) or any(
-                str(getattr(t, "type", "")).lower() in ("choropleth", "scattermapbox", "scattermap")
-                for t in f2.data
-            )
-            if not _is_map_chart:
-                axis_title_font = dict(size=_ax_title_size, color=_ax_title_color, family=_font_family, weight=_weight, style=_style)
-                axis_tick_font  = dict(size=_ax_tick_size,  color=_ax_tick_color,  family=_font_family, weight=_weight, style=_style)
-                f2.update_xaxes(title_font=axis_title_font, tickfont=axis_tick_font)
-                f2.update_yaxes(title_font=axis_title_font, tickfont=axis_tick_font)
-
-
-            _leg_bgcolor = str(ts.get("legend_bgcolor", "rgba(0,0,0,0)"))
-            f2.update_layout(
-                legend=dict(
-                    bgcolor=_leg_bgcolor,
-                    title_font=dict(size=_leg_title_size, color=_leg_title_color, family=_font_family, weight=_weight, style=_style),
-                    font=dict(size=_leg_item_size, color=_leg_item_color, family=_font_family, weight=_weight, style=_style),
+            try:
+                cb_kwargs = dict(
+                    tickfont=dict(size=cb_tick_sz, color=cb_tick_col, family=cb_family, **_cb_font_suffix),
                 )
-            )
-
-
-        if chart_type in ("matrix_heatmap", "correlation", "map_plot"):
-            if chart_type == "map_plot":
+                if cb_title:
+                    cb_kwargs["title"] = dict(text=cb_title, font=dict(size=cb_title_sz, color=cb_title_col, family=cb_family, **_cb_font_suffix))
+                f2.update_coloraxes(colorbar=cb_kwargs)
+            except Exception:
+                pass
+            _map_cs = opts.get("heatmap_colorscale")
+            if _map_cs:
+                try:
+                    f2.update_coloraxes(colorscale=str(_map_cs))
+                except Exception:
+                    pass
+            _hover_prec = int(opts.get("hover_decimals", 2))
+            for _tr in f2.data:
+                try:
+                    _ht = getattr(_tr, "hovertemplate", None)
+                    if not isinstance(_ht, str) or not _ht.strip():
+                        raise ValueError("no template")
+                    # px.scatter_geo tokens look like: %{hovertext}, %{marker.color},
+                    # %{customdata[1]}, %{customdata[2]}.  Rewrite them all to the
+                    # requested float precision; rename lat/lon/value tokens into a
+                    # consistent display.
+                    import re as _re2
+                    def _fmt(m):
+                        _tok = (m.group(1) or m.group(2) or "").strip()
+                        if _tok == "hovertext":
+                            return "%{hovertext}"
+                        if _tok in ("customdata[1]", "customdata[2]",
+                                    "customdata[0]", "marker.color"):
+                            return f"%{{{_tok}:.{_hover_prec}f}}"
+                        return m.group(0)
+                    _tr.hovertemplate = _re2.sub(
+                        r"%\{([a-z.]+)(?::[^}]*)?\}|%\{([a-z]+\[[^\]]*\])\}",
+                        _fmt, str(_ht),
+                    )
+                except Exception:
+                    pass
+        else:
+            for tr in f2.data:
+                ttype_for_cb = str(getattr(tr, "type", "")).lower()
+                if ttype_for_cb not in ("heatmap", "choropleth"):
+                    continue
+                cell_sz      = int(opts.get("heatmap_font_size", 10))
+                hdr_sz       = int(opts.get("heatmap_header_size", 10))
                 cb_tick_sz   = int(opts.get("colorbar_tick_size", 10))
                 cb_tick_col  = str(opts.get("colorbar_tick_color", "#94a3b8"))
                 cb_title_sz  = int(opts.get("colorbar_title_size", 11))
                 cb_title_col = str(opts.get("colorbar_title_color", "#cbd5e1"))
                 cb_family    = resolve_font_stack(str(opts.get("colorbar_font_family", _raw_family)))
                 cb_title     = opts.get("colorbar_title", "")
+                _ann_sz  = opts.get("heatmap_annotation_size")
+                final_sz = int(_ann_sz) if _ann_sz is not None else cell_sz
                 _cb_font_suffix = dict(weight=_weight, style=_style)
-                for tr in f2.data:
-                    try:
-                        tr.colorbar.tickfont = dict(
-                            size=cb_tick_sz, color=cb_tick_col, family=cb_family, **_cb_font_suffix)
-                        if cb_title:
-                            tr.colorbar.title.text = cb_title
-                        tr.colorbar.title.font = dict(
-                            size=cb_title_sz, color=cb_title_col, family=cb_family, **_cb_font_suffix)
-                    except Exception:
-                        pass
                 try:
-                    cb_kwargs = dict(
-                        tickfont=dict(size=cb_tick_sz, color=cb_tick_col, family=cb_family, **_cb_font_suffix),
-                    )
-                    if cb_title:
-                        cb_kwargs["title"] = dict(text=cb_title, font=dict(size=cb_title_sz, color=cb_title_col, family=cb_family, **_cb_font_suffix))
-                    f2.update_coloraxes(colorbar=cb_kwargs)
+                    tf = getattr(tr, "textfont", None)
+                    if tf is not None:
+                        new_tf: dict = {
+                            "size":  final_sz,
+                            "color": _safe_get_font_attr(tf, "color", "white") or "white",
+                            "family": cb_family,
+                        }
+                        new_tf.update(_cb_font_suffix)
+                        tr.textfont = new_tf
                 except Exception:
                     pass
-            else:
-                for tr in f2.data:
-                    ttype_for_cb = str(getattr(tr, "type", "")).lower()
-                    if ttype_for_cb not in ("heatmap", "choropleth"):
-                        continue
-                    cell_sz      = int(opts.get("heatmap_font_size", 10))
-                    hdr_sz       = int(opts.get("heatmap_header_size", 10))
-                    cb_tick_sz   = int(opts.get("colorbar_tick_size", 10))
-                    cb_tick_col  = str(opts.get("colorbar_tick_color", "#94a3b8"))
-                    cb_title_sz  = int(opts.get("colorbar_title_size", 11))
-                    cb_title_col = str(opts.get("colorbar_title_color", "#cbd5e1"))
-                    cb_family    = resolve_font_stack(str(opts.get("colorbar_font_family", _raw_family)))
-                    cb_title     = opts.get("colorbar_title", "")
-                    _ann_sz  = opts.get("heatmap_annotation_size")
-                    final_sz = int(_ann_sz) if _ann_sz is not None else cell_sz
-                    _cb_font_suffix = dict(weight=_weight, style=_style)
-                    try:
-                        tf = getattr(tr, "textfont", None)
-                        if tf is not None:
-                            new_tf: dict = {
-                                "size":  final_sz,
-                                "color": _safe_get_font_attr(tf, "color", "white") or "white",
-                                "family": cb_family,
-                            }
-                            new_tf.update(_cb_font_suffix)
-                            tr.textfont = new_tf
-                    except Exception:
-                        pass
-                    f2.update_xaxes(tickfont=dict(size=hdr_sz, family=cb_family, **_cb_font_suffix))
-                    f2.update_yaxes(tickfont=dict(size=hdr_sz, family=cb_family, **_cb_font_suffix))
-                    try:
-                        tr.colorbar.tickfont = dict(
-                            size=cb_tick_sz, color=cb_tick_col, family=cb_family, **_cb_font_suffix)
-                        if cb_title:
-                            tr.colorbar.title.text = cb_title
-                        tr.colorbar.title.font = dict(
-                            size=cb_title_sz, color=cb_title_col, family=cb_family, **_cb_font_suffix)
-                    except Exception:
-                        pass
-
-
-    except Exception:
-        return fig
+                f2.update_xaxes(tickfont=dict(size=hdr_sz, family=cb_family, **_cb_font_suffix))
+                f2.update_yaxes(tickfont=dict(size=hdr_sz, family=cb_family, **_cb_font_suffix))
+                try:
+                    tr.colorbar.tickfont = dict(
+                        size=cb_tick_sz, color=cb_tick_col, family=cb_family, **_cb_font_suffix)
+                    if cb_title:
+                        tr.colorbar.title.text = cb_title
+                    tr.colorbar.title.font = dict(
+                        size=cb_title_sz, color=cb_title_col, family=cb_family, **_cb_font_suffix)
+                except Exception:
+                    pass
 
     # ============================================================
     # APPLY VALUE LABEL COLOR LAST - This ensures it always wins
@@ -928,7 +900,7 @@ def apply_chart_display_options(
     if _show_value_labels and _value_label_color:
         for tr in f2.data:
             ttype = str(getattr(tr, "type", "") or "").lower()
-            
+
             if ttype == "bar":
                 try:
                     for font_attr in ("textfont", "insidetextfont", "outsidetextfont"):
@@ -942,7 +914,7 @@ def apply_chart_display_options(
                             setattr(tr, font_attr, new_font)
                 except Exception:
                     pass
-            
+
             elif ttype in ("scatter", "scattergl"):
                 try:
                     for font_attr in ("textfont",):
@@ -960,578 +932,450 @@ def apply_chart_display_options(
     return f2
 
 
+# ---------------------------------------------------------------------------
+# Public renderer API (imported by chart_card.py / analysis.py / dashboard.py)
+# ---------------------------------------------------------------------------
+def render_chart_settings_controls(uid: str, title: str, fig, chart_type: str,
+                                   meta: dict, auto_insights: list[str], *,
+                                   key_prefix: str = "analysis",
+                                   show_text_style: bool = False) -> dict:
+    """Render the Chart Settings expander for a single chart.
 
+    Returns a dict of changed meta keys so the caller can persist them.
+    """
+    opts = dict(meta.get("display_options", {}))
+    result: dict[str, Any] = {}
+    stype = chart_type
 
-def render_typography_controls(
-    uid: str,
-    fig: Any,
-    chart_type: str,
-    meta: dict | None,
-    key_prefix: str = "analysis",
-) -> dict:
-    meta       = meta or {}
-    text_style = merge_text_style(meta.get("text_style", {}))
-    opts = dict(
-        meta.get("display_options", {})
-        if isinstance(meta.get("display_options", {}), dict)
-        else {}
-    )
-    caps = trace_capabilities(fig, chart_type)
-    _has_axes = any((caps.get(k) for k in ("has_bar", "has_scatter", "has_line", "has_histogram", "has_heatmap"))) or chart_type == "correlation"
-
-
-    inject_font_preview_css()
-
-
-    t1, t2 = st.columns(2)
-    with t1:
-        st.markdown("**Sizes**")
-        font_styles_list = [
-            "Normal", "Bold", "Italic", "Underline",
-            "Bold Italic", "Bold Underline", "Italic Underline",
-            "Bold Italic Underline",
-        ]
-
-
-        current_family = str(text_style.get("family", "Inter"))
-        text_style["family"] = font_select(
-            "Global / Axis Font family",
-            default=current_family,
-            key=f"{key_prefix}_font_{uid}",
-        )
-        text_style["font_style"] = st.selectbox(
-            "Global / Axis Font style",
-            font_styles_list,
-            index=_option_index(
-                font_styles_list,
-                str(text_style.get("font_style", "Normal")),
-                "Normal",
-            ),
-            key=f"{key_prefix}_font_style_{uid}",
-            help="Choose a text style for axis labels, ticks, and legends.",
-        )
-
-
-        st.markdown("**Header (Title) Typography**")
-        current_hdr_family = str(text_style.get("header_family", current_family))
-        text_style["header_family"] = font_select(
-            "Header Font family",
-            default=current_hdr_family,
-            key=f"{key_prefix}_hfont_{uid}",
-        )
-        text_style["header_font_style"] = st.selectbox(
-            "Header Font style",
-            font_styles_list,
-            index=_option_index(
-                font_styles_list,
-                str(text_style.get("header_font_style", "Normal")),
-                "Normal",
-            ),
-            key=f"{key_prefix}_hfont_style_{uid}",
-        )
-        text_style["header_size"]   = st.slider("Header size",   8, 40, int(text_style["header_size"]),   key=f"{key_prefix}_hsize_{uid}")
-
-
-        st.markdown("**Subtitle Typography**")
-        current_sub_family = str(text_style.get("subtitle_family", current_family))
-        text_style["subtitle_family"] = font_select(
-            "Subtitle Font family",
-            default=current_sub_family,
-            key=f"{key_prefix}_subfont_{uid}",
-        )
-        text_style["subtitle_font_style"] = st.selectbox(
-            "Subtitle Font style",
-            font_styles_list,
-            index=_option_index(
-                font_styles_list,
-                str(text_style.get("subtitle_font_style", "Normal")),
-                "Normal",
-            ),
-            key=f"{key_prefix}_subfont_style_{uid}",
-        )
-        text_style["subtitle_size"] = st.slider("Subtitle size",  8, 24, int(text_style["subtitle_size"]), key=f"{key_prefix}_ssize_{uid}")
-
-
-        _non_axis_types = ("map_plot", "matrix_table")
-        _show_axis_typo = _has_axes and chart_type not in _non_axis_types
-        _hide_legend_controls = chart_type in (
-            "matrix_table", "matrix_heatmap", "map_plot",
-            "heatmap", "choropleth", "correlation",
-        )
-        _show_colorbar_typo = False
-
-
-        if _show_axis_typo or not _hide_legend_controls:
-            st.markdown("**Label Sizing**")
-        if _show_axis_typo:
-            text_style["axis_title_size"] = st.slider("Axis title size",  8, 24, int(text_style["axis_title_size"]), key=f"{key_prefix}_atsize_{uid}")
-            text_style["axis_tick_size"]  = st.slider("Axis tick size",   8, 18, int(text_style["axis_tick_size"]),  key=f"{key_prefix}_ticksize_{uid}")
-        if not _hide_legend_controls:
-            text_style["legend_title_size"] = st.slider("Legend title size", 8, 20, int(text_style["legend_title_size"]), key=f"{key_prefix}_ltsz_{uid}")
-            text_style["legend_item_size"]  = st.slider("Legend item size",  8, 18, int(text_style["legend_item_size"]),  key=f"{key_prefix}_lisz_{uid}")
-        if _show_colorbar_typo:
-            st.markdown("**Colour scale**")
-            opts["colorbar_tick_size"]  = st.slider("Colorbar tick size",  8, 18,
-                int(opts.get("colorbar_tick_size", 10)),
-                key=f"{key_prefix}_cb_tick_sz_{uid}")
-            opts["colorbar_title_size"] = st.slider("Colorbar title size", 8, 20,
-                int(opts.get("colorbar_title_size", 11)),
-                key=f"{key_prefix}_cb_title_sz_{uid}")
-    with t2:
-        st.markdown("**Colours**")
-        text_style["header_color"]   = st.color_picker("Header colour",   str(text_style["header_color"]),   key=f"{key_prefix}_hcolor_{uid}")
-        text_style["subtitle_color"] = st.color_picker("Subtitle colour", str(text_style["subtitle_color"]), key=f"{key_prefix}_scolor_{uid}")
-        if _show_axis_typo:
-            text_style["axis_title_color"] = st.color_picker("Axis title colour", str(text_style["axis_title_color"]), key=f"{key_prefix}_atcolor_{uid}")
-            text_style["axis_tick_color"]  = st.color_picker("Axis tick colour",  str(text_style["axis_tick_color"]),  key=f"{key_prefix}_tickcolor_{uid}")
-        if not _hide_legend_controls:
-            text_style["legend_title_color"] = st.color_picker("Legend title colour", str(text_style["legend_title_color"]), key=f"{key_prefix}_ltcolor_{uid}")
-            text_style["legend_item_color"]  = st.color_picker("Legend item colour",  str(text_style["legend_item_color"]),  key=f"{key_prefix}_licolor_{uid}")
-            _legbg_default = str(text_style.get("legend_bgcolor", "#1e293b"))
-            if _legbg_default.startswith("rgba") or _legbg_default == "transparent":
-                _legbg_default = "#1e293b"
-            _legbg_transparent = st.checkbox(
-                "Transparent legend background",
-                value=text_style.get("legend_bgcolor", "") in ("rgba(0,0,0,0)", "transparent", ""),
-                key=f"{key_prefix}_legbg_transparent_{uid}",
-            )
-            if not _legbg_transparent:
-                text_style["legend_bgcolor"] = st.color_picker(
-                    "Legend background colour",
-                    _legbg_default,
-                    key=f"{key_prefix}_legbg_{uid}",
-                )
-            else:
-                text_style["legend_bgcolor"] = "rgba(0,0,0,0)"
-        if _show_colorbar_typo:
-            opts["colorbar_tick_color"]  = st.color_picker("Colorbar tick colour",
-                str(opts.get("colorbar_tick_color", "#94a3b8")),
-                key=f"{key_prefix}_cb_tick_col_{uid}")
-            opts["colorbar_title_color"] = st.color_picker("Colorbar title colour",
-                str(opts.get("colorbar_title_color", "#cbd5e1")),
-                key=f"{key_prefix}_cb_title_col_{uid}")
-            opts["colorbar_font_family"] = font_select(
-                "Colorbar font family",
-                default=opts.get("colorbar_font_family", "Inter"),
-                key=f"{key_prefix}_cb_font_fam_{uid}",
-            )
-
-
-    return text_style
-
-
-
-
-def render_chart_settings_controls(
-    uid: str,
-    title: str,
-    fig,
-    chart_type: str,
-    meta: dict,
-    auto_insights,
-    *,
-    key_prefix: str,
-    show_text_style: bool = True,
-) -> dict:
-    caps = trace_capabilities(fig, chart_type)
-    opts = dict(
-        meta.get("display_options", {})
-        if isinstance(meta.get("display_options", {}), dict)
-        else {}
-    )
-
-
+    # ---- title / subtitle ------------------------------------------------
     nt = st.text_input(
-        "Chart Title",
-        value=meta.get("custom_title", "") or title,
+        "Chart title",
+        value=meta.get("custom_title", title),
         key=f"{key_prefix}_title_{uid}",
     )
+    if nt != meta.get("custom_title", title):
+        result["custom_title"] = nt
     sub = st.text_input(
-        "Subtitle", value=meta.get("subtitle", ""),
-        placeholder="Optional", key=f"{key_prefix}_sub_{uid}",
+        "Subtitle",
+        value=meta.get("subtitle", ""),
+        key=f"{key_prefix}_subtitle_{uid}",
     )
+    if sub != meta.get("subtitle", ""):
+        result["subtitle"] = sub
 
+    # ---- axes labels -----------------------------------------------------
+    xl = st.text_input(
+        "X-axis label",
+        value=meta.get("x_label", ""),
+        key=f"{key_prefix}_xl_{uid}",
+    )
+    if xl != meta.get("x_label", ""):
+        result["x_label"] = xl
+    yl = st.text_input(
+        "Y-axis label",
+        value=meta.get("y_label", ""),
+        key=f"{key_prefix}_yl_{uid}",
+    )
+    if yl != meta.get("y_label", ""):
+        result["y_label"] = yl
 
-    c, d = st.columns(2)
-    _has_axes = any((caps.get(k) for k in ("has_bar", "has_scatter", "has_line", "has_histogram", "has_heatmap"))) or chart_type == "correlation"
-    if chart_type == "matrix_table":
-        with c:
-            xl = st.text_input("Row Index Header", value=meta.get("x_label", ""), key=f"{key_prefix}_x_{uid}")
-        yl = meta.get("y_label", "")
-    elif chart_type == "matrix_heatmap":
-        with c:
-            xl = st.text_input("Row Index Header",      value=meta.get("x_label", ""), key=f"{key_prefix}_x_{uid}")
-        with d:
-            yl = st.text_input("Column Dimension Header", value=meta.get("y_label", ""), key=f"{key_prefix}_y_{uid}")
-    elif chart_type == "map_plot":
-        xl = meta.get("x_label", "")
-        yl = meta.get("y_label", "")
-    elif _has_axes:
-        with c:
-            xl = st.text_input("X-Axis Label", value=meta.get("x_label", ""), key=f"{key_prefix}_x_{uid}")
-        with d:
-            yl = st.text_input("Y-Axis Label", value=meta.get("y_label", ""), key=f"{key_prefix}_y_{uid}")
-    else:
-        xl = meta.get("x_label", "")
-        yl = meta.get("y_label", "")
+    # ---- legend ----------------------------------------------------------
+    _leg_title = st.text_input(
+        "Legend title",
+        value=meta.get("legend_title", ""),
+        key=f"{key_prefix}_leg_title_{uid}",
+    )
+    if _leg_title != meta.get("legend_title", ""):
+        result["legend_title"] = _leg_title
 
+    # ---- display options -------------------------------------------------
+    caps = get_chart_type_capabilities(stype)
+    controls = caps.get("controls", [])
 
-    st.markdown("**Chart-specific options**")
-    s1, s2 = st.columns(2)
-
-
-    with s1:
-        if caps["has_bar"] and not caps["has_histogram"]:
-            opts["show_value_labels"] = st.checkbox(
-                "Value labels",
-                value=bool(opts.get("show_value_labels", False)),
-                key=f"{key_prefix}_bar_labels_{uid}",
+    if "show_value_labels" in controls:
+        opts["show_value_labels"] = st.checkbox(
+            "Show value labels",
+            value=bool(opts.get("show_value_labels", False)),
+            key=f"{key_prefix}_svl_{uid}",
+        )
+    if "label_position" in controls:
+        _lp = opts.get("label_position", "outside")
+        opts["label_position"] = st.selectbox(
+            "Label position",
+            ["outside", "inside", "auto"],
+            index=0 if _lp == "outside" else 1 if _lp == "inside" else 2,
+            key=f"{key_prefix}_lpos_{uid}",
+        )
+    if "bar_gap" in controls:
+        opts["bar_gap"] = st.slider(
+            "Bar gap", 0.0, 1.0, float(opts.get("bar_gap", 0.28)), 0.01,
+            key=f"{key_prefix}_bgap_{uid}",
+        )
+    if "bar_mode" in controls:
+        _bm = opts.get("bar_mode", "group")
+        opts["bar_mode"] = st.selectbox(
+            "Bar mode",
+            ["group", "stack", "relative", "overlay"],
+            index=["group", "stack", "relative", "overlay"].index(_bm)
+            if _bm in ("group", "stack", "relative", "overlay") else 0,
+            key=f"{key_prefix}_bmode_{uid}",
+        )
+    if "histogram_bins" in controls:
+        opts["histogram_bins"] = st.slider(
+            "Histogram bins", 5, 200, int(opts.get("histogram_bins", 30)), 1,
+            key=f"{key_prefix}_hbins_{uid}",
+        )
+    if "histogram_opacity" in controls:
+        opts["histogram_opacity"] = st.slider(
+            "Opacity", 0.1, 1.0, float(opts.get("histogram_opacity", 0.8)), 0.05,
+            key=f"{key_prefix}_hop_{uid}",
+        )
+    if "line_width" in controls:
+        opts["line_width"] = st.slider(
+            "Line width", 1, 10, int(opts.get("line_width", 2)), 1,
+            key=f"{key_prefix}_lw_{uid}",
+        )
+    if "line_shape" in controls:
+        _ls = opts.get("line_shape", "linear")
+        opts["line_shape"] = st.selectbox(
+            "Line shape",
+            ["linear", "spline", "hv", "vh", "hvh", "vhv"],
+            index=["linear", "spline", "hv", "vh", "hvh", "vhv"].index(_ls)
+            if _ls in ("linear", "spline", "hv", "vh", "hvh", "vhv") else 0,
+            key=f"{key_prefix}_ls_{uid}",
+        )
+    if "show_markers" in controls:
+        opts["show_markers"] = st.checkbox(
+            "Show markers",
+            value=bool(opts.get("show_markers", True)),
+            key=f"{key_prefix}_sm_{uid}",
+        )
+    if "line_fill" in controls:
+        _lf = opts.get("line_fill", "none")
+        opts["line_fill"] = st.selectbox(
+            "Fill",
+            ["none", "tozeroy", "tozerox", "tonexty", "tonextx"],
+            index=["none", "tozeroy", "tozerox", "tonexty", "tonextx"].index(_lf)
+            if _lf in ("none", "tozeroy", "tozerox", "tonexty", "tonextx") else 0,
+            key=f"{key_prefix}_lf_{uid}",
+        )
+    if "marker_opacity" in controls:
+        opts["marker_opacity"] = st.slider(
+            "Marker opacity", 0.1, 1.0, float(opts.get("marker_opacity", 0.8)), 0.05,
+            key=f"{key_prefix}_mo_{uid}",
+        )
+    if "marker_size" in controls:
+        opts["marker_size"] = st.slider(
+            "Marker size", 2, 30, int(opts.get("marker_size", 6)), 1,
+            key=f"{key_prefix}_ms_{uid}",
+        )
+    if "donut_hole" in controls:
+        opts["donut_hole"] = st.slider(
+            "Donut hole", 0.0, 0.9, float(opts.get("donut_hole", 0.0)), 0.05,
+            key=f"{key_prefix}_dh_{uid}",
+        )
+    if "pie_textinfo" in controls:
+        _pti = opts.get("pie_textinfo", "label+percent")
+        opts["pie_textinfo"] = st.selectbox(
+            "Text info",
+            ["label", "percent", "value", "label+percent", "label+value"],
+            index=["label", "percent", "value", "label+percent", "label+value"].index(_pti)
+            if _pti in ("label", "percent", "value", "label+percent", "label+value") else 3,
+            key=f"{key_prefix}_pti_{uid}",
+        )
+    if "pull_slices" in controls:
+        opts["pull_slices"] = st.slider(
+            "Pull slices", 0.0, 0.5, float(opts.get("pull_slices", 0.0)), 0.01,
+            key=f"{key_prefix}_ps_{uid}",
+        )
+    if "pie_rotation" in controls:
+        opts["pie_rotation"] = st.slider(
+            "Rotation", 0, 360, int(opts.get("pie_rotation", 0)), 1,
+            key=f"{key_prefix}_pr_{uid}",
+        )
+    if "pie_direction" in controls:
+        _pd = opts.get("pie_direction", "clockwise")
+        opts["pie_direction"] = st.selectbox(
+            "Direction",
+            ["clockwise", "counterclockwise"],
+            index=0 if _pd == "clockwise" else 1,
+            key=f"{key_prefix}_pd_{uid}",
+        )
+    if "heatmap_colorscale" in controls:
+        _cs = opts.get("heatmap_colorscale", "RdBu")
+        opts["heatmap_colorscale"] = st.selectbox(
+            "Colorscale",
+            COLORSCALES_ALL,
+            index=COLORSCALES_ALL.index(_cs) if _cs in COLORSCALES_ALL else 0,
+            key=f"{key_prefix}_cs_{uid}",
+        )
+    if "heatmap_show_text" in controls:
+        opts["heatmap_show_text"] = st.checkbox(
+            "Show annotations",
+            value=bool(opts.get("heatmap_show_text", True)),
+            key=f"{key_prefix}_hst_{uid}",
+        )
+    if "heatmap_annotation_precision" in controls:
+        opts["heatmap_annotation_precision"] = st.slider(
+            "Annotation precision", 0, 10,
+            int(opts.get("heatmap_annotation_precision", 2)), 1,
+            key=f"{key_prefix}_hap_{uid}",
+        )
+    if "heatmap_annotation_size" in controls:
+        opts["heatmap_annotation_size"] = st.slider(
+            "Annotation size", 6, 24,
+            int(opts.get("heatmap_annotation_size", 10)), 1,
+            key=f"{key_prefix}_has_{uid}",
+        )
+    if "heatmap_annotation_color" in controls:
+        _ac = opts.get("heatmap_annotation_color", "auto")
+        opts["heatmap_annotation_color"] = st.selectbox(
+            "Annotation color",
+            ["auto", "light", "dark"],
+            index=["auto", "light", "dark"].index(_ac)
+            if _ac in ("auto", "light", "dark") else 0,
+            key=f"{key_prefix}_hac_{uid}",
+        )
+    if "colorbar_title" in controls:
+        opts["colorbar_title"] = st.text_input(
+            "Colorbar title",
+            value=opts.get("colorbar_title", ""),
+            key=f"{key_prefix}_cbt_{uid}",
+        )
+    if "colorbar_range" in controls:
+        c1, c2 = st.columns(2)
+        with c1:
+            _zmin = st.number_input(
+                "Colorbar min",
+                value=float(opts.get("colorbar_zmin", 0.0)),
+                key=f"{key_prefix}_cbmin_{uid}",
             )
-            if opts["show_value_labels"]:
-                opts["value_label_color"] = st.color_picker(
-                    "Value label colour",
-                    value=str(opts.get("value_label_color", "#ffffff")),
-                    key=f"{key_prefix}_vl_color_{uid}",
-                )
-            else:
-                if "value_label_color" not in opts:
-                    opts["value_label_color"] = "#ffffff"
-            label_positions = ["outside", "inside", "auto"]
-            opts["label_position"] = st.selectbox(
-                "Label position", label_positions,
-                index=_option_index(label_positions, opts.get("label_position", "outside"), "outside"),
-                key=f"{key_prefix}_bar_label_pos_{uid}",
+            opts["colorbar_zmin"] = _zmin
+        with c2:
+            _zmax = st.number_input(
+                "Colorbar max",
+                value=float(opts.get("colorbar_zmax", 1.0)),
+                key=f"{key_prefix}_cbmax_{uid}",
             )
-            opts["bar_gap"] = st.slider(
-                "Bar spacing", 0.0, 0.8,
-                float(opts.get("bar_gap", 0.28)), 0.05,
-                key=f"{key_prefix}_bar_gap_{uid}",
-            )
-            has_multiple_bars = sum(
-                1 for t in getattr(fig, "data", [])
-                if str(getattr(t, "type", "")).lower() == "bar"
-            ) >= 2
-            bar_modes = ["group", "stack", "overlay", "relative"]
-            opts["bar_mode"] = st.selectbox(
-                "Bar mode",
-                bar_modes,
-                index=_option_index(bar_modes, opts.get("bar_mode", "group"), "group"),
-                key=f"{key_prefix}_bar_mode_{uid}",
-                disabled=not has_multiple_bars,
-            )
-        elif caps["has_histogram"]:
-            opts["histogram_bins"] = st.slider(
-                "Number of bins", 5, 200,
-                int(opts.get("histogram_bins", 30)), 5,
-                key=f"{key_prefix}_hist_bins_{uid}",
-            )
-            opts["histogram_opacity"] = st.slider(
-                "Opacity", 0.1, 1.0,
-                float(opts.get("histogram_opacity", 0.8)), 0.05,
-                key=f"{key_prefix}_hist_opacity_{uid}",
-            )
-            has_multiple_hist = sum(
-                1 for t in getattr(fig, "data", [])
-                if str(getattr(t, "type", "")).lower() == "histogram"
-            ) >= 2
-            hist_modes = ["stack", "overlay", "group"]
-            opts["bar_mode"] = st.selectbox(
-                "Histogram mode",
-                hist_modes,
-                index=_option_index(hist_modes, opts.get("bar_mode", "stack"), "stack"),
-                key=f"{key_prefix}_hist_mode_{uid}",
-                disabled=not has_multiple_hist,
-            )
-
-
-        # Only show scatter/line value labels when there are no bar traces
-        # (bar traces have their own value labels control above, so we avoid duplicates)
-        if (caps["has_scatter"] or caps["has_line"]) and not caps["has_bar"]:
-            opts["show_value_labels"] = st.checkbox(
-                "Value labels",
-                value=bool(opts.get("show_value_labels", False)),
-                key=f"{key_prefix}_scatter_labels_{uid}",
-            )
-            if opts["show_value_labels"]:
-                opts["value_label_color"] = st.color_picker(
-                    "Value label colour",
-                    value=str(opts.get("value_label_color", "#ffffff")),
-                    key=f"{key_prefix}_scatter_vl_color_{uid}",
-                )
-            else:
-                if "value_label_color" not in opts:
-                    opts["value_label_color"] = "#ffffff"
-            if "lines" in str(getattr(next((t for t in getattr(fig, "data", []) if "lines" in str(getattr(t, "mode", ""))), None), "mode", "")):
-                opts["line_width"] = st.slider(
-                    "Line width", 1, 8,
-                    int(opts.get("line_width", 2)), 1,
-                    key=f"{key_prefix}_line_width_{uid}",
-                )
-                opts["line_shape"] = st.selectbox(
-                    "Line shape",
-                    ["linear", "spline", "hv", "vh", "hvh", "vhv"],
-                    index=_option_index(
-                        ["linear", "spline", "hv", "vh", "hvh", "vhv"],
-                        opts.get("line_shape", "linear"), "linear"
-                    ),
-                    key=f"{key_prefix}_line_shape_{uid}",
-                )
-                opts["line_fill"] = st.selectbox(
-                    "Line fill",
-                    ["none", "tozeroy", "tozerox", "tonexty", "tonextx"],
-                    index=_option_index(
-                        ["none", "tozeroy", "tozerox", "tonexty", "tonextx"],
-                        opts.get("line_fill", "none"), "none"
-                    ),
-                    key=f"{key_prefix}_line_fill_{uid}",
-                )
-            opts["marker_size"] = st.slider(
-                "Marker size", 2, 20,
-                int(opts.get("marker_size", 6)), 1,
-                key=f"{key_prefix}_marker_size_{uid}",
-            )
-            opts["marker_opacity"] = st.slider(
-                "Marker opacity", 0.1, 1.0,
-                float(opts.get("marker_opacity", 0.8)), 0.05,
-                key=f"{key_prefix}_marker_opacity_{uid}",
-            )
-
-
-    with s2:
-        if caps["has_pie"]:
-            opts["donut_hole"] = st.slider(
-                "Donut hole size", 0.0, 0.9,
-                float(opts.get("donut_hole", 0)), 0.05,
-                key=f"{key_prefix}_donut_{uid}",
-            )
-            opts["pie_textinfo"] = st.selectbox(
-                "Text info",
-                ["label+percent", "label", "percent", "value", "label+value", "none"],
-                index=_option_index(
-                    ["label+percent", "label", "percent", "value", "label+value", "none"],
-                    opts.get("pie_textinfo", "label+percent"), "label+percent"
-                ),
-                key=f"{key_prefix}_pie_textinfo_{uid}",
-            )
-            opts["pull_slices"] = st.slider(
-                "Pull slices", 0.0, 0.3,
-                float(opts.get("pull_slices", 0)), 0.02,
-                key=f"{key_prefix}_pull_{uid}",
-            )
-            opts["pie_rotation"] = st.slider(
-                "Rotation", 0, 360,
-                int(opts.get("pie_rotation", 0)), 5,
-                key=f"{key_prefix}_rotation_{uid}",
-            )
-            opts["pie_direction"] = st.selectbox(
-                "Direction",
-                ["clockwise", "counterclockwise"],
-                index=_option_index(
-                    ["clockwise", "counterclockwise"],
-                    opts.get("pie_direction", "clockwise"), "clockwise"
-                ),
-                key=f"{key_prefix}_direction_{uid}",
-            )
-
-
-        if caps["has_heatmap"] and chart_type != "correlation":
-            opts["heatmap_colorscale"] = st.selectbox(
-                "Colorscale",
-                COLORSCALES_ALL,
-                index=_option_index(
-                    COLORSCALES_ALL,
-                    opts.get("heatmap_colorscale", "RdBu"), "RdBu"
-                ),
-                key=f"{key_prefix}_colorscale_{uid}",
-            )
-            cs1, cs2 = st.columns(2)
-            with cs1:
-                opts["colorbar_zmin"] = st.text_input(
-                    "Min value", value=str(opts.get("colorbar_zmin", "")),
-                    placeholder="Auto", key=f"{key_prefix}_zmin_{uid}",
-                )
-            with cs2:
-                opts["colorbar_zmax"] = st.text_input(
-                    "Max value", value=str(opts.get("colorbar_zmax", "")),
-                    placeholder="Auto", key=f"{key_prefix}_zmax_{uid}",
-                )
-            opts["heatmap_show_text"] = st.checkbox(
-                "Show cell values",
-                value=opts.get("heatmap_show_text", True),
-                key=f"{key_prefix}_heatmap_text_{uid}",
-            )
-            if opts["heatmap_show_text"]:
-                opts["heatmap_annotation_size"] = st.slider(
-                    "Annotation size", 8, 18,
-                    int(opts.get("heatmap_annotation_size", 10)), 1,
-                    key=f"{key_prefix}_ann_size_{uid}",
-                )
-                opts["heatmap_annotation_precision"] = st.slider(
-                    "Decimal places", 0, 4,
-                    int(opts.get("heatmap_annotation_precision", 2)), 1,
-                    key=f"{key_prefix}_ann_prec_{uid}",
-                )
-                opts["heatmap_annotation_color"] = st.selectbox(
-                    "Annotation colour",
-                    ["auto", "light", "dark"],
-                    index=_option_index(
-                        ["auto", "light", "dark"],
-                        opts.get("heatmap_annotation_color", "auto"), "auto"
-                    ),
-                    key=f"{key_prefix}_ann_color_{uid}",
-                )
-
-
-        if chart_type == "correlation" or chart_type == "matrix_heatmap":
-            opts["heatmap_font_size"] = st.slider(
-                "Cell font size", 8, 14,
-                int(opts.get("heatmap_font_size", 10)), 1,
-                key=f"{key_prefix}_hm_font_sz_{uid}",
-            )
-            opts["heatmap_header_size"] = st.slider(
-                "Header font size", 8, 14,
-                int(opts.get("heatmap_header_size", 10)), 1,
-                key=f"{key_prefix}_hm_hdr_sz_{uid}",
-            )
-            opts["colorbar_title"] = st.text_input(
-                "Colorbar title", value=opts.get("colorbar_title", ""),
-                placeholder="Optional", key=f"{key_prefix}_cb_title_{uid}",
-            )
-
-
-        if caps["has_table"] or chart_type == "matrix_table":
-            st.markdown("**Table styling**")
-            opts["table_font_size"] = st.slider(
-                "Cell font size", 8, 16,
-                int(opts.get("table_font_size", 11)), 1,
-                key=f"{key_prefix}_t_font_sz_{uid}",
-            )
-            opts["table_header_font_size"] = st.slider(
-                "Header font size", 8, 16,
-                int(opts.get("table_header_font_size", 12)), 1,
-                key=f"{key_prefix}_t_hdr_sz_{uid}",
-            )
-            opts["table_row_height"] = st.slider(
-                "Row height", 18, 50,
-                int(opts.get("table_row_height", 26)), 2,
-                key=f"{key_prefix}_t_row_h_{uid}",
-            )
-            opts["table_header_height"] = st.slider(
-                "Header height", 18, 50,
-                int(opts.get("table_header_height", 28)), 2,
-                key=f"{key_prefix}_t_hdr_h_{uid}",
-            )
-            opts["table_font_color"] = st.color_picker(
-                "Cell text colour",
-                value=str(opts.get("table_font_color", "#f1f5f9")),
-                key=f"{key_prefix}_t_font_col_{uid}",
-            )
-            opts["table_header_color"] = st.color_picker(
-                "Header background colour",
-                value=str(opts.get("table_header_color", "#6163df")),
-                key=f"{key_prefix}_t_hdr_col_{uid}",
-            )
-            ta1, ta2 = st.columns(2)
-            with ta1:
-                opts["table_index_align"] = st.selectbox(
-                    "Index column align", ["left", "center", "right"],
-                    index=_option_index(["left", "center", "right"], opts.get("table_index_align", "left"), "left"),
-                    key=f"{key_prefix}_t_idx_align_{uid}",
-                )
-            with ta2:
-                opts["table_data_align"] = st.selectbox(
-                    "Data columns align", ["left", "center", "right"],
-                    index=_option_index(["left", "center", "right"], opts.get("table_data_align", "right"), "right"),
-                    key=f"{key_prefix}_t_data_align_{uid}",
-                )
-            opts["table_stripe_even_color"] = st.color_picker(
-                "Even row colour",
-                value=str(opts.get("table_stripe_even_color", "#1e293b")),
-                key=f"{key_prefix}_t_stripe_even_{uid}",
-            )
-            opts["table_stripe_odd_color"] = st.color_picker(
-                "Odd row colour",
-                value=str(opts.get("table_stripe_odd_color", "#0f172a")),
-                key=f"{key_prefix}_t_stripe_odd_{uid}",
-            )
-            opts["table_number_format"] = st.selectbox(
-                "Number format",
-                [",.0f", ",.1f", ",.2f", ",.3f", ".0%", ".1%", ".2%"],
-                index=_option_index(
-                    [",.0f", ",.1f", ",.2f", ",.3f", ".0%", ".1%", ".2%"],
-                    opts.get("table_number_format", ",.2f"), ",.2f"
-                ),
-                key=f"{key_prefix}_t_num_fmt_{uid}",
-            )
-
-
-        if chart_type == "map_plot":
-            opts["show_colorbar"] = st.checkbox(
-                "Show colour bar",
-                value=opts.get("show_colorbar", True),
-                key=f"{key_prefix}_map_cb_{uid}",
-            )
-            opts["colorbar_title"] = st.text_input(
-                "Colorbar title", value=opts.get("colorbar_title", ""),
-                placeholder="Optional", key=f"{key_prefix}_map_cb_title_{uid}",
-            )
-
-
-    _legend_names_raw = meta.get("legend_names", {})
-    if _legend_names_raw and isinstance(_legend_names_raw, dict) and caps["has_legend"]:
-        st.markdown("**Custom legend labels**")
-        _legend_names = dict(_legend_names_raw)
-        for tr in getattr(fig, "data", []):
-            _name = getattr(tr, "name", None)
-            if _name and str(_name).strip():
-                _new_name = st.text_input(
-                    f"Rename: {_name}",
-                    value=_legend_names.get(_name, ""),
-                    key=f"{key_prefix}_leg_name_{uid}_{_name}",
-                )
-                if _new_name.strip():
-                    _legend_names[_name] = _new_name
-                elif _name in _legend_names:
-                    del _legend_names[_name]
-        opts["legend_names"] = _legend_names
-
-
-    _show_auto_insights = bool(meta.get("show_auto_insights", True))
-    _hidden_insights = list(meta.get("hidden_insights", []) or [])
-
-
-    if auto_insights:
-        with st.expander("💡 Auto-Insights", expanded=_show_auto_insights):
-            st.caption("AI-generated observations. Hide any that don't apply.")
-            for i, insight in enumerate(auto_insights):
-                _key = f"{key_prefix}_insight_{uid}_{i}"
-                _is_hidden = insight in _hidden_insights
-                _checked = st.checkbox(insight, value=not _is_hidden, key=_key)
-                if not _checked and insight not in _hidden_insights:
-                    _hidden_insights.append(insight)
-                elif _checked and insight in _hidden_insights:
-                    _hidden_insights.remove(insight)
-    elif chart_type not in ("descriptive", "map_plot", "matrix_table", "matrix_heatmap"):
-        st.caption("No auto-insights generated for this chart.")
-
-
-    result = {
-        "custom_title": nt,
-        "subtitle": sub,
-        "x_label": xl,
-        "y_label": yl,
-        "legend_title": meta.get("legend_title", ""),
-        "legend_names": opts.get("legend_names", {}),
-        "display_options": opts,
-        "show_auto_insights": _show_auto_insights,
-        "hidden_insights": _hidden_insights,
-    }
-
-
-    if show_text_style:
-        result["text_style"] = render_typography_controls(
-            uid, fig, chart_type, meta, key_prefix=key_prefix,
+            opts["colorbar_zmax"] = _zmax
+    if "table_font_size" in controls:
+        opts["table_font_size"] = st.slider(
+            "Table font size", 8, 24,
+            int(opts.get("table_font_size", 11)), 1,
+            key=f"{key_prefix}_tfs_{uid}",
+        )
+    if "table_font_color" in controls:
+        opts["table_font_color"] = st.color_picker(
+            "Table font color",
+            value=opts.get("table_font_color", "#f1f5f9"),
+            key=f"{key_prefix}_tfc_{uid}",
+        )
+    if "table_header_font_size" in controls:
+        opts["table_header_font_size"] = st.slider(
+            "Header font size", 8, 24,
+            int(opts.get("table_header_font_size", 12)), 1,
+            key=f"{key_prefix}_thfs_{uid}",
+        )
+    if "table_header_color" in controls:
+        opts["table_header_color"] = st.color_picker(
+            "Header color",
+            value=opts.get("table_header_color", "#6163df"),
+            key=f"{key_prefix}_thc_{uid}",
+        )
+    if "table_row_height" in controls:
+        opts["table_row_height"] = st.slider(
+            "Row height", 16, 60,
+            int(opts.get("table_row_height", 26)), 1,
+            key=f"{key_prefix}_trh_{uid}",
+        )
+    if "table_header_height" in controls:
+        opts["table_header_height"] = st.slider(
+            "Header height", 16, 60,
+            int(opts.get("table_header_height", 28)), 1,
+            key=f"{key_prefix}_thh_{uid}",
+        )
+    if "table_index_align" in controls:
+        _ia = opts.get("table_index_align", "left")
+        opts["table_index_align"] = st.selectbox(
+            "Index align",
+            ["left", "center", "right"],
+            index=["left", "center", "right"].index(_ia)
+            if _ia in ("left", "center", "right") else 0,
+            key=f"{key_prefix}_tia_{uid}",
+        )
+    if "table_data_align" in controls:
+        _da = opts.get("table_data_align", "right")
+        opts["table_data_align"] = st.selectbox(
+            "Data align",
+            ["left", "center", "right"],
+            index=["left", "center", "right"].index(_da)
+            if _da in ("left", "center", "right") else 2,
+            key=f"{key_prefix}_tda_{uid}",
+        )
+    if "table_stripe_even_color" in controls:
+        opts["table_stripe_even_color"] = st.color_picker(
+            "Stripe even color",
+            value=opts.get("table_stripe_even_color", "#1e293b"),
+            key=f"{key_prefix}_tsec_{uid}",
+        )
+    if "table_stripe_odd_color" in controls:
+        opts["table_stripe_odd_color"] = st.color_picker(
+            "Stripe odd color",
+            value=opts.get("table_stripe_odd_color", "#0f172a"),
+            key=f"{key_prefix}_tsoc_{uid}",
+        )
+    if "table_number_format" in controls:
+        _nf = opts.get("table_number_format", ",.2f")
+        opts["table_number_format"] = st.selectbox(
+            "Number format",
+            [",.2f", ",.1f", ",.0f", ".2f", ".1f", ".0f"],
+            index=[",.2f", ",.1f", ",.0f", ".2f", ".1f", ".0f"].index(_nf)
+            if _nf in (",.2f", ",.1f", ",.0f", ".2f", ".1f", ".0f") else 0,
+            key=f"{key_prefix}_tnf_{uid}",
+        )
+    if "row_index_header" in controls:
+        opts["row_index_header"] = st.text_input(
+            "Row index header",
+            value=opts.get("row_index_header", ""),
+            key=f"{key_prefix}_rih_{uid}",
+        )
+    if "show_colorbar" in controls:
+        opts["show_colorbar"] = st.checkbox(
+            "Show colorbar",
+            value=bool(opts.get("show_colorbar", True)),
+            key=f"{key_prefix}_scb_{uid}",
         )
 
-
+    result["display_options"] = opts
     return result
+
+
+def render_typography_controls(uid: str, fig, chart_type: str,
+                               meta: dict, *, key_prefix: str = "analysis") -> dict:
+    """Render the Typography expander for a single chart.
+
+    Returns a dict of changed typography keys so the caller can persist them.
+    """
+    text_style = dict(meta.get("text_style", {}))
+
+    inject_font_preview_css()
+    fam = font_select(
+        "Font family",
+        text_style.get("family", "Inter"),
+        key=f"{key_prefix}_font_{uid}",
+    )
+    if fam != text_style.get("family"):
+        text_style["family"] = fam
+
+    fs = st.selectbox(
+        "Font style",
+        ["Normal", "Bold", "Italic", "Bold Italic", "Underline"],
+        index=["Normal", "Bold", "Italic", "Bold Italic", "Underline"].index(
+            text_style.get("font_style", "Normal")
+        ) if text_style.get("font_style", "Normal") in (
+            "Normal", "Bold", "Italic", "Bold Italic", "Underline"
+        ) else 0,
+        key=f"{key_prefix}_fstyle_{uid}",
+    )
+    if fs != text_style.get("font_style"):
+        text_style["font_style"] = fs
+
+    c1, c2 = st.columns(2)
+    with c1:
+        _hs = st.number_input(
+            "Header size", 10, 60,
+            int(text_style.get("header_size", 28)), 1,
+            key=f"{key_prefix}_hsize_{uid}",
+        )
+        if _hs != text_style.get("header_size"):
+            text_style["header_size"] = _hs
+        _hc = st.color_picker(
+            "Header color",
+            text_style.get("header_color", "#6163df"),
+            key=f"{key_prefix}_hcolor_{uid}",
+        )
+        if _hc != text_style.get("header_color"):
+            text_style["header_color"] = _hc
+        _hfam = font_select(
+            "Header font family",
+            text_style.get("header_family", text_style.get("family", "Inter")),
+            key=f"{key_prefix}_hfont_{uid}",
+        )
+        if _hfam != text_style.get("header_family", text_style.get("family", "Inter")):
+            text_style["header_family"] = _hfam
+        _hfstyle = st.selectbox(
+            "Header font style",
+            ["Normal", "Bold", "Italic", "Bold Italic", "Underline"],
+            index=["Normal", "Bold", "Italic", "Bold Italic", "Underline"].index(
+                text_style.get("header_font_style", "Normal")
+            ) if text_style.get("header_font_style", "Normal") in (
+                "Normal", "Bold", "Italic", "Bold Italic", "Underline"
+            ) else 0,
+            key=f"{key_prefix}_hfont_style_{uid}",
+        )
+        if _hfstyle != text_style.get("header_font_style", "Normal"):
+            text_style["header_font_style"] = _hfstyle
+    with c2:
+        _ss = st.number_input(
+            "Subtitle size", 8, 40,
+            int(text_style.get("subtitle_size", 11)), 1,
+            key=f"{key_prefix}_ssize_{uid}",
+        )
+        if _ss != text_style.get("subtitle_size"):
+            text_style["subtitle_size"] = _ss
+        _sc = st.color_picker(
+            "Subtitle color",
+            text_style.get("subtitle_color", "#64748b"),
+            key=f"{key_prefix}_scolor_{uid}",
+        )
+        if _sc != text_style.get("subtitle_color"):
+            text_style["subtitle_color"] = _sc
+        _sfam = font_select(
+            "Subtitle font family",
+            text_style.get("subtitle_family", text_style.get("family", "Inter")),
+            key=f"{key_prefix}_subfont_{uid}",
+        )
+        if _sfam != text_style.get("subtitle_family", text_style.get("family", "Inter")):
+            text_style["subtitle_family"] = _sfam
+        _sfstyle = st.selectbox(
+            "Subtitle font style",
+            ["Normal", "Bold", "Italic", "Bold Italic", "Underline"],
+            index=["Normal", "Bold", "Italic", "Bold Italic", "Underline"].index(
+                text_style.get("subtitle_font_style", "Normal")
+            ) if text_style.get("subtitle_font_style", "Normal") in (
+                "Normal", "Bold", "Italic", "Bold Italic", "Underline"
+            ) else 0,
+            key=f"{key_prefix}_subfont_style_{uid}",
+        )
+        if _sfstyle != text_style.get("subtitle_font_style", "Normal"):
+            text_style["subtitle_font_style"] = _sfstyle
+
+    _preview_header_family = text_style.get("header_family", text_style.get("family", "Inter"))
+    _preview_header_style = str(text_style.get("header_font_style", "Normal")).lower()
+    _preview_header_weight = "700" if "bold" in _preview_header_style else "400"
+    _preview_header_italic = "italic" if "italic" in _preview_header_style else "normal"
+    _preview_header_decor = "underline" if "underline" in _preview_header_style else "none"
+    _preview_header_color = str(text_style.get("header_color", "#6163df"))
+    _preview_header_size = int(text_style.get("header_size", 28))
+
+    _preview_subtitle_family = text_style.get("subtitle_family", text_style.get("family", "Inter"))
+    _preview_subtitle_style = str(text_style.get("subtitle_font_style", "Normal")).lower()
+    _preview_subtitle_weight = "700" if "bold" in _preview_subtitle_style else "400"
+    _preview_subtitle_italic = "italic" if "italic" in _preview_subtitle_style else "normal"
+    _preview_subtitle_decor = "underline" if "underline" in _preview_subtitle_style else "none"
+    _preview_subtitle_color = str(text_style.get("subtitle_color", "#64748b"))
+    _preview_subtitle_size = int(text_style.get("subtitle_size", 11))
+
+    st.markdown(
+        f'<div style="font-size:{_preview_header_size}px; font-weight:{_preview_header_weight}; '
+        f'font-style:{_preview_header_italic}; text-decoration:{_preview_header_decor}; '
+        f'color:{_preview_header_color}; font-family:{_preview_header_family}; ' 
+        f'margin-bottom:0.1rem;">Header preview text</div>'
+        f'<div style="font-size:{_preview_subtitle_size}px; font-weight:{_preview_subtitle_weight}; '
+        f'font-style:{_preview_subtitle_italic}; text-decoration:{_preview_subtitle_decor}; '
+        f'color:{_preview_subtitle_color}; font-family:{_preview_subtitle_family}; ' 
+        f'margin-top:-2px;">Subtitle preview text</div>',
+        unsafe_allow_html=True,
+    )
+
+    return {"text_style": text_style}

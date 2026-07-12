@@ -9,6 +9,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
+from modules.utils.session_cache import set_df, update_df
+
 
 
 
@@ -54,7 +56,7 @@ def _preview_table(before: pd.Series, after: pd.Series, n: int = 20) -> pd.DataF
 
 def _apply_df(df: pd.DataFrame, col: str, new_series: pd.Series) -> None:
     df[col] = new_series
-    st.session_state.df = df
+    update_df(df)
 
 
 
@@ -278,7 +280,7 @@ def _tab_validate(df: pd.DataFrame) -> None:
                     flag_col = f"_valid_{col}"
                     new_flag  = df[col].astype(str).str.match(pattern, case=True, na=False)
                     df[flag_col] = new_flag
-                    st.session_state.df = df
+                    update_df(df)
                     st.success(f"✅ Added column `{flag_col}` (True = valid).")
                 st.rerun()
         else:
@@ -379,7 +381,7 @@ def _tab_string_ops(df: pd.DataFrame) -> None:
         if st.button("✅ Apply", key="dc_so_apply", type="primary"):
             if new_col_name:
                 df[new_col_name] = new_series
-                st.session_state.df = df
+                update_df(df)
                 st.success(f"✅ Created column `{new_col_name}`.")
             else:
                 _apply_df(df, col, new_series)

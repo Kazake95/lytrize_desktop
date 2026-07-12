@@ -12,6 +12,7 @@ from modules.ui.data_cleaner   import show_data_cleaner
 from modules.ui.excel_loader   import show_excel_loader
 from modules.ui.css            import inject_footer, render_logo
 from modules.utils.perf        import read_csv_fast, mem_mb
+from modules.utils.session_cache import set_df, update_df
 from modules.analysis.data_quality import run_data_quality
 from modules.analysis.outlier import run_outlier_upload
 
@@ -114,7 +115,7 @@ def page_upload():
 
     if (not uploaded) and ("df" in st.session_state) and st.session_state.get("df") is not None:
         _resumed_name = st.session_state.get("file_name") or "your dataset"
-        
+
 
         if st.session_state.get("_resume_upload") or st.session_state.get("_last_viewed_page") == "upload":
             _show_analysis_pipeline(st.session_state["df"], _resumed_name)
@@ -162,7 +163,9 @@ def page_upload():
         if "df" not in st.session_state or file_changed:
             with st.spinner("Reading and optimising file…"):
                 df = _read_csv_cached(file_sig, uploaded)
-            st.session_state.df             = df
+            # Detach from the @st.cache_resource object so in-place
+            # mutations never corrupt the shared cache.
+            set_df(df.copy())
             st.session_state.file_name      = uploaded.name
             st.session_state.file_signature = file_sig
             st.session_state["_resume_upload"] = True
@@ -184,7 +187,7 @@ def page_upload():
         if "df" not in st.session_state:
             df = show_excel_loader(uploaded)
             if df is not None:
-                st.session_state.df = df
+                set_df(df.copy())
                 st.session_state["_resume_upload"] = True
                 st.rerun()
         else:
@@ -202,9 +205,14 @@ def _save_upload_snapshot(df, file_name: str) -> None:
     if not uid:
         return
     try:
-        df_sig = (id(df), df.shape, tuple(df.columns))
+        df_sig = (
+            id(df),
+            df.shape,
+            tuple(df.columns),
+            int(df.memory_usage(deep=True).sum()) if hasattr(df, "memory_usage") else 0,
+        )
         sig_changed = st.session_state.get("_df_snapshot_sig") != df_sig
-        
+
 
         draft_cache_key = ("_draft_upload_cache", file_name, df_sig)
         if st.session_state.get("_last_draft_upload_cache") != draft_cache_key or sig_changed:
@@ -212,7 +220,7 @@ def _save_upload_snapshot(df, file_name: str) -> None:
             from modules.database import save_draft
             import json as _json
             import threading
-            
+
 
             if sig_changed:
                 threading.Thread(
@@ -221,13 +229,14 @@ def _save_upload_snapshot(df, file_name: str) -> None:
                     daemon=True
                 ).start()
                 st.session_state["_df_snapshot_sig"] = df_sig
-                
+
 
             save_draft(
                 user_id               = uid,
                 page                  = "upload",
                 charts_json           = "[]",
                 file_name             = file_name,
+                editing_file_name     = st.session_state.get("editing_file_name", ""),
                 col_descriptions_json = _json.dumps(
                     st.session_state.get("col_descriptions", {})
                 ),
@@ -274,7 +283,8 @@ def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
 
         _ul_mode = st.session_state.get("_ul_preview_mode", "top")
         _ul_rand_seed = st.session_state.get("_ul_random_seed", 0) if _ul_mode == "random" else 0
-        _cache_key = ("ul_preview", _n_rows, _n_cols, _ul_mode, _ul_rand_seed)
+        _df_version = st.session_state.get("_df_version", 0)
+        _cache_key = ("ul_preview", _n_rows, _n_cols, _ul_mode, _ul_rand_seed, _df_version, tuple(df.columns))
         if st.session_state.get("_ul_preview_cache_key") != _cache_key:
             try:
                 if _ul_mode == "bottom":
@@ -289,7 +299,7 @@ def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
             except Exception:
                 _prev_df = df.head(10)
                 _lbl = "Top 10 rows"
-            st.session_state["_ul_preview_cache"] = (_prev_df, _lbl)
+            st.session_state["_ul_preview_cache"] = (_prev_df.copy(), _lbl)
             st.session_state["_ul_preview_cache_key"] = _cache_key
         else:
             _prev_df, _lbl = st.session_state.get("_ul_preview_cache", (df.head(10), "Top 10 rows"))
@@ -355,20 +365,20 @@ def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
 
 
     with st.expander("🧩 Column Manager", expanded=False):
-        df = show_column_manager(df)
+        show_column_manager(df)
 
 
     with st.expander("🔢 Data-type Transformer", expanded=False):
-        df = show_dtype_transformer(df)
+        show_dtype_transformer(df)
 
 
     with st.expander("🧼 Data Cleaner", expanded=False):
-        df = show_data_cleaner(df)
+        show_data_cleaner(df)
 
 
     with st.expander("💾 Save Cleaned Data as CSV", expanded=False):
         st.caption("Download the current (cleaned) dataset as a CSV file.")
-        
+
 
         if st.checkbox("⚙️ Prepare CSV Download File", key="_enable_csv_export"):
             import io as _io, datetime as _dt

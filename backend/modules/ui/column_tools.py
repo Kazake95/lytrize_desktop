@@ -6,6 +6,8 @@ import numpy as np
 import pandas as pd
 import datetime
 
+from modules.utils.session_cache import set_df, update_df
+
 
 
 
@@ -273,7 +275,7 @@ def show_dtype_transformer(df):
 
                     n_null_before = int(df[col_to_convert].isna().sum())
                     df[col_to_convert] = converted
-                    st.session_state.df = df
+                    update_df(df)
                     st.session_state.pop(prev_key, None)
                     n_null_after = int(df[col_to_convert].isna().sum())
                     new_nulls = max(0, n_null_after - n_null_before)
@@ -387,17 +389,17 @@ def show_dtype_transformer(df):
                                 else:
                                     df = st.session_state.df.copy()
                                     df[_geo_col] = df[_geo_col].astype(str).replace(_filled)
-                                    st.session_state.df = df
-                                    _all_remaps = st.session_state.get("_geo_remaps", {})
-                                    _all_remaps[_geo_col] = _filled
-                                    st.session_state["_geo_remaps"] = _all_remaps
-                                    _n_changed = df[_geo_col].isin(_filled.values()).sum()
-                                    st.success(
-                                        f"✅ Applied {len(_filled)} remap(s) — "
-                                        f"{_n_changed:,} rows updated. "
-                                        f"Re-open this panel to check remaining unresolved values."
-                                    )
-                                    st.rerun()
+                                    set_df(df)
+                                _all_remaps = st.session_state.get("_geo_remaps", {})
+                                _all_remaps[_geo_col] = _filled
+                                st.session_state["_geo_remaps"] = _all_remaps
+                                _n_changed = df[_geo_col].isin(_filled.values()).sum()
+                                st.success(
+                                    f"✅ Applied {len(_filled)} remap(s) — "
+                                    f"{_n_changed:,} rows updated. "
+                                    f"Re-open this panel to check remaining unresolved values."
+                                )
+                                st.rerun()
                         else:
                             st.success("🎉 All values in this column resolve cleanly — ready for Map Plot.")
 

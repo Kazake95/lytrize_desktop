@@ -279,6 +279,7 @@ def init_db() -> None:
             file_name            TEXT DEFAULT '',
             editing_session_id   INTEGER,
             editing_session_name TEXT,
+            editing_file_name    TEXT DEFAULT '',
             dashboard_title      TEXT DEFAULT '',
             kpis_json            TEXT DEFAULT '[]',
             chart_meta_json      TEXT DEFAULT '{}',
@@ -778,6 +779,7 @@ def save_draft(
     file_name: str = "",
     editing_session_id=None,
     editing_session_name=None,
+    editing_file_name: str = "",
     dashboard_title: str = "",
     kpis_json: str = "[]",
     chart_meta_json: str = "{}",
@@ -790,12 +792,12 @@ def save_draft(
             _execute(conn, """
                     INSERT OR REPLACE INTO draft_sessions
                         (user_id, page, charts_json, file_name, editing_session_id,
-                         editing_session_name, dashboard_title, kpis_json,
-                         chart_meta_json, layout_mode, col_descriptions_json,
-                         updated_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)""",
+                         editing_session_name, editing_file_name, dashboard_title,
+                         kpis_json, chart_meta_json, layout_mode,
+                         col_descriptions_json, updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)""",
                     (user_id, page, charts_json, file_name,
-                     editing_session_id, editing_session_name,
+                     editing_session_id, editing_session_name, editing_file_name,
                      dashboard_title, kpis_json, chart_meta_json, layout_mode,
                      col_descriptions_json),
                 )
