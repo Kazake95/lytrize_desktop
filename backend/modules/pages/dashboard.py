@@ -359,11 +359,7 @@ def _render_kpi_section(df, readonly):
         st.session_state.kpis = []
 
 
-    st.markdown(
-        '<div class="dashboard-section-title">📌 KPI Cards</div>',
-        unsafe_allow_html=True,
-    )
-
+    st.markdown("### 📌 KPI Cards")
 
     kpis = st.session_state.kpis
     if kpis:
@@ -487,13 +483,8 @@ def _render_layout_builder(charts):
     full_width = dict(st.session_state.grid_fullwidth)
 
 
-    st.markdown(
-        '<div class="dashboard-builder-panel">'
-        '<div class="dashboard-panel-title">🗂️ Arrange Charts in Dashboard Grid</div>'
-        '<div class="dashboard-panel-subtitle">Compact layout editing for the dashboard. Select slots, toggle full-width rows, then apply the new order.</div>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
+    st.markdown("### 🗂️ Arrange Charts in Dashboard Grid")
+
 
     grid_cols_n = st.radio(
         "Grid columns",
@@ -509,12 +500,6 @@ def _render_layout_builder(charts):
     st.caption(
         f"Each row has **{grid_cols_n} slots**. "
         "Tick **Full Width** to span the first slot across the entire row.")
-
-
-    st.markdown(
-        '<div style="background:rgba(97,99,223,0.04);border:2px dashed rgba(97,99,223,0.25);'
-        'border-radius:16px;padding:1.2rem 1.4rem;margin-bottom:1rem;">',
-        unsafe_allow_html=True)
 
 
     assigned_uids = []
@@ -588,9 +573,6 @@ def _render_layout_builder(charts):
             break
         if len(seen) >= n:
             break
-
-
-    st.markdown('</div>', unsafe_allow_html=True)
 
 
     for uid in uid_list:
@@ -901,62 +883,49 @@ def page_dashboard():
 
     render_logo()
 
-    display_title = st.session_state.get("dashboard_title") or sname
-    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-
-    header_cols = st.columns([1, 5, 2])
-    with header_cols[0]:
-        if st.button("← Back", key="dash_back", use_container_width=True):
-            for _k in ("_regen_uid", "_regen_type", "_regen_restore"):
-                st.session_state.pop(_k, None)
-            if viewing_saved:
-                for k in ["view_session_id","_view_charts","_vsid",
-                          "dashboard_title","kpis","layout_mode"]:
-                    st.session_state.pop(k, None)
-                st.session_state.page = "home"
-            else:
-                st.session_state.page = "analysis"
-            st.rerun()
-
-    with header_cols[1]:
-        if not viewing_saved:
-            ti = st.text_input("📋 Dashboard Title",
-                               value=st.session_state.get("dashboard_title",""),
-                               placeholder="e.g. Q1 2025 Sales Dashboard",
-                               key="dbtitle")
-            if ti != st.session_state.get("dashboard_title",""):
-                st.session_state.dashboard_title = ti
-                _persist()
-            display_title = st.session_state.get("dashboard_title") or sname
-        st.markdown(
-            f'<div class="dashboard-panel">'
-            f'<div class="dashboard-panel-title">📊 {escape(display_title)}</div>'
-            f'<div class="dashboard-panel-subtitle">Created by Lytrize &middot; {now_str}</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-
-    with header_cols[2]:
-        if not viewing_saved:
-            def_name = st.session_state.get("editing_session_name", sname) if is_editing else sname
-            sname_in = st.text_input("Session name", value=def_name, key="sname_in")
-            if st.button("💾 Save", use_container_width=True):
-                _do_save(sname_in, charts, df)
-            if is_editing and st.button("🔄 Update", use_container_width=True):
-                _do_update(sname_in, charts, clear_editing=False)
-
+    if st.button("← Back", key="dash_back"):
+        for _k in ("_regen_uid", "_regen_type", "_regen_restore"):
+            st.session_state.pop(_k, None)
+        if viewing_saved:
+            for k in ["view_session_id","_view_charts","_vsid",
+                      "dashboard_title","kpis","layout_mode"]:
+                st.session_state.pop(k, None)
+            st.session_state.page = "home"
+        else:
+            st.session_state.page = "analysis"
+        st.rerun()
 
     if not viewing_saved:
-        layout_cols = st.columns([1, 2, 2])
-        with layout_cols[0]:
+        ti = st.text_input("📋 Dashboard Title",
+                           value=st.session_state.get("dashboard_title",""),
+                           placeholder="e.g. Q1 2025 Sales Dashboard",
+                           key="dbtitle")
+        if ti != st.session_state.get("dashboard_title",""):
+            st.session_state.dashboard_title = ti
+            _persist()
+
+    st.markdown("---")
+
+    if not viewing_saved:
+        col1, col2, col3 = st.columns([2, 2, 1])
+        with col1:
+            def_name = st.session_state.get("editing_session_name", sname) if is_editing else sname
+            st.text_input("Session name", value=def_name, key="sname_in")
+        with col2:
             lo = st.radio("📐 Export Layout", ["Portrait","Landscape"],
                           index=1 if st.session_state.get("layout_mode")=="landscape" else 0,
                           horizontal=True)
             st.session_state.layout_mode = lo.lower()
-        with layout_cols[1]:
-            st.caption("Choose the dashboard orientation and save your session details.")
+        with col3:
+            st.write("")
+            if st.button("💾 Save", use_container_width=True):
+                sname_in = st.session_state.get("sname_in", sname)
+                _do_save(sname_in, charts, df)
+            if is_editing and st.button("🔄 Update", use_container_width=True):
+                sname_in = st.session_state.get("sname_in", sname)
+                _do_update(sname_in, charts, clear_editing=False)
 
-    st.markdown('<div class="dashboard-divider"></div>', unsafe_allow_html=True)
+    st.markdown("---")
 
 
     _render_kpi_section(df, readonly=viewing_saved)
@@ -984,7 +953,7 @@ def page_dashboard():
 
     if ordered:
         _export_row(ordered, sname, viewing_saved)
-        st.markdown('<div class="dashboard-divider"></div>', unsafe_allow_html=True)
+        st.markdown("---")
 
 
     if charts and not viewing_saved:
@@ -993,10 +962,7 @@ def page_dashboard():
         st.markdown("---")
 
 
-    st.markdown(
-        '<div class="dashboard-section-title">📈 Dashboard</div>',
-        unsafe_allow_html=True,
-    )
+    st.markdown("### 📈 Dashboard")
     try:
         _render_grid(ordered, viewing_saved)
     except Exception as _render_err:
