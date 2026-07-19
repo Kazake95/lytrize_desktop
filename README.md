@@ -19,34 +19,45 @@ Upload a CSV or Excel file and get interactive charts, dashboards, and insights 
 
 </div>
 
+### Screenshots
+
+![Upload page](https://via.placeholder.com/800x450/1e293b/a78bfa?text=Upload+Page)
+![Analysis page](https://via.placeholder.com/800x450/1e293b/a78bfa?text=Analysis+Page)
+![Dashboard](https://via.placeholder.com/800x450/1e293b/a78bfa?text=Dashboard)
+![Dashboard](https://via.placeholder.com/800x450/1e293b/a78bfa?text=Chart+Settings)
+
+*Replace these placeholder images with your own screenshots.*
+
+---
+
 ### Highlights
 
-- **Saved session backups** — create local backup files for your analyses and dashboards.
-- **Restore from JSON backups** — import any compatible JSON backup file, including backups shared by other users.
-- **Local-first workflow** — no cloud, no account, no data leaving your device.
+- **Saved session backups** — make local backup files of your analyses and dashboards.
+- **Restore from JSON backups** — import any backup file, even ones shared by other users.
+- **Local-first** — no cloud, no account, your data never leaves your device.
 
 ---
 
 ## What is Lytrize?
 
-Lytrize is a desktop analytics app that runs entirely on your computer. Drop in a spreadsheet and get charts, statistics, and a shareable dashboard — no internet connection required, no sign-up, no data ever leaving your machine.
+Lytrize is a desktop analytics app that runs entirely on your computer. Drop in a spreadsheet and get charts, statistics, and a shareable dashboard. No internet connection needed, no sign-up, no data ever leaving your machine.
 
-Built for people who work with data regularly and want answers fast, without opening a browser tab, logging into a service, or waiting for a cloud query to finish.
+Built for people who work with data often and want answers fast — without opening a browser tab, logging into a service, or waiting for a cloud query to finish.
 
 ---
 
-## Current Features
+## Features
 
 |                            |                                                                                                                               |
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | **📂 CSV & Excel support** | Upload `.csv` or `.xlsx` files up to **400 MB**                                                                               |
 | **📊 10 chart types**      | Bar, pie/donut, scatter, histogram, time series, correlation heatmap, matrix/pivot, geographic map, outlier, and data quality |
-| **🔍 Auto insights**       | Automated plain-language observations generated for every chart                                                               |
+| **🔍 Auto insights**       | Plain-English observations generated for every chart automatically                                                            |
 | **🗂️ Dashboard builder**  | Arrange charts in a portrait or landscape grid, add KPI summary cards, set a title, and save                                  |
-| **📤 Export**              | Download as a self-contained HTML file (no server dependency) — then use your browser's DevTools to save as PNG               |
-| **🧹 Data tools**          | Column rename, type cast, outlier flagging, and missing-value handling before analysis                                        |
-| **💾 Session backup & restore** | Save local session backups and restore any compatible JSON backup file, including backups shared by other users           |
-| **💾 Session saving**      | Analyses and dashboards persist locally — pick up exactly where you left off after a restart                                  |
+| **📤 Export**              | Download as a self-contained HTML file — then use your browser's DevTools to save as PNG                                      |
+| **🧹 Data tools**          | Rename columns, change data types, flag outliers, and handle missing values before analysis                                   |
+| **💾 Session backup & restore** | Save local session backups and restore any compatible JSON backup, including ones shared by other users                   |
+| **💾 Session saving**      | Analyses and dashboards save automatically — pick up where you left off after a restart                                       |
 | **🔒 Fully offline**       | No telemetry, no analytics, no outbound network requests                                                                      |
 
 
@@ -60,12 +71,12 @@ Built for people who work with data regularly and want answers fast, without ope
 
 ---
 
-## System requirements
+## System Requirements
 
 * **OS:** Linux (Ubuntu 20.04 LTS or later; any modern Debian-based or RPM-based distro)
 * **Architecture:** amd64 (64-bit)
-* **Python:** 3.11 or later is required to build from source. Packaged installs use an isolated virtual environment and the system Python on the target Linux machine.
-* **Browser:** Any installed browser — Chrome, Chromium, Firefox, Brave, or Edge — to view the app and export PNGs
+* **Python:** 3.11 or later required to build from source. Packaged installs use an isolated virtual environment with the system Python.
+* **Browser:** Any installed browser — Chrome, Chromium, Firefox, Brave, or Edge
 * **Disk:** ~400 MB installed (includes a self-contained Python virtual environment)
 * **RAM:** 2 GB minimum; 4 GB or more recommended for files over 100 MB
 
@@ -107,26 +118,26 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md#quick-start-for-developers) for the full
 
 ---
 
-## How to use Lytrize
+## How to Use Lytrize
 
 **1. Open the app**
 Launch Lytrize from your application menu or run `lytrize` in a terminal. A launcher window appears while the Streamlit backend starts, then your browser opens automatically.
 
 **2. Upload a file**
-Click **Start New Analysis** on the home screen and choose a CSV or Excel file. Lytrize shows a data preview and lets you rename columns, fix data types, and flag outliers before proceeding.
+Click **Start New Analysis** on the home screen and choose a CSV or Excel file. Lytrize shows a preview and lets you rename columns, fix data types, and flag outliers before proceeding.
 
 **3. Run an analysis**
-On the Analysis page, click any chart-type card — bar chart, time series, scatter plot, correlation heatmap, and so on — configure the columns and options, then click **Generate**. Charts appear immediately with auto-generated insights.
+On the Analysis page, click any chart-type card — bar chart, time series, scatter plot, correlation heatmap, and so on. Choose your columns and options, then click **Generate**. Charts appear right away with auto-generated insights.
 
 **4. Build a dashboard**
-Generated charts collect in your session. Click **Proceed to Dashboard** to arrange them, add KPI summary cards, set a title, and choose a portrait (2-column) or landscape (3-column) layout.
+Charts you generate collect in your session. Click **Proceed to Dashboard** to arrange them, add KPI summary cards, set a title, and pick a portrait (2-column) or landscape (3-column) layout.
 
 **5. Save, back up, and export**
-Your session saves automatically as you work. Use **Save Session** to lock in a named checkpoint visible on the home screen. Use **Restore Backup** to import any compatible JSON backup file from another user or from your own archive. Use **Download HTML** to download a standalone file you can open in any browser or share with a colleague. The downloaded HTML page can be saved as PNG using your browser's DevTools screenshot feature.
+Your session saves automatically as you work. Use **Save Session** to make a named checkpoint you can see on the home screen. Use **Restore Backup** to import any compatible JSON backup from another user or from your own archive. Use **Download HTML** to get a standalone file you can open in any browser or share with someone else. Save the HTML page as PNG using your browser's DevTools screenshot tool.
 
 ---
 
-## Where is my data stored?
+## Where is My Data Stored?
 
 Everything lives on your machine:
 
@@ -137,7 +148,7 @@ Everything lives on your machine:
 | Launcher preferences          | `~/.local/share/lytrize/launcher_prefs.json`                                                                  |
 | Backend log                   | Streamlit writes to stderr by default; check terminal output or redirect to a file                            |
 
-The parquet snapshot is used to restore your loaded dataset after a browser tab refresh. It is not persisted across reboots if stored on tmpfs — if the app restarts after a reboot and your file is gone, you will be prompted to re-upload.
+The parquet snapshot is used to restore your loaded dataset after a browser tab refresh. It is not kept across reboots if stored on tmpfs — if the app restarts after a reboot and your file is gone, you will be asked to re-upload.
 
 ---
 
@@ -174,7 +185,7 @@ The app exports a standalone HTML file. To save that page as a PNG, use your bro
 If no supported browser is detected, copy `http://127.0.0.1:8501` into any browser while the launcher window shows "Running".
 
 **Something looks broken**
-Check the terminal output for Python tracebacks. If the issue is reproducible, open an issue and attach the log.
+Check the terminal output for Python tracebacks. If the issue happens again, open an issue and attach the log.
 
 ---
 
@@ -182,4 +193,10 @@ Check the terminal output for Python tracebacks. If the issue is reproducible, o
 
 Lytrize is open source. Bug reports, feature requests, and pull requests are welcome.
 
-Before opening a PR, please read [CONTRIBUTING.md](./CONTRIBUTING.md) for the architecture, development setup, and contribution guidelines.
+Before opening a PR, please read [CONTRIBUTING.md](./CONTRIBUTING.md) for the development setup and guidelines.
+
+---
+
+## License
+
+MIT — see [LICENSE](./LICENSE) for the full text.

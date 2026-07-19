@@ -1,10 +1,10 @@
 # Contributing to Lytrize
 
-Thank you for your interest in contributing. This guide covers the repository layout, local development setup, and the conventions used in Lytrize.
+Thanks for your interest. This guide covers the repository layout, local development setup, and conventions used in Lytrize.
 
 ---
 
-## Quick start for developers
+## Quick Start for Developers
 
 ### 1. Clone the repository
 
@@ -30,31 +30,26 @@ pip install -r requirements.txt
 
 ### 4. Run the app in development
 
-For local development, run the Streamlit backend directly:
-
 ```bash
 streamlit run backend/app.py --server.port 8501 --server.address 127.0.0.1
 ```
 
-The packaged launcher under `desktop/launcher.py` is for installed builds only. It expects the application to live under `/opt/lytrize`, so do not use it for a source checkout.
-
-
-If no automated tests are present yet, use the manual smoke-test steps in this file and in `extra/test_commands.txt`.
+The packaged launcher under `desktop/launcher.py` is for installed builds only. It expects the app at `/opt/lytrize`, so do not use it for a source checkout.
 
 ---
 
-## Repository overview
+## Repository Overview
 
-Lytrize is split into two main layers:
+Lytrize has two main layers:
 
-* `desktop/` contains the launcher layer.
-* `backend/` contains the Streamlit application and all data-processing code.
+* `desktop/` — launcher layer (launcher window, browser selection, Streamlit process management).
+* `backend/` — Streamlit application and all data processing code.
 
-The backend is designed to run locally and offline. It uses a local SQLite database for sessions, drafts, and identity persistence.
+The backend runs locally and offline. It uses a local SQLite database for sessions, drafts, and user identity.
 
 ---
 
-## Architecture overview
+## Architecture
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
@@ -76,7 +71,7 @@ The backend is designed to run locally and offline. It uses a local SQLite datab
 │    database.py   — SQLite CRUD, local identity, sessions    │
 │    export.py     — Self-contained HTML dashboard export     │
 │                                                             │
-│    analysis/        — Chart runners and chart standardizer  │
+│    analysis/      — Chart runners and chart standardizer    │
 │      apply_lytrize_standard.py                              │
 │      descriptive.py                                         │
 │      statistical.py                                          │
@@ -98,7 +93,7 @@ The backend is designed to run locally and offline. It uses a local SQLite datab
 │      dashboard.py    — Dashboard builder                    │
 │      auth.py         — Local profile and session controls   │
 │                                                             │
-│    ui/                                                       │
+│    ui/                                                      │
 │      css.py           — Global CSS and footer/logo helpers  │
 │      column_tools.py  — Column type classification UI      │
 │      column_manager.py — Column name and type management    │
@@ -117,7 +112,7 @@ The backend is designed to run locally and offline. It uses a local SQLite datab
 ### Data flow
 
 1. The launcher starts Streamlit and opens the browser with the app URL.
-2. `app.py` bootstraps SQLite, restores drafts, and routes to the active page.
+2. `app.py` sets up SQLite, restores drafts, and routes to the active page.
 3. The upload page loads a file, runs it through the fast reader, classifies columns, and stores the result in `session_state`.
 4. The analysis page renders chart cards and dispatches each chart type to its runner.
 5. Charts are stored as Plotly JSON in `st.session_state` and in the draft database.
@@ -177,26 +172,20 @@ lytrize_desktop/
 │   └── launcher.py
 ├── packaging/
 │   ├── deb/
-│   │   ├── DEBIAN/control
-│   │   ├── usr/local/bin/lytrize
-│   │   └── usr/share/applications/lytrize.desktop
 │   └── rpm/
-│       ├── lytrize.spec
-│       ├── usr/local/bin/lytrize
-│       └── usr/share/applications/lytrize.desktop
 ├── service/
 │   └── lytrize.service
+├── assets/
 ├── requirements.txt
-├── build.sh
-├── build_rpm.sh
 ├── .gitignore
+├── LICENSE
 ├── README.md
 └── CONTRIBUTING.md
 ```
 
 ---
 
-## Backend modules in detail
+## Backend Modules
 
 | Module                               | Purpose                                                  | Key exports                                                                        |
 | ------------------------------------ | -------------------------------------------------------- | ---------------------------------------------------------------------------------- |
@@ -204,18 +193,21 @@ lytrize_desktop/
 | `database.py`                        | SQLite schema and all DB I/O, local identity, sessions   | `init_db()`, `save_session_db()`, `get_draft()`, `login_user()`, `register_user()` |
 | `export.py`                          | Render charts to self-contained HTML                     | `generate_html_report()`                                                           |
 | `analysis/__init__.py`               | Registry mapping `aid → runner`, config widget rendering | `ANALYSIS_OPTIONS`, `_RUNNERS`, `render_config_panel()`, `_run()`                  |
-| `analysis/apply_lytrize_standard.py` | Shared chart standardization helpers                     | Lytrize styling and figure normalization utilities                                 |
+| `analysis/apply_lytrize_standard.py` | Shared chart styling helpers                             | Lytrize styling and figure normalization utilities                                 |
 | `ui/css.py`                          | Global CSS injection, footer/logo helpers                | `inject_css()`, `inject_footer()`, `render_logo()`                                 |
 | `utils/perf.py`                      | Fast readers, dtype optimization, sampling               | `read_csv_fast()`, `optimize_dtypes()`, `sample_for_plot()`                        |
 
 ---
 
-## Adding a new analysis type
+## Adding a new chart type
 
 1. Create `backend/modules/analysis/<new_type>.py` with a `run_<new_type>(df, **kwargs)` function that returns a list of `(title, fig)` tuples.
-2. Import the runner in `backend/modules/analysis/__init__.py` and add it to `_RUNNERS` and `ANALYSIS_OPTIONS`.
-3. Add a widget config branch in `render_config_panel()` and a collector branch in `_collect_kwargs()`.
-4. Add insight logic in `generate_chart_insights()` in `modules/charts.py` if the chart type needs custom insight generation.
+2. Import it in `backend/modules/analysis/__init__.py` and add one entry to:
+   - `ANALYSIS_OPTIONS` (for the UI card)
+   - `_RUNNERS` (to dispatch to your function)
+3. If your chart needs config controls (column pickers, palettes, etc.), add entries to `_WIDGET_SPEC` in the same file.
+
+That's it — no other files need changes.
 
 ---
 
@@ -227,7 +219,7 @@ lytrize_desktop/
 
 ---
 
-## Code style and conventions
+## Code Style and Conventions
 
 * **Python version:** 3.11+.
 * **Docstrings:** Use Google-style docstrings (`Args`, `Returns`, `Raises`).
@@ -239,7 +231,7 @@ lytrize_desktop/
 
 ---
 
-## Session state keys
+## Session State Keys
 
 | Key                               | Set when      | Description                                                       |
 | --------------------------------- | ------------- | ----------------------------------------------------------------- |
@@ -257,7 +249,7 @@ lytrize_desktop/
 
 ---
 
-## Database schema
+## Database Schema
 
 * `users` — local identities.
 * `sessions` — saved dashboards (charts as JSON, KPIs, grid layout).
@@ -269,39 +261,29 @@ Migrations are handled with `ALTER TABLE ... ADD COLUMN` wrapped in `try/except`
 
 ---
 
-## Building packages
+## Building Packages
 
 ### .deb
 
 ```bash
-./build.sh
+cd packaging/deb
+dpkg-deb --build .
 # outputs lytrize_1.0_amd64.deb
 ```
 
 ### .rpm
 
+Build using the spec file at `packaging/rpm/lytrize.spec`:
+
 ```bash
-./build_rpm.sh
-# outputs lytrize-1.0-1.x86_64.rpm
+rpmbuild -ba packaging/rpm/lytrize.spec
 ```
 
-The build scripts create an isolated virtual environment inside the package, bundle assets and fonts, and install the desktop entry and launcher under `/usr/local/bin/` and `/usr/share/applications/`.
+The build creates an isolated virtual environment inside the package, bundles assets and fonts, and installs the desktop entry and launcher.
 
 ---
 
-## Testing
-
-Run the backend in isolation with a dummy file:
-
-```bash
-streamlit run backend/app.py
-```
-
-Use `extra/test_commands.txt` for manual smoke-test commands.
-
----
-
-## Pull request process
+## Pull Request Process
 
 1. Open an issue first describing the bug or feature.
 2. Keep PRs focused — one change per PR.
@@ -311,7 +293,7 @@ Use `extra/test_commands.txt` for manual smoke-test commands.
 
 ---
 
-## Known issues
+## Known Issues
 
 1. No dedicated PNG download button — users must use browser DevTools to capture the exported HTML page as an image.
 2. Some CSS color values in the generated HTML export lack fallback values when a theme key is missing.
@@ -321,4 +303,4 @@ Use `extra/test_commands.txt` for manual smoke-test commands.
 
 ## License
 
-See [LICENSE](./LICENSE).
+MIT — see [LICENSE](./LICENSE).
