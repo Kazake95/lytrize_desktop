@@ -1241,10 +1241,81 @@ button[kind="primary"],
 [data-testid="stExpander"] summary {{
     color:       var(--text-primary)  !important;
     font-weight: 600;
-    padding:     0.55rem 0.9rem;
+    padding:     0.35rem 0.7rem;
+    font-size:   0.85rem;
 }}
 [data-testid="stExpander"] summary:hover {{
     background: var(--surface-muted) !important;
+}}
+[data-testid="stExpander"] [data-testid="stMarkdownContainer"] {{
+    margin-bottom: 0 !important;
+}}
+[data-testid="stExpander"] .row-widget.stSelectbox,
+[data-testid="stExpander"] .row-widget.stSlider,
+[data-testid="stExpander"] .row-widget.stCheckbox,
+[data-testid="stExpander"] .row-widget.stNumberInput,
+[data-testid="stExpander"] .stTextInput,
+[data-testid="stExpander"] .stColorPicker {{
+    margin-bottom: 0.25rem !important;
+}}
+[data-testid="stExpander"] .row-widget.stSelectbox > label,
+[data-testid="stExpander"] .row-widget.stSlider > label,
+[data-testid="stExpander"] .row-widget.stCheckbox > label,
+[data-testid="stExpander"] .row-widget.stNumberInput > label,
+[data-testid="stExpander"] .stTextInput > label,
+[data-testid="stExpander"] .stColorPicker > label {{
+    font-size: 0.78rem !important;
+    margin-bottom: 0.1rem !important;
+    padding-bottom: 0 !important;
+}}
+[data-testid="stExpander"] [data-testid="stTextInput"] input,
+[data-testid="stExpander"] [data-testid="stSelectbox"] > div,
+[data-testid="stExpander"] [data-testid="stNumberInput"] input {{
+    min-height: 2rem !important;
+    padding-top: 0.15rem !important;
+    padding-bottom: 0.15rem !important;
+    font-size: 0.8rem !important;
+}}
+[data-testid="stExpander"] [data-testid="stSlider"] {{
+    padding-top: 0 !important;
+    margin-top: 0 !important;
+}}
+[data-testid="stExpander"] [data-testid="stCheckbox"] {{
+    min-height: 1.4rem !important;
+    margin-bottom: 0.1rem !important;
+}}
+[data-testid="stExpander"] [data-testid="stSlider"] > div {{
+    padding-bottom: 0 !important;
+}}
+[data-testid="stExpander"] .stSelectbox > div > div {{
+    min-height: 2rem !important;
+}}
+[data-testid="stExpander"] [data-testid="stNumberInput"] button {{
+    min-height: 1.6rem !important;
+    height: 1.6rem !important;
+}}
+[data-testid="stExpander"] .stCaptionContainer {{
+    margin-bottom: 0.1rem !important;
+}}
+[data-testid="stExpander"] .stCaptionContainer p {{
+    font-size: 0.78rem !important;
+    margin-bottom: 0 !important;
+}}
+[data-testid="stExpander"] [data-testid="column"] .stSelectbox,
+[data-testid="stExpander"] [data-testid="column"] .stNumberInput,
+[data-testid="stExpander"] [data-testid="column"] .stColorPicker {{
+    margin-bottom: 0.15rem !important;
+}}
+[data-testid="stExpander"] [data-testid="stExpanderContent"] {{
+    padding: 0.4rem 0.6rem 0.6rem !important;
+}}
+/* Compact the caption above expanders */
+.stCaptionContainer {{
+    margin-bottom: 0.15rem !important;
+}}
+.stCaptionContainer p {{
+    font-size: 0.75rem !important;
+    margin-bottom: 0 !important;
 }}
 
 

@@ -304,7 +304,7 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
     # ------------------------------------------------------------------ #
     # Two-column body: settings LEFT | chart RIGHT
     # ------------------------------------------------------------------ #
-    settings_col, chart_col = st.columns([1, 2])
+    settings_col, chart_col = st.columns([1, 3])
 
     # ---- LEFT: settings expanders -------------------------------------- #
     with settings_col:
