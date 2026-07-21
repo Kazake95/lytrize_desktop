@@ -1350,32 +1350,4 @@ def render_typography_controls(uid: str, fig, chart_type: str,
         if _sfstyle != text_style.get("subtitle_font_style", "Normal"):
             text_style["subtitle_font_style"] = _sfstyle
 
-    _preview_header_family = text_style.get("header_family", text_style.get("family", "Inter"))
-    _preview_header_style = str(text_style.get("header_font_style", "Normal")).lower()
-    _preview_header_weight = "700" if "bold" in _preview_header_style else "400"
-    _preview_header_italic = "italic" if "italic" in _preview_header_style else "normal"
-    _preview_header_decor = "underline" if "underline" in _preview_header_style else "none"
-    _preview_header_color = str(text_style.get("header_color", "#6163df"))
-    _preview_header_size = int(text_style.get("header_size", 28))
-
-    _preview_subtitle_family = text_style.get("subtitle_family", text_style.get("family", "Inter"))
-    _preview_subtitle_style = str(text_style.get("subtitle_font_style", "Normal")).lower()
-    _preview_subtitle_weight = "700" if "bold" in _preview_subtitle_style else "400"
-    _preview_subtitle_italic = "italic" if "italic" in _preview_subtitle_style else "normal"
-    _preview_subtitle_decor = "underline" if "underline" in _preview_subtitle_style else "none"
-    _preview_subtitle_color = str(text_style.get("subtitle_color", "#64748b"))
-    _preview_subtitle_size = int(text_style.get("subtitle_size", 11))
-
-    st.markdown(
-        f'<div style="font-size:{_preview_header_size}px; font-weight:{_preview_header_weight}; '
-        f'font-style:{_preview_header_italic}; text-decoration:{_preview_header_decor}; '
-        f'color:{_preview_header_color}; font-family:{_preview_header_family}; ' 
-        f'margin-bottom:0.1rem;">Header preview text</div>'
-        f'<div style="font-size:{_preview_subtitle_size}px; font-weight:{_preview_subtitle_weight}; '
-        f'font-style:{_preview_subtitle_italic}; text-decoration:{_preview_subtitle_decor}; '
-        f'color:{_preview_subtitle_color}; font-family:{_preview_subtitle_family}; ' 
-        f'margin-top:-2px;">Subtitle preview text</div>',
-        unsafe_allow_html=True,
-    )
-
     return {"text_style": text_style}
