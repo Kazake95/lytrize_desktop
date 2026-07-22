@@ -240,95 +240,122 @@ def render_config_panel_scoped(uid: str, aid: str, df) -> None:
     sk = lambda key: _sk_uid(uid, aid, key)
 
 
-    if aid not in ("matrix_table", "map_plot"):
-        st.selectbox("🎨 Colour Palette", list(PALETTES.keys()), key=sk("palette"))
-    st.markdown("---")
-
-
     if aid == "statistical":
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         with c1:
             _ensure_single_choice_state(sk("x"), [NONE] + cat, NONE)
             st.selectbox("Group by (optional)", [NONE] + cat, key=sk("x"))
         with c2: st.multiselect("Metrics", num, default=num[:4], key=sk("y"))
+        with c3:
+            if aid not in ("matrix_table", "map_plot"):
+                st.selectbox("🎨 Palette", list(PALETTES.keys()), key=sk("palette"))
 
 
     elif aid == "distribution":
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         with c1: st.multiselect("Numeric columns", num, default=num[:4], key=sk("x"))
         with c2:
             _ensure_single_choice_state(sk("color"), [NONE] + cat, NONE)
             st.selectbox("Colour by (optional)", [NONE] + cat, key=sk("color"))
+        with c3:
+            if aid not in ("matrix_table", "map_plot"):
+                st.selectbox("🎨 Palette", list(PALETTES.keys()), key=sk("palette"))
 
 
     elif aid == "correlation":
         st.multiselect("Columns", num, default=num, key=sk("x"))
 
 
-    elif aid in ("categorical", "pie_chart"):
-        c1, c2, c3, c4 = st.columns(4)
-        with c1: st.multiselect("Dimension columns", cat, default=cat[:2], key=sk("x"))
-        with c2: st.multiselect("Metric columns (optional)", num, key=sk("y"))
-        with c3: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=sk("agg"))
-        with c4: st.selectbox("Sort", ["Value ↓","Value ↑","Category A→Z","Category Z→A"], key=sk("sort"))
-        st.markdown("---")
-        if aid == "categorical":
-            st.selectbox("📊 Chart Direction",
-                         ["Vertical (Column chart)", "Horizontal (Bar chart)"],
-                         key=sk("direction"))
-        st.markdown("**🔝 Top N Categories**")
-        st.caption("0 = show all categories")
-        st.number_input("Top N (0 = show all)", min_value=0, max_value=200,
-                        step=1, value=0, key=sk("top_n"))
-        if aid == "categorical":
-            st.markdown("---")
-            st.markdown("**📊 Dual Y-Axis (Secondary metric as line overlay)**")
+    elif aid == "pie_chart":
+        c1, c2, c3, c4, c5, c6 = st.columns(6)
+        with c1:
+            st.multiselect("Dimensions", cat, default=cat[:2], key=sk("x"),
+                           help="Columns to split the data by")
+        with c2:
+            st.multiselect("Metrics", num, key=sk("y"),
+                           help="Values to aggregate (optional)")
+        with c3:
+            st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=sk("agg"),
+                         help="How to combine multiple metric values")
+        with c4:
+            st.selectbox("Sort", ["Value ↓","Value ↑","Category A→Z","Category Z→A"],
+                         key=sk("sort"), help="Order of wedge display")
+        with c5:
+            st.selectbox("Palette", list(PALETTES.keys()), key=sk("palette"),
+                         help="Color scheme for the chart")
+        with c6:
+            st.number_input("Top N", min_value=0, max_value=200, step=1, value=0,
+                            key=sk("top_n"), help="Max slices to show (0 = all categories)")
+
+    elif aid == "categorical":
+        c1, c2, c3, c4, c5, c6, c7, c8 = st.columns(8)
+        with c1:
+            st.multiselect("Dimensions", cat, default=cat[:2], key=sk("x"),
+                           help="Columns to split the data by")
+        with c2:
+            st.multiselect("Metrics", num, key=sk("y"),
+                           help="Values to aggregate (optional)")
+        with c3:
+            st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=sk("agg"),
+                         help="How to combine multiple metric values")
+        with c4:
+            st.selectbox(
+                "📊 Direction",
+                ["Vertical (Column chart)", "Horizontal (Bar chart)"],
+                key=sk("direction"),
+                help="Vertical = column chart. Horizontal = bar chart.")
+        with c5:
+            st.number_input("Top N", min_value=0, max_value=200, step=1, value=0,
+                            key=sk("top_n"), help="Max bars to show (0 = show all)")
+        with c6:
             dual_opts = [NONE] + list(num)
-            st.selectbox("Secondary Y-Axis metric", dual_opts, key=sk("dual_y"))
-            d2a, _ = st.columns([1, 2])
-            with d2a:
-                st.selectbox("Secondary metric aggregation",
-                             list(_AGG_FUNCS.keys()), key=sk("dual_y_agg"),
-                             help="Independent aggregation for the secondary Y-axis metric.")
+            st.selectbox("Secondary Y-Axis", dual_opts, key=sk("dual_y"),
+                         help="None = disabled.")
+        with c7:
+            st.selectbox("Secondary Agg", list(_AGG_FUNCS.keys()),
+                         key=sk("dual_y_agg"),
+                         help="Aggregation for secondary Y-axis metric")
+        with c8:
+            st.selectbox("Palette", list(PALETTES.keys()), key=sk("palette"),
+                         help="Color scheme for the chart")
 
 
     elif aid == "time_series":
         dt_candidates = dt if dt else all_cols
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
         with c1:
             default_dt = dt_candidates[0] if dt_candidates else NONE
             _ensure_single_choice_state(sk("x"), [NONE] + dt_candidates, default_dt)
-            st.selectbox("Date / Time column", [NONE] + dt_candidates, key=sk("x"))
-        with c2: st.selectbox("Primary metric(s)", num, index=0 if num else None, key=sk("y"))
+            st.selectbox("Date / Time", [NONE] + dt_candidates, key=sk("x"))
+        with c2: st.selectbox("Primary metric", num, index=0 if num else None, key=sk("y"))
         with c3: st.selectbox("Date grouping", list(_DATE_PARTS.keys()), key=sk("date_part"))
         with c4: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=sk("agg"))
-        st.markdown("---")
-        dual_opts_ts = [NONE] + list(num)
-        ts_d1, ts_d2, _ = st.columns([2, 1, 1])
-        with ts_d1:
-            st.selectbox("Secondary Y-Axis metric", dual_opts_ts, key=sk("dual_y_ts"))
-        with ts_d2:
-            st.selectbox("Secondary metric aggregation",
-                         list(_AGG_FUNCS.keys()), key=sk("dual_y_agg"),
-                         help="Independent aggregation for the secondary Y-axis metric.")
+        with c5:
+            dual_opts_ts = [NONE] + list(num)
+            st.selectbox("Secondary Y-Axis", dual_opts_ts, key=sk("dual_y_ts"))
+        with c6:
+            st.selectbox("Secondary Agg", list(_AGG_FUNCS.keys()), key=sk("dual_y_agg"))
+        with c7:
+            st.selectbox("Palette", list(PALETTES.keys()), key=sk("palette"))
 
 
     elif aid == "scatter_plot":
-        sp1, sp2 = st.columns(2)
-        with sp1: st.selectbox("X Axis (numeric)", [NONE] + num, key=sk("x_col"))
-        with sp2: st.selectbox("Y Axis (numeric)", [NONE] + num, key=sk("y_col"))
-        sp3, sp4 = st.columns(2)
-        with sp3: st.selectbox("Colour by (optional)", [NONE] + cat, key=sk("color_col"))
-        with sp4: st.selectbox("Size by (optional)", [NONE] + num, key=sk("size_col"))
-        st.selectbox("Trendline", ["None", "ols", "lowess"], key=sk("trendline"))
+        sp1, sp2, sp3, sp4, sp5, sp6 = st.columns(6)
+        with sp1: st.selectbox("X Axis", [NONE] + num, key=sk("x_col"))
+        with sp2: st.selectbox("Y Axis", [NONE] + num, key=sk("y_col"))
+        with sp3: st.selectbox("Colour", [NONE] + cat, key=sk("color_col"))
+        with sp4: st.selectbox("Size", [NONE] + num, key=sk("size_col"))
+        with sp5: st.selectbox("Trendline", ["None", "ols", "lowess"], key=sk("trendline"))
+        with sp6:
+            if aid not in ("matrix_table", "map_plot"):
+                st.selectbox("🎨 Palette", list(PALETTES.keys()), key=sk("palette"))
 
 
     elif aid == "matrix_table":
-        mt1, mt2, mt3 = st.columns(3)
+        mt1, mt2, mt3, mt4, mt5, mt6, mt7 = st.columns(7)
         with mt1: st.selectbox("Row (Index column)", [NONE] + cat, key=sk("index_col"))
         with mt2: st.selectbox("Column dimension", [NONE] + cat, key=sk("columns_col"))
         with mt3: st.selectbox("Value column", [NONE] + num, key=sk("values_col"))
-        mt4, mt5, mt6, mt7 = st.columns(4)
         with mt4: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=sk("agg"))
         with mt5: st.selectbox("View type", ["Heatmap", "Table"], key=sk("view_type"))
         with mt6: st.selectbox("Sort rows by", ["Value ↓", "Value ↑", "Category A→Z", "Category Z→A"],
@@ -351,46 +378,36 @@ def render_config_panel_scoped(uid: str, aid: str, df) -> None:
             st.session_state[_geo_sig_key]   = _df_sig
         _detected_geo  = st.session_state[_geo_cache_key]
         _default_mode  = 1 if _detected_geo else 0
-        st.selectbox("Map mode", _map_mode_opts, index=_default_mode, key=sk("map_mode"),
-                     help="Scatter = numeric lat/lon columns. Choropleth = country/state name column.")
         _mode = st.session_state.get(sk("map_mode"), _map_mode_opts[_default_mode])
         if _mode == "Scatter (Lat/Lon)":
-            mp1, mp2 = st.columns(2)
-            with mp1: st.selectbox("Latitude column", [NONE] + num, key=sk("lat_col"))
-            with mp2: st.selectbox("Longitude column", [NONE] + num, key=sk("lon_col"))
-            mp3, mp4 = st.columns(2)
-            with mp3: st.selectbox("Location label (hover name)", [NONE] + cat, key=sk("location_col"))
-            with mp4: st.selectbox("Colour by", [NONE] + cat + num, key=sk("color_col"),
-                                   help="Categorical → discrete colours  ·  Numeric → palette gradient")
-            mp5, mp6 = st.columns(2)
-            with mp5: st.selectbox("Value column (drives colour & size)", [NONE] + num, key=sk("value_col"),
-                                   help="When location+value set, this column is aggregated and drives both colour and marker size")
-            with mp6: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=sk("agg_func"))
-            mp7, mp8 = st.columns(2)
-            with mp7: st.selectbox("Map style", ["carto-positron", "open-street-map", "carto-darkmatter"],
+            mp1, mp2, mp3, mp4, mp5, mp6, mp7, mp8, mp9, mp10, mp11 = st.columns(11)
+            with mp1: st.selectbox("Mode", _map_mode_opts, index=_default_mode, key=sk("map_mode"))
+            with mp2: st.selectbox("Latitude", [NONE] + num, key=sk("lat_col"))
+            with mp3: st.selectbox("Longitude", [NONE] + num, key=sk("lon_col"))
+            with mp4: st.selectbox("Location", [NONE] + cat, key=sk("location_col"))
+            with mp5: st.selectbox("Colour", [NONE] + cat + num, key=sk("color_col"))
+            with mp6: st.selectbox("Value", [NONE] + num, key=sk("value_col"))
+            with mp7: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=sk("agg_func"))
+            with mp8: st.selectbox("Style", ["carto-positron", "open-street-map", "carto-darkmatter"],
                                    key=sk("map_style"))
-            with mp8: st.slider("Marker opacity", 0.3, 1.0, 0.82, 0.05, key=sk("marker_opacity"))
-            mp9, mp10 = st.columns(2)
-            with mp9: st.checkbox("🔄 Invert colour scale", key=sk("invert_colorscale"))
-            with mp10: st.checkbox("Show borders", value=True, key=sk("show_borders"))
+            with mp9: st.slider("Opacity", 0.3, 1.0, 0.82, 0.05, key=sk("marker_opacity"))
+            with mp10: st.checkbox("Invert", key=sk("invert_colorscale"))
+            with mp11: st.checkbox("Borders", value=True, key=sk("show_borders"))
         else:
             _all_cols_str = [c for c in df.columns if df[c].dtype == object]
             _geo_default_idx = (_all_cols_str.index(_detected_geo)
                                 if _detected_geo and _detected_geo in _all_cols_str else 0)
-            st.selectbox("Location name column (countries / US states)",
-                         _all_cols_str if _all_cols_str else df.columns.tolist(),
-                         index=_geo_default_idx, key=sk("geo_col"),
-                         help="Column containing country names, ISO-2/3 codes, or US state names/abbrevs")
-            cg1, cg2 = st.columns(2)
-            with cg1: st.selectbox("Value column (fill colour)", [NONE] + num, key=sk("value_col"))
-            with cg2: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=sk("agg_func"))
-            cg3, cg4 = st.columns(2)
-            with cg3: st.selectbox("Colour scale", _CHOROPLETH_SCALES, key=sk("choropleth_colorscale"))
-            with cg4: st.selectbox("Projection", _PROJECTIONS, key=sk("choropleth_projection"))
-            cg5, cg6 = st.columns(2)
-            with cg5: st.selectbox("Scope", _SCOPES, key=sk("choropleth_scope"))
-            with cg6: st.checkbox("Show country borders", value=True, key=sk("choropleth_show_borders"))
-            st.checkbox("🔄 Invert colour scale", key=sk("invert_colorscale"))
+            cg0, cg1, cg2, cg3, cg4, cg5, cg6 = st.columns(7)
+            with cg0: st.selectbox("Mode", _map_mode_opts, index=_default_mode, key=sk("map_mode"))
+            with cg1: st.selectbox("Location", _all_cols_str if _all_cols_str else df.columns.tolist(),
+                                   index=_geo_default_idx, key=sk("geo_col"))
+            with cg2: st.selectbox("Value", [NONE] + num, key=sk("value_col"))
+            with cg3: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=sk("agg_func"))
+            with cg4: st.selectbox("Scale", _CHOROPLETH_SCALES, key=sk("choropleth_colorscale"))
+            with cg5: st.selectbox("Projection", _PROJECTIONS, key=sk("choropleth_projection"))
+            with cg6: st.selectbox("Scope", _SCOPES, key=sk("choropleth_scope"))
+            # Borders checkbox placed below columns to avoid overflow
+            st.checkbox("Borders", value=True, key=sk("choropleth_show_borders"))
 
 
 
@@ -417,7 +434,7 @@ def _collect_kwargs_scoped(uid: str, aid: str, df) -> dict:
         kwargs.update(x_cols=g("x", num[:4]) or num[:4], y_cols=None if color is None else [color])
     elif aid == "correlation":
         kwargs.update(x_cols=g("x", num) or num)
-    elif aid in ("categorical","pie_chart"):
+    elif aid == "categorical":
         x = g("x",cat[:2]) or cat[:2]
         y = g("y",[]) or None
         agg = _AGG_FUNCS.get(g("agg","Avg"), "mean")
@@ -425,14 +442,22 @@ def _collect_kwargs_scoped(uid: str, aid: str, df) -> dict:
         top_n = top_n_v if top_n_v > 0 else None
         sort_by = _sort_map.get(g("sort","Value ↓"), "Value (Desc)")
         kwargs.update(x_cols=x, y_cols=y, agg=agg, sort_by=sort_by, top_n=top_n)
-        if aid == "categorical":
-            direction = g("direction","Vertical (Column chart)")
-            raw_dual = g("dual_y", NONE)
-            dual_y = None if (not raw_dual or raw_dual == NONE) else raw_dual
-            if dual_y and y and dual_y in (y if isinstance(y,list) else [y]):
-                dual_y = None
-            dual_y_agg = _AGG_FUNCS.get(g("dual_y_agg", "Avg"), "mean") if dual_y else None
-            kwargs.update(direction=direction, dual_y_col=dual_y, dual_y_agg=dual_y_agg)
+        direction = g("direction","Vertical (Column chart)")
+        raw_dual = g("dual_y", NONE)
+        dual_y = None if (not raw_dual or raw_dual == NONE) else raw_dual
+        if dual_y and y and dual_y in (y if isinstance(y,list) else [y]):
+            dual_y = None
+        dual_y_agg = _AGG_FUNCS.get(g("dual_y_agg", "Avg"), "mean") if dual_y else None
+        kwargs.update(direction=direction, dual_y_col=dual_y, dual_y_agg=dual_y_agg)
+
+    elif aid == "pie_chart":
+        x = g("x",cat[:2]) or cat[:2]
+        y = g("y",[]) or None
+        agg = _AGG_FUNCS.get(g("agg","Avg"), "mean")
+        top_n_v = int(g("top_n",0) or 0)
+        top_n = top_n_v if top_n_v > 0 else None
+        sort_by = _sort_map.get(g("sort","Value ↓"), "Value (Desc)")
+        kwargs.update(x_cols=x, y_cols=y, agg=agg, sort_by=sort_by, top_n=top_n)
     elif aid == "time_series":
         x = _single_choice_value(g("x", NONE), NONE)
         y = _single_choice_value(g("y", num[0] if num else NONE), num[0] if num else NONE)
@@ -516,98 +541,113 @@ def render_config_panel(aid: str, df) -> None:
     NONE = "None"
 
 
-    if aid not in ("matrix_table", "map_plot"):
-        st.selectbox("🎨 Colour Palette", list(PALETTES.keys()), key=_sk(aid, "palette"))
-    st.markdown("---")
-
-
     if aid == "descriptive":
         st.info("No configuration needed -- outputs a full stats table.")
 
 
     elif aid == "statistical":
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         with c1:
             _ensure_single_choice_state(_sk(aid, "x"), [NONE] + cat, NONE)
             st.selectbox("Group by (optional)", [NONE] + cat, key=_sk(aid, "x"))
         with c2: st.multiselect("Metrics", num, default=num[:4], key=_sk(aid, "y"))
+        with c3:
+            if aid not in ("matrix_table", "map_plot"):
+                st.selectbox("🎨 Palette", list(PALETTES.keys()), key=_sk(aid, "palette"))
 
 
     elif aid == "distribution":
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         with c1: st.multiselect("Numeric columns", num, default=num[:4], key=_sk(aid, "x"))
         with c2:
             _ensure_single_choice_state(_sk(aid, "color"), [NONE] + cat, NONE)
             st.selectbox("Colour by (optional)", [NONE] + cat, key=_sk(aid, "color"))
+        with c3:
+            if aid not in ("matrix_table", "map_plot"):
+                st.selectbox("🎨 Palette", list(PALETTES.keys()), key=_sk(aid, "palette"))
 
 
     elif aid == "correlation":
         st.multiselect("Columns", num, default=num, key=_sk(aid, "x"))
 
 
-    elif aid in ("categorical", "pie_chart"):
-        c1, c2, c3, c4 = st.columns(4)
-        with c1: st.multiselect("Dimension columns", cat, default=cat[:2], key=_sk(aid, "x"))
-        with c2: st.multiselect("Metric columns (optional)", num, key=_sk(aid, "y"))
-        with c3: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=_sk(aid, "agg"))
-        with c4: st.selectbox(
-            "Sort", ["Value ↓", "Value ↑", "Category A→Z", "Category Z→A"],
-            key=_sk(aid, "sort"))
-        st.markdown("---")
-
-
-        if aid == "categorical":
+    elif aid == "pie_chart":
+        c1, c2, c3, c4, c5, c6 = st.columns(6)
+        with c1:
+            st.multiselect("Dimensions", cat, default=cat[:2], key=_sk(aid, "x"),
+                           help="Columns to split the data by")
+        with c2:
+            st.multiselect("Metrics", num, key=_sk(aid, "y"),
+                           help="Values to aggregate (optional)")
+        with c3:
+            st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=_sk(aid, "agg"),
+                         help="How to combine multiple metric values")
+        with c4:
             st.selectbox(
-                "📊 Chart Direction",
+                "Sort", ["Value ↓", "Value ↑", "Category A→Z", "Category Z→A"],
+                key=_sk(aid, "sort"),
+                help="Order of wedge display")
+        with c5:
+            st.selectbox("Palette", list(PALETTES.keys()), key=_sk(aid, "palette"),
+                         help="Color scheme for the chart")
+        with c6:
+            st.number_input(
+                "Top N", min_value=0, max_value=200, step=1, value=0,
+                key=_sk(aid, "top_n"),
+                help="Max slices to show (0 = all categories)")
+
+    elif aid == "categorical":
+        c1, c2, c3, c4, c5, c6, c7, c8 = st.columns(8)
+        with c1:
+            st.multiselect("Dimensions", cat, default=cat[:2], key=_sk(aid, "x"),
+                           help="Columns to split the data by")
+        with c2:
+            st.multiselect("Metrics", num, key=_sk(aid, "y"),
+                           help="Values to aggregate (optional)")
+        with c3:
+            st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=_sk(aid, "agg"),
+                         help="How to combine multiple metric values")
+        with c4:
+            st.selectbox(
+                "📊 Direction",
                 ["Vertical (Column chart)", "Horizontal (Bar chart)"],
                 key=_sk(aid, "direction"),
-                help="Vertical = column chart. Horizontal = bar chart with values outside tips.")
-
-
-        st.markdown("**🔝 Top N Categories**")
-        st.caption("Enter how many top categories to show. Set to 0 to show all categories.")
-        st.number_input(
-            "Top N (0 = show all)", min_value=0, max_value=200, step=1, value=0,
-            key=_sk(aid, "top_n"),
-            help="0 = no limit. e.g. 10 = show only the 10 highest-value categories.")
-
-
-        if aid == "categorical":
-            st.markdown("---")
-            st.markdown("**📊 Dual Y-Axis (Secondary metric as line overlay)**")
-            st.caption("Choose a secondary metric to overlay as a line on a second Y-axis. Select 'None' to disable.")
+                help="Vertical = column chart. Horizontal = bar chart.")
+        with c5:
+            st.number_input("Top N", min_value=0, max_value=200, step=1, value=0,
+                            key=_sk(aid, "top_n"), help="Max bars to show (0 = show all)")
+        with c6:
             dual_opts = [NONE] + list(num)
-            cat_d1, cat_d2, _ = st.columns([2, 1, 1])
-            with cat_d1:
-                st.selectbox(
-                    "Secondary Y-Axis metric", dual_opts, key=_sk(aid, "dual_y"),
-                    help="Primary metric → bars. Secondary metric → line on the right Y-axis.")
-            with cat_d2:
-                st.selectbox(
-                    "Secondary metric aggregation", list(_AGG_FUNCS.keys()),
-                    key=_sk(aid, "dual_y_agg"),
-                    help="Independent aggregation applied only to the secondary Y-axis metric.")
+            st.selectbox("Secondary Y-Axis", dual_opts, key=_sk(aid, "dual_y"),
+                         help="None = disabled.")
+        with c7:
+            st.selectbox("Secondary Agg", list(_AGG_FUNCS.keys()),
+                         key=_sk(aid, "dual_y_agg"),
+                         help="Aggregation for secondary Y-axis metric")
+        with c8:
+            st.selectbox("Palette", list(PALETTES.keys()), key=_sk(aid, "palette"),
+                         help="Color scheme for the chart")
 
 
 
 
     elif aid == "scatter_plot":
-        sp1, sp2 = st.columns(2)
-        with sp1: st.selectbox("X Axis (numeric)", [NONE] + num, key=_sk(aid, "x_col"))
-        with sp2: st.selectbox("Y Axis (numeric)", [NONE] + num, key=_sk(aid, "y_col"))
-        sp3, sp4 = st.columns(2)
-        with sp3: st.selectbox("Colour by (optional)", [NONE] + cat, key=_sk(aid, "color_col"))
-        with sp4: st.selectbox("Size by (optional)", [NONE] + num, key=_sk(aid, "size_col"))
-        st.selectbox("Trendline", ["None", "ols", "lowess"], key=_sk(aid, "trendline"),
-                     help="ols = linear regression line  ·  lowess = smoothed curve")
+        sp1, sp2, sp3, sp4, sp5, sp6 = st.columns(6)
+        with sp1: st.selectbox("X Axis", [NONE] + num, key=_sk(aid, "x_col"))
+        with sp2: st.selectbox("Y Axis", [NONE] + num, key=_sk(aid, "y_col"))
+        with sp3: st.selectbox("Colour", [NONE] + cat, key=_sk(aid, "color_col"))
+        with sp4: st.selectbox("Size", [NONE] + num, key=_sk(aid, "size_col"))
+        with sp5: st.selectbox("Trendline", ["None", "ols", "lowess"], key=_sk(aid, "trendline"))
+        with sp6:
+            if aid not in ("matrix_table", "map_plot"):
+                st.selectbox("🎨 Palette", list(PALETTES.keys()), key=_sk(aid, "palette"))
 
 
     elif aid == "matrix_table":
-        mt1, mt2, mt3 = st.columns(3)
+        mt1, mt2, mt3, mt4, mt5, mt6, mt7 = st.columns(7)
         with mt1: st.selectbox("Row (Index column)", [NONE] + cat, key=_sk(aid, "index_col"))
         with mt2: st.selectbox("Column dimension", [NONE] + cat, key=_sk(aid, "columns_col"))
         with mt3: st.selectbox("Value column", [NONE] + num, key=_sk(aid, "values_col"))
-        mt4, mt5, mt6, mt7 = st.columns(4)
         with mt4: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=_sk(aid, "agg"))
         with mt5: st.selectbox("View type", ["Heatmap", "Table"], key=_sk(aid, "view_type"))
         with mt6: st.selectbox("Sort rows by", ["Value ↓", "Value ↑", "Category A→Z", "Category Z→A"],
@@ -627,79 +667,54 @@ def render_config_panel(aid: str, df) -> None:
             st.session_state["_detected_geo_sig"] = _df_sig_s
         _detected_geo  = st.session_state["_detected_geo_col"]
         _default_mode  = 1 if _detected_geo else 0
-        st.selectbox("Map mode", _map_mode_opts, index=_default_mode, key=_sk(aid, "map_mode"),
-                     help="Scatter = numeric lat/lon columns. Choropleth = country/state name column.")
         _mode = st.session_state.get(_sk(aid, "map_mode"), _map_mode_opts[_default_mode])
         if _mode == "Scatter (Lat/Lon)":
-            mp1, mp2 = st.columns(2)
-            with mp1: st.selectbox("Latitude column", [NONE] + num, key=_sk(aid, "lat_col"))
-            with mp2: st.selectbox("Longitude column", [NONE] + num, key=_sk(aid, "lon_col"))
-            mp3, mp4 = st.columns(2)
-            with mp3: st.selectbox("Location label (hover name)", [NONE] + cat, key=_sk(aid, "location_col"),
-                                   help="Categorical column shown as hover name per marker")
-            with mp4: st.selectbox("Colour by", [NONE] + cat + num, key=_sk(aid, "color_col"),
-                                   help="Categorical → discrete colours  ·  Numeric → continuous gradient")
-            mp5, mp6 = st.columns(2)
-            with mp5: st.selectbox("Value column (drives colour & size)", [NONE] + num, key=_sk(aid, "value_col"),
-                                   help="When location+value set, this column is aggregated and drives both colour and marker size")
-            with mp6: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=_sk(aid, "agg_func"))
-            mp7, mp8 = st.columns(2)
-            with mp7: st.selectbox("Map style", ["carto-positron", "open-street-map", "carto-darkmatter"],
+            mp1, mp2, mp3, mp4, mp5, mp6, mp7, mp8, mp9, mp10, mp11 = st.columns(11)
+            with mp1: st.selectbox("Mode", _map_mode_opts, index=_default_mode, key=_sk(aid, "map_mode"))
+            with mp2: st.selectbox("Latitude", [NONE] + num, key=_sk(aid, "lat_col"))
+            with mp3: st.selectbox("Longitude", [NONE] + num, key=_sk(aid, "lon_col"))
+            with mp4: st.selectbox("Location", [NONE] + cat, key=_sk(aid, "location_col"))
+            with mp5: st.selectbox("Colour", [NONE] + cat + num, key=_sk(aid, "color_col"))
+            with mp6: st.selectbox("Value", [NONE] + num, key=_sk(aid, "value_col"))
+            with mp7: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=_sk(aid, "agg_func"))
+            with mp8: st.selectbox("Style", ["carto-positron", "open-street-map", "carto-darkmatter"],
                                    key=_sk(aid, "map_style"))
-            with mp8: st.slider("Marker opacity", 0.3, 1.0, 0.82, 0.05, key=_sk(aid, "marker_opacity"))
-            mp9, mp10 = st.columns(2)
-            with mp9: st.checkbox("🔄 Invert colour scale", key=_sk(aid, "invert_colorscale"),
-                                  help="Flip gradient: e.g. make high values lighter instead of darker.")
-            with mp10: st.checkbox("Show borders", value=True, key=_sk(aid, "show_borders"))
+            with mp9: st.slider("Opacity", 0.3, 1.0, 0.82, 0.05, key=_sk(aid, "marker_opacity"))
+            with mp10: st.checkbox("Invert", key=_sk(aid, "invert_colorscale"))
+            with mp11: st.checkbox("Borders", value=True, key=_sk(aid, "show_borders"))
         else:
             _all_cols_str = [c for c in df.columns if df[c].dtype == object]
             _geo_default_idx = (_all_cols_str.index(_detected_geo)
                                 if _detected_geo and _detected_geo in _all_cols_str else 0)
-            st.selectbox("Location name column (countries / US states)",
-                         _all_cols_str if _all_cols_str else df.columns.tolist(),
-                         index=_geo_default_idx, key=_sk(aid, "geo_col"),
-                         help=(
-                             "Column with country names, ISO-2/3 codes, or US state names/abbrevs. "
-                             "Lytrize auto-resolves them — no manual mapping needed."
-                         ))
-            cg1, cg2 = st.columns(2)
-            with cg1: st.selectbox("Value column (fill colour)", [NONE] + num, key=_sk(aid, "value_col"))
-            with cg2: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=_sk(aid, "agg_func"))
-            cg3, cg4 = st.columns(2)
-            with cg3: st.selectbox("Colour scale", _CHOROPLETH_SCALES, key=_sk(aid, "choropleth_colorscale"))
-            with cg4: st.selectbox("Projection", _PROJECTIONS, key=_sk(aid, "choropleth_projection"))
-            cg5, cg6 = st.columns(2)
-            with cg5: st.selectbox("Scope", _SCOPES, key=_sk(aid, "choropleth_scope"))
-            with cg6: st.checkbox("Show borders", value=True, key=_sk(aid, "choropleth_show_borders"))
-            st.checkbox("🔄 Invert colour scale", key=_sk(aid, "invert_colorscale"))
+            cg0, cg1, cg2, cg3, cg4, cg5, cg6 = st.columns(7)
+            with cg0: st.selectbox("Mode", _map_mode_opts, index=_default_mode, key=_sk(aid, "map_mode"))
+            with cg1: st.selectbox("Location", _all_cols_str if _all_cols_str else df.columns.tolist(),
+                                   index=_geo_default_idx, key=_sk(aid, "geo_col"))
+            with cg2: st.selectbox("Value", [NONE] + num, key=_sk(aid, "value_col"))
+            with cg3: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=_sk(aid, "agg_func"))
+            with cg4: st.selectbox("Scale", _CHOROPLETH_SCALES, key=_sk(aid, "choropleth_colorscale"))
+            with cg5: st.selectbox("Projection", _PROJECTIONS, key=_sk(aid, "choropleth_projection"))
+            with cg6: st.selectbox("Scope", _SCOPES, key=_sk(aid, "choropleth_scope"))
+            st.checkbox("Borders", value=True, key=_sk(aid, "choropleth_show_borders"))
 
 
     elif aid == "time_series":
         dt_candidates = dt if dt else all_cols
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
         with c1:
             default_dt = dt_candidates[0] if dt_candidates else NONE
             _ensure_single_choice_state(_sk(aid, "x"), [NONE] + dt_candidates, default_dt)
-            st.selectbox("Date / Time column", [NONE] + dt_candidates, key=_sk(aid, "x"))
-        with c2: st.selectbox("Primary metric(s)", num, index=0, key=_sk(aid, "y"))
+            st.selectbox("Date / Time", [NONE] + dt_candidates, key=_sk(aid, "x"))
+        with c2: st.selectbox("Primary metric", num, index=0, key=_sk(aid, "y"))
         with c3: st.selectbox("Date grouping", list(_DATE_PARTS.keys()), key=_sk(aid, "date_part"))
         with c4: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=_sk(aid, "agg"))
-        st.markdown("---")
-
-
-        st.markdown("**📊 Dual Y-Axis (Secondary metric as dashed line)**")
-        st.caption("Choose a secondary metric on the right Y-axis. Select 'None' to disable.")
-        dual_opts_ts = [NONE] + list(num)
-        ts_d1, ts_d2, _ = st.columns([2, 1, 1])
-        with ts_d1:
-            st.selectbox(
-                "Secondary Y-Axis metric", dual_opts_ts, key=_sk(aid, "dual_y_ts"),
-                help="Adds a second line on the right axis.")
-        with ts_d2:
-            st.selectbox(
-                "Secondary metric aggregation", list(_AGG_FUNCS.keys()),
-                key=_sk(aid, "dual_y_agg"),
-                help="Independent aggregation applied only to the secondary Y-axis metric.")
+        with c5:
+            dual_opts_ts = [NONE] + list(num)
+            st.selectbox("Secondary Y-Axis", dual_opts_ts, key=_sk(aid, "dual_y_ts"))
+        with c6:
+            st.selectbox("Secondary Agg", list(_AGG_FUNCS.keys()), key=_sk(aid, "dual_y_agg"))
+        with c7:
+            st.selectbox("Palette", list(PALETTES.keys()), key=_sk(aid, "palette"))
 
 
 
@@ -740,7 +755,7 @@ def _collect_kwargs(aid: str, df) -> dict:
         kwargs.update(x_cols=x)
 
 
-    elif aid in ("categorical", "pie_chart"):
+    elif aid == "categorical":
         x        = _g(aid, "x", cat[:2]) or cat[:2]
         y        = _g(aid, "y", []) or None
         agg      = _AGG_FUNCS.get(_g(aid, "agg", "Avg"), "mean")
@@ -749,16 +764,23 @@ def _collect_kwargs(aid: str, df) -> dict:
         top_n_v  = int(_g(aid, "top_n", 0) or 0)
         top_n    = top_n_v if top_n_v > 0 else None
         kwargs.update(x_cols=x, y_cols=y, agg=agg, sort_by=sort_by, top_n=top_n)
+        direction = _g(aid, "direction", "Vertical (Column chart)")
+        raw_dual  = _g(aid, "dual_y", NONE)
+        dual_y    = None if (not raw_dual or raw_dual == NONE) else raw_dual
+        if dual_y and y and dual_y in (y if isinstance(y, list) else [y]):
+            dual_y = None
+        dual_y_agg = _AGG_FUNCS.get(_g(aid, "dual_y_agg", "Avg"), "mean") if dual_y else None
+        kwargs.update(direction=direction, dual_y_col=dual_y, dual_y_agg=dual_y_agg)
 
-
-        if aid == "categorical":
-            direction = _g(aid, "direction", "Vertical (Column chart)")
-            raw_dual  = _g(aid, "dual_y", NONE)
-            dual_y    = None if (not raw_dual or raw_dual == NONE) else raw_dual
-            if dual_y and y and dual_y in (y if isinstance(y, list) else [y]):
-                dual_y = None
-            dual_y_agg = _AGG_FUNCS.get(_g(aid, "dual_y_agg", "Avg"), "mean") if dual_y else None
-            kwargs.update(direction=direction, dual_y_col=dual_y, dual_y_agg=dual_y_agg)
+    elif aid == "pie_chart":
+        x        = _g(aid, "x", cat[:2]) or cat[:2]
+        y        = _g(aid, "y", []) or None
+        agg      = _AGG_FUNCS.get(_g(aid, "agg", "Avg"), "mean")
+        raw_sort = _g(aid, "sort", "Value ↓")
+        sort_by  = _sort_map.get(raw_sort, "Value (Desc)")
+        top_n_v  = int(_g(aid, "top_n", 0) or 0)
+        top_n    = top_n_v if top_n_v > 0 else None
+        kwargs.update(x_cols=x, y_cols=y, agg=agg, sort_by=sort_by, top_n=top_n)
 
 
     elif aid == "scatter_plot":
