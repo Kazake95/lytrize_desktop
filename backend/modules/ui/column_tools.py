@@ -126,6 +126,7 @@ def _preview_conversion(series: pd.Series, new_dtype: str) -> dict:
 
 
 def show_dtype_transformer(df):
+    """Render the data-type transformer UI for upload columns."""
     st.markdown("---")
     st.markdown("## 🔍 Data Type Inspector & Transformer")
 
@@ -428,6 +429,7 @@ def show_dtype_transformer(df):
 
 
 def show_column_classifier(df):
+    """Render the column-type classifier UI (numeric / categorical / datetime)."""
     all_cols = df.columns.tolist()
 
 

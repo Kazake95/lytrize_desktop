@@ -44,6 +44,14 @@ Lytrize is a desktop analytics app that runs entirely on your computer. Drop in 
 
 Built for people who work with data often and want answers fast — without opening a browser tab, logging into a service, or waiting for a cloud query to finish.
 
+### Desktop Launcher
+
+Lytrize includes a native desktop launcher (PySide6) that manages the backend and opens the app in an isolated browser window. The launcher provides:
+- **Browser selection** — choose Chrome, Chromium, Firefox, Brave, Edge, or your default browser
+- **Isolated profiles** — Chromium-based browsers launch in app mode with a separate profile; Firefox gets a clean isolated profile
+- **System tray integration** — the app lives in the tray while running
+- **Crash recovery** — if the backend crashes, the launcher shows a recoverable error instead of going blank
+
 ---
 
 ## Features

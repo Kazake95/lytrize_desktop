@@ -64,7 +64,7 @@ def _clear_attempts(username: str) -> None:
 
 
 def _connect():
-    """Return a fresh SQLite DB connection."""
+    """Return a fresh SQLite DB connection with safe pragmas."""
     import sqlite3
     db_path = _pathlib.Path(DB_PATH)
 
@@ -123,20 +123,21 @@ def _db():
 
 
 def _ph(sql: str) -> str:
-    """SQLite placeholder passthrough (kept for call-site compatibility)."""
+    """SQLite placeholder passthrough."""
     return sql
 
 
 
 
 def _last_id(cursor) -> int:
-    """Return the last auto-generated row ID."""
+    """Return the last auto-generated row ID from a cursor."""
     return cursor.lastrowid
 
 
 
 
 def _execute(conn, query: str, params=()):
+    """Execute a SQL query and return the cursor."""
     cur = conn.cursor()
     cur.execute(_ph(query), params)
     return cur
@@ -145,6 +146,7 @@ def _execute(conn, query: str, params=()):
 
 
 def _execute_fetchone(conn, query: str, params=()):
+    """Execute a SQL query and return the first row."""
     cur = conn.cursor()
     cur.execute(_ph(query), params)
     row = cur.fetchone()
@@ -155,6 +157,7 @@ def _execute_fetchone(conn, query: str, params=()):
 
 
 def _execute_fetchall(conn, query: str, params=()):
+    """Execute a SQL query and return all rows."""
     cur = conn.cursor()
     cur.execute(_ph(query), params)
     rows = cur.fetchall()
@@ -189,6 +192,7 @@ def _column_exists(conn, table: str, column: str) -> bool:
 
 
 def _ensure_index(conn, index_sql: str) -> None:
+    """Create an index if it does not already exist."""
     try:
         conn.cursor().execute(index_sql)
     except Exception:

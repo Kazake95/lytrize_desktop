@@ -262,18 +262,22 @@ def apply_hover_format(fig) -> None:
 
 
 def num_cols() -> list:
+    """Return the list of confirmed numeric column names."""
     return st.session_state.get("num_cols", [])
 
 
 def cat_cols() -> list:
+    """Return the list of confirmed categorical column names."""
     return st.session_state.get("cat_cols", [])
 
 
 def dt_cols() -> list:
+    """Return the list of confirmed datetime column names."""
     return st.session_state.get("dt_cols", [])
 
 
 def clean_insight_text(text) -> str:
+    """Strip markdown bold markers and normalise spacing from insight text."""
     s = str(text or "")
     s = re.sub(r"\*\*(.*?)\*\*", r"\1", s)
     s = s.replace("__", "")
@@ -282,10 +286,12 @@ def clean_insight_text(text) -> str:
 
 
 def clean_insights(insights) -> list:
+    """Clean a list of insight strings, removing empty entries."""
     return [s for s in (clean_insight_text(i) for i in (insights or [])) if s]
 
 
 def _fmt_num(value) -> str:
+    """Format a numeric value with K/M/B suffixes and thousand separators."""
     try:
         v = float(value)
     except Exception:
@@ -302,6 +308,7 @@ def _fmt_num(value) -> str:
 
 
 def _fmt_pct(value) -> str:
+    """Format a value as a signed percentage string."""
     try:
         return f"{float(value):+.1f}%"
     except Exception:
@@ -309,10 +316,12 @@ def _fmt_pct(value) -> str:
 
 
 def _plural(count, singular: str, plural: str = None) -> str:
+    """Return singular or plural form based on count."""
     return singular if int(count) == 1 else (plural or f"{singular}s")
 
 
 def _fmt_label(value) -> str:
+    """Format a value as a human-readable date/time label if possible."""
     try:
         ts = pd.to_datetime(value, errors="coerce")
         if pd.notna(ts):
@@ -325,10 +334,12 @@ def _fmt_label(value) -> str:
 
 
 def _as_number_series(values) -> pd.Series:
+    """Convert values to a numeric Series, coercing errors to NaN and dropping them."""
     return pd.to_numeric(pd.Series(values), errors="coerce").dropna()
 
 
 def _as_list(values) -> list:
+    """Convert any iterable to a list, returning an empty list on failure."""
     if values is None:
         return []
     try:

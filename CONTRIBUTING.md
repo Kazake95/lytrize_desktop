@@ -231,6 +231,46 @@ That's it — no other files need changes.
 
 ---
 
+## Testing
+
+Currently the project does not include a automated test suite. When adding new features, please:
+
+1. Run the app manually (`streamlit run backend/app.py`) and exercise the new code path.
+2. Verify common edge cases: empty DataFrames, missing columns, very large files, and special characters in column names.
+3. Check that the auto-save draft does not grow unbounded; verify draft cleanup after save/update.
+4. If you add a new chart runner, confirm that the insight engine produces at least one insight and does not crash on degenerate data.
+
+---
+
+## Debugging
+
+### Backend (Streamlit)
+
+- Run with `streamlit run backend/app.py --server.port 8501 --server.address 127.0.0.1` to see live logs in the terminal.
+- Use `st.write()` or `st.json()` to inspect `st.session_state` during development.
+- The launcher writes backend logs to `~/.local/share/lytrize/streamlit.log` when launched from the desktop entry.
+
+### Desktop Launcher
+
+- Launch from a terminal with `python desktop/launcher.py` or `python desktop/gui.py` to see Qt debug output.
+- Browser profiles are stored under `~/.local/share/lytrize/browser-profiles/`. Delete a profile to reset browser state.
+- If the launcher hangs, check for a stale Streamlit process: `pkill -f streamlit` and restart.
+
+### Database
+
+- The SQLite database lives at `~/.local/share/lytrize/lytrize.db`. You can inspect it with `sqlite3 ~/.local/share/lytrize/lytrize.db`.
+- Set `LYTRIZE_DB_PATH=/tmp/lytrize_test.db` to use a throwaway database for debugging.
+- Drafts are stored in `draft_sessions`. If the app feels slow, verify that draft cleanup is happening after saves.
+
+### Common Pitfalls
+
+- **Streamlit reruns are expensive.** Avoid heavy computation at module top-level; use `@st.cache_data` or `@st.cache_resource`.
+- **Session state key collisions.** Always prefix keys (`_cfg_`, `auto_insights_`, `desc_`, etc.) to avoid clobbering built-in Streamlit keys.
+- **Circular imports.** Keep chart runners in `modules/analysis/` and UI helpers in `modules/ui/`. If you need a shared constant, put it in `charts.py` or `config.py`, not in a page module.
+- **Plotly figure mutability.** Deep-copy figures before mutating them in export or display helpers; Plotly figures are mutable and shared across reruns.
+
+---
+
 ## Session State Keys
 
 | Key                               | Set when      | Description                                                       |
@@ -298,6 +338,15 @@ The build creates an isolated virtual environment inside the package, bundles as
 1. No dedicated PNG download button — users must use browser DevTools to capture the exported HTML page as an image.
 2. Some CSS color values in the generated HTML export lack fallback values when a theme key is missing.
 3. Streamlit reruns trigger full-page refreshes, which can be slow for larger datasets.
+
+---
+
+## Performance Tips
+
+- **DataFrame memory:** Use `modules/utils/perf.py::optimize_dtypes()` after loading large files to reduce memory usage by 50–70%.
+- **Sampling:** For scatter plots and maps with >100k rows, `sample_for_plot()` is used automatically. The threshold is configurable in `perf.py`.
+- **Caching:** Expensive computations (e.g., reading Excel sheets, parsing dates) are cached with `@st.cache_data`. Keep cache keys stable — don't include mutable objects like DataFrames in cache keys.
+- **Draft autosave:** The draft is written on every chart card mutation. The `charts_json_cached()` helper in `charts.py` debounces serialisation so the draft only hits the DB when the chart set or notes actually change.
 
 ---
 

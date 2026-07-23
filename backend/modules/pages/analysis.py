@@ -242,6 +242,7 @@ def _add_charts(new_charts, active):
 
 
 def page_analysis():
+    """Main analysis page: chart generation grid and configuration."""
     if "user_id" not in st.session_state:
         st.session_state.page = "profile"
         st.rerun()

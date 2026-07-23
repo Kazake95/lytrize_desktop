@@ -48,6 +48,7 @@ def banner_data_uri() -> str:
 
 
 def page_home():
+    """Home and saved-sessions browser."""
     render_logo()
     is_guest = st.session_state.get("is_guest", False)
 

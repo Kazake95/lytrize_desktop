@@ -207,8 +207,7 @@ def generate_html_report(
     theme: dict = None,
 ) -> str:
     """Generate a fully self-contained HTML dashboard file."""
-    inline_plotly = True
-    t            = _merge_theme(theme or {})
+    t = _merge_theme(theme or {})
     is_landscape = orientation == "landscape"
     max_width    = t.get("max_width") or "1840px"
     grid_css     = f"repeat({grid_cols_n}, 1fr)"

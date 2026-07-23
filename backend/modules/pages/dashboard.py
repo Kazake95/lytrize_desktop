@@ -27,7 +27,7 @@ from modules.ui.font_manager import inject_font_preview_css, font_select, get_fo
 
 
 def _render_section_preview(label: str, font: str, style: str, size: int, color: str) -> None:
-    """Render a single-line preview for a dashboard section (title / insights / notes)."""
+    """Render a single-line styled preview for a dashboard text section."""
     font_stack = get_font_stack(font)
     styles = [
         f"font-family:{font_stack}",
@@ -52,12 +52,13 @@ def _render_section_preview(label: str, font: str, style: str, size: int, color:
 
 
 def _dash_sync_notes() -> None:
-    """Snapshot all live desc_{uid} note values into _notes_shadow before any"""
+    """Snapshot all live desc_{uid} note values into _notes_shadow."""
     shadow = st.session_state.setdefault("_notes_shadow", {})
     for k, v in list(st.session_state.items()):
         if k.startswith("desc_") and isinstance(v, str):
             shadow[k[5:]] = v
 def _persist():
+    """Persist the current dashboard draft to the database."""
     uid = st.session_state.get("user_id")
     if not uid:
         return
@@ -103,6 +104,7 @@ def _persist():
 
 
 def _meta(uid):
+    """Return the chart metadata dict for a given chart uid."""
     k = f"chart_meta_{uid}"
     if k not in st.session_state:
         st.session_state[k] = {}
@@ -112,6 +114,7 @@ def _meta(uid):
 
 
 def _set_meta(uid, **kw):
+    """Update chart metadata for a given chart uid."""
     k = f"chart_meta_{uid}"
     if k not in st.session_state:
         st.session_state[k] = {}
@@ -206,6 +209,7 @@ def _apply_legend_names(fig, legend_names: dict, legend_title: str = "", text_st
 
 
 def _all_charts(viewing_saved):
+    """Return the current chart list, enriched with metadata for the dashboard."""
     if viewing_saved:
         return st.session_state.get("_view_charts", [])
     out = []
@@ -240,6 +244,7 @@ _KPI_ICONS = {
 
 def _calc_kpi(df, kpi_type, col=None, group_col=None, metric_col=None,
               filter_col=None, filter_val=None, label=None):
+    """Calculate a single KPI value from the DataFrame."""
     num_c = df.select_dtypes(include="number").columns.tolist()
     icon  = _KPI_ICONS.get(kpi_type, "📊")
     val   = "--"
@@ -309,6 +314,7 @@ def _calc_kpi(df, kpi_type, col=None, group_col=None, metric_col=None,
 
 
 def _kpi_card_html(kpi):
+    """Render a KPI card as an HTML string."""
     change_pct = kpi.get("change_pct")
     arrow_html = ""
     if change_pct is not None:
@@ -355,6 +361,7 @@ def _kpi_card_html(kpi):
 
 
 def _render_kpi_section(df, readonly):
+    """Render the KPI management section (list, add, remove)."""
     if "kpis" not in st.session_state:
         st.session_state.kpis = []
 
@@ -460,7 +467,7 @@ def _render_kpi_section(df, readonly):
 
 
 def _render_layout_builder(charts):
-    """Visual grid layout builder. Supports 2-column (default) and independent"""
+    """Render the visual dashboard grid layout builder."""
     if not charts:
         return []
 
@@ -596,6 +603,7 @@ def _render_layout_builder(charts):
 
 
 def _render_chart(item, idx, total, viewing_saved):
+    """Render a single chart card with settings, insights, and notes."""
     uid, title, fig, desc, autos, ctype, saved_meta = \
         item if len(item) == 7 else (*item[:6], {})
     meta = saved_meta if viewing_saved else _meta(uid)
@@ -757,6 +765,7 @@ def _render_grid(ordered_charts, viewing_saved):
 
 
 def page_dashboard():
+    """Main dashboard page: KPIs, layout, export, and chart management."""
     if "user_id" not in st.session_state:
         st.session_state.page = "profile"
         st.rerun()
@@ -986,9 +995,8 @@ def _generate_export_html(
     viewing_saved: bool,
 ) -> tuple[str, str]:
     """
-    Pure function: return (html_string, safe_file_name) for the export-ready
-    dashboard.  Shared by the preview iframe and the download button.
-    Does NOT render any Streamlit widgets.
+    Return (html_string, safe_file_name) for the export-ready dashboard.
+    Pure function — does NOT render any Streamlit widgets.
     """
     orient     = st.session_state.get("layout_mode","portrait")
     kpis       = st.session_state.get("kpis",[])
@@ -1076,6 +1084,7 @@ def _generate_export_html(
 
 
 def _export_row(charts, sname, viewing_saved):
+    """Render the full export controls row: presets, customiser, preview, download."""
     dash_title = st.session_state.get("dashboard_title","") or sname
     safe_file  = re.sub(r"[^A-Za-z0-9_.-]+", "_", dash_title).strip("._") or "lytrize_report"
 
@@ -1088,6 +1097,7 @@ def _export_row(charts, sname, viewing_saved):
         "ex_density": "Comfortable", "ex_radius": 12, "ex_chart_h": 400,
         "ex_width": "Auto", "ex_meta": True,
         "ex_kpi_text_color": "#f5f7ff", "ex_kpi_val_size": 14,
+        "ex_title_color": "#6163df", "ex_insights_color": "#f5f7ff", "ex_notes_color": "#f5f7ff",
     }
     _PRESETS = {
         "⚡ Midnight Pulse": {
@@ -1497,6 +1507,7 @@ def _collect_export_colours_json() -> str:
 
 
 def _do_save(sname_in, charts, df):
+    """Save the current dashboard as a new session."""
     if "user_id" not in st.session_state:
         return
     sid = save_session_db(
@@ -1527,6 +1538,7 @@ def _do_save(sname_in, charts, df):
 
 
 def _do_update(sname_in, charts, clear_editing=False):
+    """Update the currently edited session with the current dashboard state."""
     st.session_state.pop("_edit_notes_loaded",      None)
     st.session_state.pop("_analysis_notes_loaded",  None)
     st.session_state.pop("_notes_shadow",           None)

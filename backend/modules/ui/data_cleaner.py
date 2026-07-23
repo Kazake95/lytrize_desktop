@@ -495,6 +495,7 @@ def _tab_numeric_clean(df: pd.DataFrame) -> None:
 
 
 def show_data_cleaner(df: pd.DataFrame) -> pd.DataFrame:
+    """Render the data cleaning UI: clean, find/replace, validate, and string ops."""
     st.markdown("---")
     st.markdown("## 🧹 Data Cleaning & Validation")
     st.caption(
