@@ -223,12 +223,20 @@ def _add_charts(new_charts, active):
             if _k.startswith(_cfg_prefix):
                 _suffix = _k[len(_cfg_prefix):]
                 st.session_state[f"_edit_{uid}_{active}_{_suffix}"] = _v
+        # Extract initial axis/legend labels from the figure's _lytrize_meta
+        _lytrize_meta = getattr(fig, "_lytrize_meta", {}) or {}
+        _initial_labels = {
+            "x_label": _lytrize_meta.get("x_label", ""),
+            "y_label": _lytrize_meta.get("y_label", ""),
+            "legend_title": _lytrize_meta.get("legend_title", ""),
+        }
         # Persist generation snapshot in chart_meta so chart options can be
         # restored later when the user clicks "Edit Chart".
         _set_chart_meta(
             uid,
             _generation_kwargs=_gen_kwargs,
             widget_state={k: _widget_state.get(k) for k in _widget_state},
+            **_initial_labels,
         )
     st.session_state.charts.extend(new_charts)
     st.session_state._last_analysis_type = active

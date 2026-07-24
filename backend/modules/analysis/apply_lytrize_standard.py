@@ -102,6 +102,9 @@ def apply_lytrize_standard(
         "supports_axis_editing": axis_editing,
         "supports_legend_editing": legend_editing,
         "is_correlation": (analysis_type == "correlation"),
+        "x_label": xaxis or "",
+        "y_label": yaxis or "",
+        "legend_title": legend or "",
     }
 
 

@@ -72,11 +72,11 @@ def resolve_font_stack(font_name: str) -> str:
 
 CHART_TYPE_SETTINGS: dict[str, dict[str, Any]] = {
     "categorical": {
-        "has_axes": True, "has_legend": True,
-        "controls": ["title", "subtitle", "axes_labels", "legend_labels",
+        "has_axes": True, "has_legend": False,
+        "controls": ["title", "subtitle", "axes_labels",
                     "show_value_labels", "label_position", "bar_gap", "bar_mode"],
         "typography": ["family", "font_style", "header", "subtitle",
-                      "axis_title", "axis_tick", "legend_title", "legend_item"],
+                      "axis_title", "axis_tick"],
     },
     "descriptive": {
         "has_axes": False, "has_legend": False,
@@ -157,9 +157,11 @@ CHART_TYPE_SETTINGS: dict[str, dict[str, Any]] = {
         "has_axes": False, "has_legend": True,
         "controls": ["title", "subtitle", "legend_labels",
                     "donut_hole", "pie_textinfo", "pull_slices",
-                    "pie_rotation", "pie_direction"],
+                    "pie_rotation", "pie_direction",
+                    "pie_label_size", "pie_label_color",
+                    "pie_value_size", "pie_value_color"],
         "typography": ["family", "font_style", "header", "subtitle",
-                      "legend_title", "legend_item"],
+                      "legend_title", "legend_item", "pie_label", "pie_value"],
     },
 }
 
@@ -213,6 +215,10 @@ def default_text_style() -> dict:
         "axis_tick_size":     10,
         "axis_tick_color":    "#94a3b8",
         "legend_bgcolor":     "rgba(0,0,0,0)",
+        "pie_label_size":     11,
+        "pie_label_color":    "#e2e8f0",
+        "pie_value_size":     11,
+        "pie_value_color":    "#e2e8f0",
     }
 
 
@@ -413,12 +419,30 @@ def apply_chart_display_options(
     chart_type: str = "",
     *,
     _inplace: bool = False,
+    matrix_view: str = "",
 ):
+    """Apply all display options from meta to the figure.
+
+    Parameters
+    ----------
+    fig : plotly.graph_objects.Figure
+        The base figure to apply options to.
+    meta : dict or None
+        Chart metadata containing display_options and text_style.
+    chart_type : str
+        The chart type key (e.g. "categorical", "pie_chart").
+    _inplace : bool
+        If True, mutate fig in-place instead of deepcopying.
+    matrix_view : str
+        "heatmap" when matrix_table should render as heatmap.
+    """
     meta = meta or {}
     opts = meta.get("display_options", {})
     if not isinstance(opts, dict):
         opts = {}
     f2 = fig if _inplace else copy.deepcopy(fig)
+
+    _is_heatmap_view = chart_type == "matrix_table" and matrix_view == "heatmap"
 
     # Capture value label settings early (outside try so the final section can always use them)
     _show_value_labels = bool(opts.get("show_value_labels", False))
@@ -447,15 +471,23 @@ def apply_chart_display_options(
             if ttype == "bar":
                 tr.textposition = _label_pos if _show_value_labels else "none"
 
-            if ttype in ("scatter", "scattergl") and "lines" in mode:
+            if ttype in ("scatter", "scattergl"):
                 if _show_value_labels:
+                    # Populate text with y-values if not already set
+                    if getattr(tr, "text", None) is None:
+                        y_vals = getattr(tr, "y", None)
+                        if y_vals is not None:
+                            try:
+                                tr.text = [str(round(float(v), 2)) if v is not None else "" for v in y_vals]
+                            except (TypeError, ValueError):
+                                pass
                     if "text" not in mode:
                         tr.mode = mode + "+text"
                     tr.textposition = "top center"
                 else:
                     tr.mode = (
                         mode.replace("+text", "").replace("text+", "").replace("text", "")
-                    ) or "lines"
+                    ) or ("lines+markers" if "lines" in mode and "markers" in mode else mode)
 
             if ttype == "histogram":
                 nbins = opts.get("histogram_bins")
@@ -494,26 +526,6 @@ def apply_chart_display_options(
                     tr.rotation = int(opts["pie_rotation"])
                 if opts.get("pie_direction") and hasattr(tr, "direction"):
                     tr.direction = str(opts["pie_direction"])
-                _pie_lbl_clr = opts.get("pie_label_color")
-                _pie_lbl_sz  = opts.get("pie_label_size")
-                if _pie_lbl_clr or _pie_lbl_sz:
-                    for _pf_attr in ("insidetextfont", "outsidetextfont", "textfont"):
-                        if hasattr(tr, _pf_attr):
-                            _pf = getattr(tr, _pf_attr, None)
-                            _upd = {}
-                            if _pie_lbl_clr and _pie_lbl_clr != "auto":
-                                _upd["color"] = _pie_lbl_clr
-                            if _pie_lbl_sz:
-                                _upd["size"] = int(_pie_lbl_sz)
-                            if _upd:
-                                try:
-                                    if isinstance(_pf, dict):
-                                        _pf.update(_upd)
-                                    else:
-                                        for _k, _v in _upd.items():
-                                            setattr(_pf, _k, _v)
-                                except Exception:
-                                    pass
 
             if ttype in ("heatmap", "choropleth"):
                 if opts.get("heatmap_colorscale"):
@@ -757,6 +769,8 @@ def apply_chart_display_options(
                         _existing_color = _safe_get_font_attr(existing_font, "color", "#e2e8f0") or "#e2e8f0"
                         new_font = dict(size=_existing_size, color=_existing_color)
                         new_font["family"] = _font_family
+                        new_font["weight"] = _weight
+                        new_font["style"] = _style
                         if ttype != "heatmap":
                             tr_style = str(ts.get("font_style", "Normal"))
                             txt = getattr(tr, "text", None)
@@ -768,7 +782,6 @@ def apply_chart_display_options(
 
         # The title/subtitle are rendered in the HTML preview area (chart_card ctrl[0]),
         # so the Plotly native title is suppressed here to avoid the duplicate.
-        # Font settings are still applied to other chart elements.
         f2.update_layout(
             title=dict(
                 text="",
@@ -795,7 +808,60 @@ def apply_chart_display_options(
             )
         )
 
-    if chart_type in ("matrix_heatmap", "correlation", "map_plot"):
+    # ============================================================
+    # PIE CHART FONT SETTINGS - Applied after generic per-trace override
+    # ============================================================
+    for tr in f2.data:
+        ttype = str(getattr(tr, "type", "") or "").lower()
+        if ttype not in ("pie", "sunburst", "treemap"):
+            continue
+
+        _pie_lbl_clr = opts.get("pie_label_color") or ts.get("pie_label_color")
+        _pie_lbl_sz  = opts.get("pie_label_size") or ts.get("pie_label_size")
+        if _pie_lbl_clr or _pie_lbl_sz:
+            for _pf_attr in ("insidetextfont", "outsidetextfont", "textfont"):
+                if hasattr(tr, _pf_attr):
+                    _pf = getattr(tr, _pf_attr, None)
+                    _upd = {}
+                    if _pie_lbl_clr and _pie_lbl_clr != "auto":
+                        _upd["color"] = _pie_lbl_clr
+                    if _pie_lbl_sz:
+                        _upd["size"] = int(_pie_lbl_sz)
+                    if _upd:
+                        try:
+                            if isinstance(_pf, dict):
+                                _pf.update(_upd)
+                            else:
+                                for _k, _v in _upd.items():
+                                    setattr(_pf, _k, _v)
+                        except Exception:
+                            pass
+
+        _pie_val_clr = opts.get("pie_value_color") or ts.get("pie_value_color")
+        _pie_val_sz  = opts.get("pie_value_size") or ts.get("pie_value_size")
+        if _pie_val_clr or _pie_val_sz:
+            for _pf_attr in ("insidetextfont", "outsidetextfont", "textfont"):
+                if hasattr(tr, _pf_attr):
+                    _pf = getattr(tr, _pf_attr, None)
+                    _upd = {}
+                    if _pie_val_clr and _pie_val_clr != "auto":
+                        _upd["color"] = _pie_val_clr
+                    if _pie_val_sz:
+                        _upd["size"] = int(_pie_val_sz)
+                    if _upd:
+                        try:
+                            if isinstance(_pf, dict):
+                                _pf.update(_upd)
+                            else:
+                                for _k, _v in _upd.items():
+                                    setattr(_pf, _k, _v)
+                        except Exception:
+                            pass
+
+    # ============================================================
+    # COLORBAR / HEATMAP / MAP specific code
+    # ============================================================
+    if chart_type in ("matrix_heatmap", "correlation", "map_plot") or _is_heatmap_view:
         if chart_type == "map_plot":
             cb_tick_sz   = int(opts.get("colorbar_tick_size", 10))
             cb_tick_col  = str(opts.get("colorbar_tick_color", "#94a3b8"))
@@ -835,10 +901,6 @@ def apply_chart_display_options(
                     _ht = getattr(_tr, "hovertemplate", None)
                     if not isinstance(_ht, str) or not _ht.strip():
                         raise ValueError("no template")
-                    # px.scatter_geo tokens look like: %{hovertext}, %{marker.color},
-                    # %{customdata[1]}, %{customdata[2]}.  Rewrite them all to the
-                    # requested float precision; rename lat/lon/value tokens into a
-                    # consistent display.
                     import re as _re2
                     def _fmt(m):
                         _tok = (m.group(1) or m.group(2) or "").strip()
@@ -910,6 +972,8 @@ def apply_chart_display_options(
                                 size=_safe_get_font_attr(existing, "size", 11) or 11,
                                 color=_value_label_color,
                                 family=_font_family,
+                                weight=_weight,
+                                style=_style,
                             )
                             setattr(tr, font_attr, new_font)
                 except Exception:
@@ -924,6 +988,8 @@ def apply_chart_display_options(
                                 size=_safe_get_font_attr(existing, "size", 11) or 11,
                                 color=_value_label_color,
                                 family=_font_family,
+                                weight=_weight,
+                                style=_style,
                             )
                             setattr(tr, font_attr, new_font)
                 except Exception:
@@ -938,7 +1004,8 @@ def apply_chart_display_options(
 def render_chart_settings_controls(uid: str, title: str, fig, chart_type: str,
                                    meta: dict, auto_insights: list[str], *,
                                    key_prefix: str = "analysis",
-                                   show_text_style: bool = False) -> dict:
+                                   show_text_style: bool = False,
+                                   matrix_view: str = "") -> dict:
     """Render the Chart Settings expander for a single chart.
 
     Returns a dict of changed meta keys so the caller can persist them.
@@ -946,6 +1013,11 @@ def render_chart_settings_controls(uid: str, title: str, fig, chart_type: str,
     opts = dict(meta.get("display_options", {}))
     result: dict[str, Any] = {}
     stype = chart_type
+
+    if stype == "matrix_table" and matrix_view == "heatmap":
+        stype = "matrix_heatmap"
+
+    caps = get_chart_type_capabilities(stype)
 
     # ---- title / subtitle ------------------------------------------------
     nt = st.text_input(
@@ -963,33 +1035,34 @@ def render_chart_settings_controls(uid: str, title: str, fig, chart_type: str,
     if sub != meta.get("subtitle", ""):
         result["subtitle"] = sub
 
-    # ---- axes labels -----------------------------------------------------
-    xl = st.text_input(
-        "X-axis label",
-        value=meta.get("x_label", ""),
-        key=f"{key_prefix}_xl_{uid}",
-    )
-    if xl != meta.get("x_label", ""):
-        result["x_label"] = xl
-    yl = st.text_input(
-        "Y-axis label",
-        value=meta.get("y_label", ""),
-        key=f"{key_prefix}_yl_{uid}",
-    )
-    if yl != meta.get("y_label", ""):
-        result["y_label"] = yl
+    # ---- axes labels (only for charts with axes) -------------------------
+    if caps.get("has_axes", False):
+        xl = st.text_input(
+            "X-axis label",
+            value=meta.get("x_label", ""),
+            key=f"{key_prefix}_xl_{uid}",
+        )
+        if xl != meta.get("x_label", ""):
+            result["x_label"] = xl
+        yl = st.text_input(
+            "Y-axis label",
+            value=meta.get("y_label", ""),
+            key=f"{key_prefix}_yl_{uid}",
+        )
+        if yl != meta.get("y_label", ""):
+            result["y_label"] = yl
 
-    # ---- legend ----------------------------------------------------------
-    _leg_title = st.text_input(
-        "Legend title",
-        value=meta.get("legend_title", ""),
-        key=f"{key_prefix}_leg_title_{uid}",
-    )
-    if _leg_title != meta.get("legend_title", ""):
-        result["legend_title"] = _leg_title
+    # ---- legend title (only for charts with legend) ----------------------
+    if caps.get("has_legend", False):
+        _leg_title = st.text_input(
+            "Legend title",
+            value=meta.get("legend_title", ""),
+            key=f"{key_prefix}_leg_title_{uid}",
+        )
+        if _leg_title != meta.get("legend_title", ""):
+            result["legend_title"] = _leg_title
 
     # ---- display options -------------------------------------------------
-    caps = get_chart_type_capabilities(stype)
     controls = caps.get("controls", [])
 
     if "show_value_labels" in controls:
@@ -1100,6 +1173,30 @@ def render_chart_settings_controls(uid: str, title: str, fig, chart_type: str,
             ["clockwise", "counterclockwise"],
             index=0 if _pd == "clockwise" else 1,
             key=f"{key_prefix}_pd_{uid}",
+        )
+    if "pie_label_size" in controls:
+        opts["pie_label_size"] = st.slider(
+            "Pie label size", 6, 24,
+            int(opts.get("pie_label_size", 11)), 1,
+            key=f"{key_prefix}_pls_{uid}",
+        )
+    if "pie_label_color" in controls:
+        opts["pie_label_color"] = st.color_picker(
+            "Pie label color",
+            value=opts.get("pie_label_color", "#e2e8f0"),
+            key=f"{key_prefix}_plc_{uid}",
+        )
+    if "pie_value_size" in controls:
+        opts["pie_value_size"] = st.slider(
+            "Pie value size", 6, 24,
+            int(opts.get("pie_value_size", 11)), 1,
+            key=f"{key_prefix}_pvs_{uid}",
+        )
+    if "pie_value_color" in controls:
+        opts["pie_value_color"] = st.color_picker(
+            "Pie value color",
+            value=opts.get("pie_value_color", "#e2e8f0"),
+            key=f"{key_prefix}_pvc_{uid}",
         )
     if "heatmap_colorscale" in controls:
         _cs = opts.get("heatmap_colorscale", "RdBu")
@@ -1254,7 +1351,7 @@ def render_typography_controls(uid: str, fig, chart_type: str,
                                meta: dict, *, key_prefix: str = "analysis") -> dict:
     """Render the Typography expander for a single chart.
 
-    Returns a dict of changed typography keys so the caller can persist them.
+    Returns a dict of typography key-value pairs (flat dict, NOT {"text_style": ...}).
     """
     text_style = dict(meta.get("text_style", {}))
 
@@ -1350,4 +1447,99 @@ def render_typography_controls(uid: str, fig, chart_type: str,
         if _sfstyle != text_style.get("subtitle_font_style", "Normal"):
             text_style["subtitle_font_style"] = _sfstyle
 
-    return {"text_style": text_style}
+    caps = get_chart_type_capabilities(chart_type)
+    if "axis_tick" in caps.get("typography", []):
+        _ats = st.number_input(
+            "Axis tick size", 6, 18,
+            int(text_style.get("axis_tick_size", 10)), 1,
+            key=f"{key_prefix}_atsize_{uid}",
+        )
+        if _ats != text_style.get("axis_tick_size"):
+            text_style["axis_tick_size"] = _ats
+        _atc = st.color_picker(
+            "Axis tick color",
+            text_style.get("axis_tick_color", "#94a3b8"),
+            key=f"{key_prefix}_atcolor_{uid}",
+        )
+        if _atc != text_style.get("axis_tick_color"):
+            text_style["axis_tick_color"] = _atc
+
+    if "axis_title" in caps.get("typography", []):
+        _atits = st.number_input(
+            "Axis title size", 8, 24,
+            int(text_style.get("axis_title_size", 12)), 1,
+            key=f"{key_prefix}_atitsize_{uid}",
+        )
+        if _atits != text_style.get("axis_title_size"):
+            text_style["axis_title_size"] = _atits
+        _atitc = st.color_picker(
+            "Axis title color",
+            text_style.get("axis_title_color", "#cbd5e1"),
+            key=f"{key_prefix}_atitcolor_{uid}",
+        )
+        if _atitc != text_style.get("axis_title_color"):
+            text_style["axis_title_color"] = _atitc
+
+    if "legend_title" in caps.get("typography", []) or "legend_item" in caps.get("typography", []):
+        _lts = st.number_input(
+            "Legend title size", 8, 24,
+            int(text_style.get("legend_title_size", 12)), 1,
+            key=f"{key_prefix}_ltsize_{uid}",
+        )
+        if _lts != text_style.get("legend_title_size"):
+            text_style["legend_title_size"] = _lts
+        _ltc = st.color_picker(
+            "Legend title color",
+            text_style.get("legend_title_color", "#cbd5e1"),
+            key=f"{key_prefix}_ltcolor_{uid}",
+        )
+        if _ltc != text_style.get("legend_title_color"):
+            text_style["legend_title_color"] = _ltc
+        _lis = st.number_input(
+            "Legend item size", 8, 20,
+            int(text_style.get("legend_item_size", 11)), 1,
+            key=f"{key_prefix}_lisize_{uid}",
+        )
+        if _lis != text_style.get("legend_item_size"):
+            text_style["legend_item_size"] = _lis
+        _lic = st.color_picker(
+            "Legend item color",
+            text_style.get("legend_item_color", "#e2e8f0"),
+            key=f"{key_prefix}_licolor_{uid}",
+        )
+        if _lic != text_style.get("legend_item_color"):
+            text_style["legend_item_color"] = _lic
+
+    if "pie_label" in caps.get("typography", []):
+        _pls = st.number_input(
+            "Pie label size", 8, 24,
+            int(text_style.get("pie_label_size", 11)), 1,
+            key=f"{key_prefix}_plsize_{uid}",
+        )
+        if _pls != text_style.get("pie_label_size"):
+            text_style["pie_label_size"] = _pls
+        _plc = st.color_picker(
+            "Pie label color",
+            text_style.get("pie_label_color", "#e2e8f0"),
+            key=f"{key_prefix}_plcolor_{uid}",
+        )
+        if _plc != text_style.get("pie_label_color"):
+            text_style["pie_label_color"] = _plc
+
+    if "pie_value" in caps.get("typography", []):
+        _pvs = st.number_input(
+            "Pie value size", 8, 24,
+            int(text_style.get("pie_value_size", 11)), 1,
+            key=f"{key_prefix}_pvsize_{uid}",
+        )
+        if _pvs != text_style.get("pie_value_size"):
+            text_style["pie_value_size"] = _pvs
+        _pvc = st.color_picker(
+            "Pie value color",
+            text_style.get("pie_value_color", "#e2e8f0"),
+            key=f"{key_prefix}_pvcolor_{uid}",
+        )
+        if _pvc != text_style.get("pie_value_color"):
+            text_style["pie_value_color"] = _pvc
+
+    return text_style
