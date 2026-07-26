@@ -38,7 +38,7 @@ Lytrize is a **local-first, offline desktop analytics application** for Linux. I
 |---|---|
 | **Local-first** | All data stays on the user's machine. SQLite database at `~/.local/share/lytrize/lytrize.db`. No server, no cloud. |
 | **Offline** | No outbound network requests. Plotly.js is bundled inline in exports. Fonts are loaded via Google Fonts with a `noscript` fallback (or system fonts). |
-| **No account required** | A permanent local guest user is created automatically on first launch. Optional local accounts with PBKDF2 password hashing. |
+| **No account required** | A permanent local guest user is created automatically on first launch. |
 | **Crash recovery** | The desktop launcher detects Streamlit crashes and shows a recoverable error. Sessions auto-save to drafts on every chart mutation. |
 | **Fast** | Chunked CSV reader, dtype optimization, smart sampling, and Streamlit fragment isolation for per-chart interactivity. |
 
@@ -68,7 +68,7 @@ lytrize_desktop/
 │   └── modules/
 │       ├── __init__.py
 │       ├── charts.py           # Palettes, chart layout, insight engine, JSON serialization
-│       ├── database.py         # SQLite schema, all DB I/O, auth, backup/restore
+│       ├── database.py         # SQLite schema, all DB I/O, backup/restore
 │       ├── export.py           # HTML export engine, theme system
 │       ├── analysis/           # Chart runners and configuration registry
 │       │   ├── __init__.py     # ANALYSIS_OPTIONS, _RUNNERS, _WIDGET_SPEC, config panels
@@ -608,7 +608,7 @@ All tables are created in `init_db()` with `CREATE TABLE IF NOT EXISTS`. Migrati
 | `id` | INTEGER PK | Auto-increment primary key |
 | `username` | TEXT UNIQUE | Username (3-40 chars, alphanumeric + `_.-`) |
 | `email` | TEXT UNIQUE | Email address |
-| `password_hash` | TEXT | PBKDF2-HMAC-SHA256 hash (salt$hash) |
+| `password_hash` | TEXT | Hashed placeholder password for the local guest user. |
 | `created_at` | TIMESTAMP | Default `CURRENT_TIMESTAMP` |
 | `is_guest` | INTEGER | 1 for guest users, 0 for registered |
 | `uuid` | TEXT UNIQUE | Unique identifier for backup/restore |
@@ -663,7 +663,6 @@ All tables are created in `init_db()` with `CREATE TABLE IF NOT EXISTS`. Migrati
 | `action_detail` | TEXT | JSON or text detail |
 | `ts` | TIMESTAMP | Default `CURRENT_TIMESTAMP` |
 
-### `login_tokens`
 | Column | Type | Description |
 |---|---|---|
 | `token` | TEXT PK | UUID token string |

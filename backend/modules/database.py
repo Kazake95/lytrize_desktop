@@ -2,15 +2,11 @@
 
 
 import json
-import re
-import time
 import uuid
 import os
 import hashlib
-import hmac
 import datetime
 import logging
-from collections import defaultdict
 from contextlib import contextmanager
 from typing import Optional
 
@@ -28,37 +24,6 @@ _default_db = str(
     _pathlib.Path.home() / ".local" / "share" / "lytrize" / "lytrize.db"
 )
 DB_PATH = os.environ.get("LYTRIZE_DB_PATH") or _default_db
-
-
-
-
-_FAILED_ATTEMPTS: dict[str, list[float]] = defaultdict(list)
-_MAX_ATTEMPTS    = 5
-_WINDOW_SECONDS  = 300
-
-
-
-
-def _check_rate_limit(username: str) -> bool:
-    """Return True if the user may attempt a login, False if they are locked out."""
-    now      = time.time()
-    attempts = [t for t in _FAILED_ATTEMPTS[username] if now - t < _WINDOW_SECONDS]
-    _FAILED_ATTEMPTS[username] = attempts
-    return len(attempts) < _MAX_ATTEMPTS
-
-
-
-
-def _record_failed_attempt(username: str) -> None:
-    """Record one failed login attempt for rate-limit tracking."""
-    _FAILED_ATTEMPTS[username].append(time.time())
-
-
-
-
-def _clear_attempts(username: str) -> None:
-    """Clear the failed-attempt counter after a successful login."""
-    _FAILED_ATTEMPTS.pop(username, None)
 
 
 
@@ -268,14 +233,6 @@ def init_db() -> None:
         )""")
 
 
-        c.execute("""CREATE TABLE IF NOT EXISTS login_tokens (
-            token      TEXT PRIMARY KEY,
-            user_id    INTEGER NOT NULL,
-            username   TEXT NOT NULL,
-            expires_at TIMESTAMP NOT NULL
-        )""")
-
-
         c.execute("""CREATE TABLE IF NOT EXISTS draft_sessions (
             user_id              INTEGER PRIMARY KEY,
             page                 TEXT DEFAULT 'home',
@@ -403,16 +360,6 @@ def _hash(pw: str, salt: Optional[str] = None) -> str:
 
 
 
-def _verify(pw: str, stored: str) -> bool:
-    """Verify a plain-text password against a stored hash in constant time."""
-    if "$" in stored:
-        salt, _ = stored.split("$", 1)
-        return hmac.compare_digest(_hash(pw, salt), stored)
-    return hmac.compare_digest(hashlib.sha256(pw.encode()).hexdigest(), stored)
-
-
-
-
 def log_activity(
     user_id: int,
     action_type: str,
@@ -429,234 +376,6 @@ def log_activity(
                 "VALUES (?,?,?,?)",
                 (user_id, session_id, action_type, str(detail)[:1000]),
             )
-    except Exception:
-        pass
-
-
-
-
-def _validate_registration_inputs(
-    username: str, email: str, password: str
-) -> Optional[str]:
-    """Validate registration inputs. Returns an error message, or None if valid."""
-    if not 3 <= len(username) <= 40:
-        return "Username must be 3–40 characters."
-    if not re.match(r"^[A-Za-z0-9_.\-]+$", username):
-        return "Username may only contain letters, numbers, underscores, dots, and hyphens."
-    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
-        return "Please enter a valid email address."
-    if len(email) > 254:
-        return "Email address is too long."
-    if len(password) < 8:
-        return "Password must be at least 8 characters."
-    if len(password) > 1024:
-        return "Password is too long."
-    return None
-
-
-
-
-def register_user(username: str, email: str, password: str) -> tuple:
-    """Create a new user account."""
-    err = _validate_registration_inputs(username, email, password)
-    if err:
-        return False, err
-
-
-    try:
-        with _db() as conn:
-            c = conn.cursor()
-            c.execute(_ph("SELECT 1 FROM users WHERE username=? LIMIT 1"), (username,))
-            if c.fetchone():
-                return False, "Username already taken."
-            c.execute(_ph("SELECT 1 FROM users WHERE email=? LIMIT 1"), (email,))
-            if c.fetchone():
-                return False, "Email already registered."
-            c.execute(
-                "INSERT INTO users (username, email, password_hash) VALUES (?,?,?)",
-                (username, email, _hash(password)),
-            )
-        return True, "Account created!"
-    except Exception as e:
-        msg = str(e).lower()
-        if "username" in msg:
-            return False, "Username already taken."
-        if "email" in msg:
-            return False, "Email already registered."
-        log.error("register_user: unexpected error: %s", e)
-        return False, "Registration failed — please try again."
-
-
-
-
-def login_user(username: str, password: str) -> Optional[tuple]:
-    """Validate login credentials with rate limiting."""
-    if not _check_rate_limit(username):
-        log.warning("login_user: rate limit hit for '%s'", username)
-        return None
-
-
-    try:
-        conn = _connect()
-        c    = conn.cursor()
-        c.execute(
-            _ph("SELECT id, username, email, password_hash "
-               "FROM users WHERE username=? OR email=? LIMIT 1"),
-            (username, username),
-        )
-        row = c.fetchone()
-    except Exception:
-        return None
-    finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
-
-
-    if not row:
-        _record_failed_attempt(username)
-        return None
-
-
-    uid, uname, email, stored_hash = row
-
-
-    if not _verify(password, stored_hash):
-        _record_failed_attempt(username)
-        return None
-
-
-    _clear_attempts(username)
-
-
-    if "$" not in stored_hash:
-        try:
-            with _db() as conn:
-                _execute(conn, _ph("UPDATE users SET password_hash=? WHERE id=?"),
-                         (_hash(password), uid))
-        except Exception:
-            pass
-
-
-    return uid, uname, email
-
-
-
-
-def update_local_password(user_id: int, new_password: str) -> bool:
-    """Update the local PBKDF2 password hash for a user."""
-    try:
-        with _db() as conn:
-            _execute(
-                conn,
-                _ph("UPDATE users SET password_hash=? WHERE id=?"),
-                (_hash(new_password), user_id),
-            )
-        return True
-    except Exception as e:
-        log.warning("update_local_password: %s", e)
-        return False
-
-
-
-
-def create_token(user_id: int, username: str) -> str:
-    """Create a 7-day persistent login token and store it in login_tokens."""
-    token   = uuid.uuid4().hex
-    expires = (
-        datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=7)
-    ).isoformat()
-
-
-    with _db() as conn:
-        _execute(
-                conn,
-                "INSERT OR REPLACE INTO login_tokens "
-                "(token, user_id, username, expires_at) VALUES (?,?,?,?)",
-                (token, user_id, username, expires),
-            )
-
-
-    return token
-
-
-
-
-def validate_token(token: str) -> Optional[tuple]:
-    """Validate a login token. Returns (user_id, username) if valid and not expired, else None."""
-    if not token:
-        return None
-
-
-    conn = None
-    try:
-        conn = _connect()
-        c    = conn.cursor()
-        c.execute(
-            _ph("SELECT user_id, username, expires_at FROM login_tokens WHERE token=?"),
-            (token,),
-        )
-        row = c.fetchone()
-    except Exception:
-        return None
-    finally:
-        if conn is not None:
-            try:
-                conn.close()
-            except Exception:
-                pass
-
-
-    if not row:
-        return None
-
-
-    expires_raw = row[2]
-    if isinstance(expires_raw, datetime.datetime):
-        expires_dt = (
-            expires_raw if expires_raw.tzinfo
-            else expires_raw.replace(tzinfo=datetime.timezone.utc)
-        )
-    else:
-        try:
-            expires_dt = datetime.datetime.fromisoformat(
-                str(expires_raw).replace("Z", "+00:00")
-            )
-        except ValueError:
-            return None
-        if expires_dt.tzinfo is None:
-            expires_dt = expires_dt.replace(tzinfo=datetime.timezone.utc)
-
-
-    if datetime.datetime.now(datetime.timezone.utc) >= expires_dt:
-        return None
-
-
-    return row[0], row[1]
-
-
-
-
-def revoke_token(token: str) -> None:
-    """Delete a login token (called on sign-out)."""
-    if not token:
-        return
-    try:
-        with _db() as conn:
-            _execute(conn, _ph("DELETE FROM login_tokens WHERE token=?"), (token,))
-    except Exception:
-        pass
-
-
-
-
-def cleanup_expired_tokens() -> None:
-    """Delete all login_tokens rows that have already expired."""
-    try:
-        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        with _db() as conn:
-            _execute(conn, _ph("DELETE FROM login_tokens WHERE expires_at <= ?"), (now_iso,))
     except Exception:
         pass
 
@@ -1204,9 +923,7 @@ def delete_user_db(user_id: int) -> bool:
     """Permanently delete a user account and all associated data."""
     try:
         with _db() as conn:
-            _execute(conn, _ph("DELETE FROM login_tokens   WHERE user_id=?"), (user_id,))
-            _execute(conn, _ph("DELETE FROM draft_sessions WHERE user_id=?"), (user_id,))
-            _execute(conn, _ph("DELETE FROM user_activity  WHERE user_id=?"), (user_id,))
+
             _execute(conn, _ph("DELETE FROM sessions        WHERE user_id=?"), (user_id,))
             _execute(conn, _ph("DELETE FROM users           WHERE id=?"),      (user_id,))
         return True

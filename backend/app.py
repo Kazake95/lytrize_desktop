@@ -34,7 +34,7 @@ st.set_page_config(
 )
 
 
-from modules.database              import init_db, get_draft, get_or_create_guest_user, cleanup_expired_tokens
+from modules.database              import init_db, get_draft, get_or_create_guest_user
 from modules.ui.css                import inject_css
 from modules.pages.auth            import page_profile
 from modules.pages.home            import page_home
@@ -50,7 +50,6 @@ from modules.utils.session_cache   import save_df_snapshot, load_df_snapshot, se
 def _init_db_once():
     """Initialise the local SQLite database. Runs exactly once per process."""
     init_db()
-    cleanup_expired_tokens()
 
 
 

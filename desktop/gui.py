@@ -8,9 +8,6 @@ opens the web UI in an isolated browser window.
 FEATURES
 --------
 - Detects all installed browsers; remembers the user's choice across sessions.
-- Injects the saved session token into the URL on startup so the user lands
-  on home without re-entering credentials. The token is cleared from the URL
-  immediately by app.py after validation.
 - Opens Chromium-based browsers in true "app mode" (no toolbar, isolated
   profile, maximised window) and Firefox in a new isolated instance.
 - System tray with Open / Stop & Quit actions.
@@ -19,9 +16,8 @@ FEATURES
 
 STARTUP BEHAVIOUR
 -----------------
-First launch (no token file) → opens the app in guest / profile mode.
-After sign-in               → token written to ~/.local/share/lytrize/session.token.
-Subsequent launches          → token injected as ?t= so the user lands on home.
+First launch → opens the app in guest / profile mode.
+Subsequent launches → opens the app in the same local guest profile.
 
 BROWSER MODES
 -------------

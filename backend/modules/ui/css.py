@@ -1498,43 +1498,9 @@ def render_logo() -> None:
             st.session_state.page = "profile"
             st.rerun()
 
-        if not is_guest:
-            st.markdown(
-                "<span style='color:rgba(148,163,184,0.45);font-size:1rem;"
-                "line-height:1;pointer-events:none;user-select:none;'>│</span>",
-                unsafe_allow_html=True,
-            )
-            if st.button("⏻ Sign Out", key="global_nav_logout",
-                         help="Sign out of your account"):
-                _do_logout()
+        # Profile is always available, sign-out is not used in the guest-only flow.
+        # If a future account feature is restored, this branch can be reintroduced.
 
-
-def _do_logout() -> None:
-    """Revoke the session token, clear state, and redirect to the profile page."""
-    from modules.database import revoke_token, log_activity
-
-    try:
-        base     = Path(__file__).resolve().parents[2]
-        tok_path = base / ".local" / "share" / "lytrize" / "session.token"
-        token    = tok_path.read_text().strip() if tok_path.exists() else ""
-        if token:
-            revoke_token(token)
-        for fname in ("session.token", "session.user"):
-            p = base / ".local" / "share" / "lytrize" / fname
-            if p.exists():
-                p.write_text("")
-    except Exception:
-        pass
-
-    try:
-        log_activity(st.session_state.get("user_id", 0), "logout")
-    except Exception:
-        pass
-
-    st.query_params.clear()
-    st.session_state.clear()
-    st.session_state.page = "profile"
-    st.rerun()
 
 
 
