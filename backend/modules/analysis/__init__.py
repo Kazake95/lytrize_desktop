@@ -14,7 +14,7 @@ from modules.analysis.pie_chart    import run_pie_chart
 from modules.analysis.time_series  import run_time_series
 from modules.analysis.outlier       import run_outlier, OUTLIER_HELP
 from modules.analysis.scatter_plot  import run_scatter_plot
-from modules.analysis.matrix_table  import run_matrix_table
+from modules.analysis.matrix_table  import run_matrix_heatmap, run_matrix_table
 from modules.analysis.map_plot      import run_map_plot
 from modules.analysis.data_quality  import run_data_quality
 from modules.analysis.insights      import generate_insights
@@ -34,7 +34,8 @@ ANALYSIS_OPTIONS = [
     {"id": "pie_chart",    "icon": "🍩", "name": "Pie & Donut",       "desc": "Share of total"},
     {"id": "time_series",  "icon": "⏱️", "name": "Time Series",       "desc": "Trends over time"},
     {"id": "scatter_plot", "icon": "📉",  "name": "Scatter Plot",      "desc": "Variable relationships"},
-    {"id": "matrix_table", "icon": "🔲", "name": "Matrix / Heatmap",  "desc": "Cross-tab heatmap"},
+    {"id": "matrix_heatmap", "icon": "🔲", "name": "Matrix Heatmap",   "desc": "Cross-tab heatmap"},
+    {"id": "matrix_table",   "icon": "📋", "name": "Pivot Table",      "desc": "Cross-tab table"},
     {"id": "map_plot",     "icon": "🗺️", "name": "Map Plot",          "desc": "Geographic scatter"},
 ]
 _RUNNERS = {
@@ -47,14 +48,15 @@ _RUNNERS = {
     "time_series":  run_time_series,
     "outlier":      run_outlier,
     "scatter_plot": run_scatter_plot,
-    "matrix_table": run_matrix_table,
+    "matrix_heatmap": run_matrix_heatmap,
+    "matrix_table":   run_matrix_table,
     "map_plot":     run_map_plot,
     "data_quality": run_data_quality,
 }
 
 
 _NEEDS_AXES = {"statistical", "distribution", "correlation", "categorical",
-               "pie_chart", "time_series", "scatter_plot", "matrix_table", "map_plot"}
+               "pie_chart", "time_series", "scatter_plot", "matrix_heatmap", "matrix_table", "map_plot"}
 
 
 _NO_FORM = set()
@@ -111,12 +113,19 @@ _WIDGET_SPEC = {
         ("trendline", "trendline", "scalar"),
         ("palette", "palette", "palette"),
     ],
+    "matrix_heatmap": [
+        ("index_col", "index_col", "scalar"),
+        ("columns_col", "columns_col", "scalar"),
+        ("values_col", "values_col", "scalar"),
+        ("agg", "agg", "scalar"),
+        ("sort_rows", "sort_rows", "scalar_map"),
+        ("top_n_rows", "top_n_rows", "number"),
+    ],
     "matrix_table": [
         ("index_col", "index_col", "scalar"),
         ("columns_col", "columns_col", "scalar"),
         ("values_col", "values_col", "scalar"),
         ("agg", "agg", "scalar"),
-        ("view_type", "view_type", "scalar"),
         ("sort_rows", "sort_rows", "scalar_map"),
         ("top_n_rows", "top_n_rows", "number"),
     ],
@@ -247,7 +256,7 @@ def render_config_panel_scoped(uid: str, aid: str, df) -> None:
             st.selectbox("Group by (optional)", [NONE] + cat, key=sk("x"))
         with c2: st.multiselect("Metrics", num, default=num[:4], key=sk("y"))
         with c3:
-            if aid not in ("matrix_table", "map_plot"):
+            if aid not in ("matrix_heatmap", "matrix_table", "map_plot"):
                 st.selectbox("🎨 Palette", list(PALETTES.keys()), key=sk("palette"))
 
 
@@ -258,7 +267,7 @@ def render_config_panel_scoped(uid: str, aid: str, df) -> None:
             _ensure_single_choice_state(sk("color"), [NONE] + cat, NONE)
             st.selectbox("Colour by (optional)", [NONE] + cat, key=sk("color"))
         with c3:
-            if aid not in ("matrix_table", "map_plot"):
+            if aid not in ("matrix_heatmap", "matrix_table", "map_plot"):
                 st.selectbox("🎨 Palette", list(PALETTES.keys()), key=sk("palette"))
 
 
@@ -347,24 +356,35 @@ def render_config_panel_scoped(uid: str, aid: str, df) -> None:
         with sp4: st.selectbox("Size", [NONE] + num, key=sk("size_col"))
         with sp5: st.selectbox("Trendline", ["None", "ols", "lowess"], key=sk("trendline"))
         with sp6:
-            if aid not in ("matrix_table", "map_plot"):
+            if aid not in ("matrix_heatmap", "matrix_table", "map_plot"):
                 st.selectbox("🎨 Palette", list(PALETTES.keys()), key=sk("palette"))
 
 
-    elif aid == "matrix_table":
-        mt1, mt2, mt3, mt4, mt5, mt6, mt7 = st.columns(7)
+    elif aid == "matrix_heatmap":
+        mt1, mt2, mt3, mt4, mt5, mt6 = st.columns(6)
         with mt1: st.selectbox("Row (Index column)", [NONE] + cat, key=sk("index_col"))
         with mt2: st.selectbox("Column dimension", [NONE] + cat, key=sk("columns_col"))
         with mt3: st.selectbox("Value column", [NONE] + num, key=sk("values_col"))
         with mt4: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=sk("agg"))
-        with mt5: st.selectbox("View type", ["Heatmap", "Table"], key=sk("view_type"))
-        with mt6: st.selectbox("Sort rows by", ["Value ↓", "Value ↑", "Category A→Z", "Category Z→A"],
+        with mt5: st.selectbox("Sort rows by", ["Value ↓", "Value ↑", "Category A→Z", "Category Z→A"],
                                key=sk("sort_rows"),
                                help="Sort index rows by their aggregated value or alphabetically")
-        with mt7: st.number_input("Top N rows (0 = all)", min_value=0, max_value=500,
+        with mt6: st.number_input("Top N rows (0 = all)", min_value=0, max_value=500,
                                   step=5, value=0, key=sk("top_n_rows"),
                                   help="Limit to the top N rows after sorting. 0 shows all rows.")
 
+    elif aid == "matrix_table":
+        mt1, mt2, mt3, mt4, mt5, mt6 = st.columns(6)
+        with mt1: st.selectbox("Row (Index column)", [NONE] + cat, key=sk("index_col"))
+        with mt2: st.selectbox("Column dimension", [NONE] + cat, key=sk("columns_col"))
+        with mt3: st.selectbox("Value column", [NONE] + num, key=sk("values_col"))
+        with mt4: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=sk("agg"))
+        with mt5: st.selectbox("Sort rows by", ["Value ↓", "Value ↑", "Category A→Z", "Category Z→A"],
+                               key=sk("sort_rows"),
+                               help="Sort index rows by their aggregated value or alphabetically")
+        with mt6: st.number_input("Top N rows (0 = all)", min_value=0, max_value=500,
+                                  step=5, value=0, key=sk("top_n_rows"),
+                                  help="Limit to the top N rows after sorting. 0 shows all rows.")
 
     elif aid == "map_plot":
         from modules.analysis.map_plot import _CHOROPLETH_SCALES, _PROJECTIONS, _SCOPES, detect_geo_column
@@ -483,6 +503,23 @@ def _collect_kwargs_scoped(uid: str, aid: str, df) -> dict:
         )
 
 
+    elif aid == "matrix_heatmap":
+        def _mh_r(key):
+            v = g(key, NONE)
+            return None if v in (NONE, None, "") else v
+        _mh_sort_map = {
+            "Value ↓": "value_desc", "Value ↑": "value_asc",
+            "Category A→Z": "cat_asc", "Category Z→A": "cat_desc",
+        }
+        _mh_top_n_v = int(g("top_n_rows", 0) or 0)
+        kwargs.update(
+            index_col=_mh_r("index_col"), columns_col=_mh_r("columns_col"),
+            values_col=_mh_r("values_col"),
+            agg=_AGG_FUNCS.get(g("agg", "Avg"), "mean"),
+            sort_rows=_mh_sort_map.get(g("sort_rows", "Value ↓"), "value_desc"),
+            top_n_rows=_mh_top_n_v if _mh_top_n_v > 0 else None,
+        )
+
     elif aid == "matrix_table":
         def _mt_r(key):
             v = g(key, NONE)
@@ -496,11 +533,9 @@ def _collect_kwargs_scoped(uid: str, aid: str, df) -> dict:
             index_col=_mt_r("index_col"), columns_col=_mt_r("columns_col"),
             values_col=_mt_r("values_col"),
             agg=_AGG_FUNCS.get(g("agg", "Avg"), "mean"),
-            view_type=g("view_type", "Heatmap"),
             sort_rows=_mt_sort_map.get(g("sort_rows", "Value ↓"), "value_desc"),
             top_n_rows=_mt_top_n_v if _mt_top_n_v > 0 else None,
         )
-
 
     elif aid == "map_plot":
         def _mp_r(key):
@@ -552,7 +587,7 @@ def render_config_panel(aid: str, df) -> None:
             st.selectbox("Group by (optional)", [NONE] + cat, key=_sk(aid, "x"))
         with c2: st.multiselect("Metrics", num, default=num[:4], key=_sk(aid, "y"))
         with c3:
-            if aid not in ("matrix_table", "map_plot"):
+            if aid not in ("matrix_heatmap", "matrix_table", "map_plot"):
                 st.selectbox("🎨 Palette", list(PALETTES.keys()), key=_sk(aid, "palette"))
 
 
@@ -563,7 +598,7 @@ def render_config_panel(aid: str, df) -> None:
             _ensure_single_choice_state(_sk(aid, "color"), [NONE] + cat, NONE)
             st.selectbox("Colour by (optional)", [NONE] + cat, key=_sk(aid, "color"))
         with c3:
-            if aid not in ("matrix_table", "map_plot"):
+            if aid not in ("matrix_heatmap", "matrix_table", "map_plot"):
                 st.selectbox("🎨 Palette", list(PALETTES.keys()), key=_sk(aid, "palette"))
 
 
@@ -639,21 +674,33 @@ def render_config_panel(aid: str, df) -> None:
         with sp4: st.selectbox("Size", [NONE] + num, key=_sk(aid, "size_col"))
         with sp5: st.selectbox("Trendline", ["None", "ols", "lowess"], key=_sk(aid, "trendline"))
         with sp6:
-            if aid not in ("matrix_table", "map_plot"):
+            if aid not in ("matrix_heatmap", "matrix_table", "map_plot"):
                 st.selectbox("🎨 Palette", list(PALETTES.keys()), key=_sk(aid, "palette"))
 
 
-    elif aid == "matrix_table":
-        mt1, mt2, mt3, mt4, mt5, mt6, mt7 = st.columns(7)
+    elif aid == "matrix_heatmap":
+        mt1, mt2, mt3, mt4, mt5, mt6 = st.columns(6)
         with mt1: st.selectbox("Row (Index column)", [NONE] + cat, key=_sk(aid, "index_col"))
         with mt2: st.selectbox("Column dimension", [NONE] + cat, key=_sk(aid, "columns_col"))
         with mt3: st.selectbox("Value column", [NONE] + num, key=_sk(aid, "values_col"))
         with mt4: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=_sk(aid, "agg"))
-        with mt5: st.selectbox("View type", ["Heatmap", "Table"], key=_sk(aid, "view_type"))
-        with mt6: st.selectbox("Sort rows by", ["Value ↓", "Value ↑", "Category A→Z", "Category Z→A"],
+        with mt5: st.selectbox("Sort rows by", ["Value ↓", "Value ↑", "Category A→Z", "Category Z→A"],
                                key=_sk(aid, "sort_rows"),
                                help="Sort index rows by their aggregated value or alphabetically")
-        with mt7: st.number_input("Top N rows (0 = all)", min_value=0, max_value=500,
+        with mt6: st.number_input("Top N rows (0 = all)", min_value=0, max_value=500,
+                                  step=5, value=0, key=_sk(aid, "top_n_rows"),
+                                  help="Limit to the top N rows after sorting. 0 shows all rows.")
+
+    elif aid == "matrix_table":
+        mt1, mt2, mt3, mt4, mt5, mt6 = st.columns(6)
+        with mt1: st.selectbox("Row (Index column)", [NONE] + cat, key=_sk(aid, "index_col"))
+        with mt2: st.selectbox("Column dimension", [NONE] + cat, key=_sk(aid, "columns_col"))
+        with mt3: st.selectbox("Value column", [NONE] + num, key=_sk(aid, "values_col"))
+        with mt4: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=_sk(aid, "agg"))
+        with mt5: st.selectbox("Sort rows by", ["Value ↓", "Value ↑", "Category A→Z", "Category Z→A"],
+                               key=_sk(aid, "sort_rows"),
+                               help="Sort index rows by their aggregated value or alphabetically")
+        with mt6: st.number_input("Top N rows (0 = all)", min_value=0, max_value=500,
                                   step=5, value=0, key=_sk(aid, "top_n_rows"),
                                   help="Limit to the top N rows after sorting. 0 shows all rows.")
 
@@ -796,6 +843,24 @@ def _collect_kwargs(aid: str, df) -> dict:
         )
 
 
+    elif aid == "matrix_heatmap":
+        def _mh_resolve(key):
+            v = _g(aid, key, NONE)
+            return None if v in (NONE, None, "") else v
+        _mh_sort_map = {
+            "Value ↓": "value_desc", "Value ↑": "value_asc",
+            "Category A→Z": "cat_asc", "Category Z→A": "cat_desc",
+        }
+        _mh_top_n_v = int(_g(aid, "top_n_rows", 0) or 0)
+        kwargs.update(
+            index_col=_mh_resolve("index_col"),
+            columns_col=_mh_resolve("columns_col"),
+            values_col=_mh_resolve("values_col"),
+            agg=_AGG_FUNCS.get(_g(aid, "agg", "Avg"), "mean"),
+            sort_rows=_mh_sort_map.get(_g(aid, "sort_rows", "Value ↓"), "value_desc"),
+            top_n_rows=_mh_top_n_v if _mh_top_n_v > 0 else None,
+        )
+
     elif aid == "matrix_table":
         def _mt_resolve(key):
             v = _g(aid, key, NONE)
@@ -810,7 +875,6 @@ def _collect_kwargs(aid: str, df) -> dict:
             columns_col=_mt_resolve("columns_col"),
             values_col=_mt_resolve("values_col"),
             agg=_AGG_FUNCS.get(_g(aid, "agg", "Avg"), "mean"),
-            view_type=_g(aid, "view_type", "Heatmap"),
             sort_rows=_mt_sort_map2.get(_g(aid, "sort_rows", "Value ↓"), "value_desc"),
             top_n_rows=_mt_top_n_v2 if _mt_top_n_v2 > 0 else None,
         )

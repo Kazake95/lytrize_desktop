@@ -129,8 +129,7 @@ CHART_TYPE_SETTINGS: dict[str, dict[str, Any]] = {
                     "table_row_height", "table_header_height",
                     "table_index_align", "table_data_align",
                     "table_stripe_even_color", "table_stripe_odd_color",
-                    "table_number_format",
-                    "row_index_header"],
+                    "table_number_format"],
         "typography": ["family", "font_style", "header", "subtitle"],
     },
     "matrix_heatmap": {

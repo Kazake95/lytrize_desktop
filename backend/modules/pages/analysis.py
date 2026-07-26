@@ -375,7 +375,8 @@ def page_analysis():
                             "pie_chart":      [("x","x_cols"), ("y","y_cols"), ("agg","agg"), ("sort","sort_by"), ("top_n","top_n"), ("palette","palette")],
                             "time_series":    [("x","x_cols"), ("y","y_cols"), ("date_part","date_part"), ("agg","agg"), ("dual_y_ts","dual_y_col"), ("dual_y_agg","dual_y_agg"), ("palette","palette")],
                             "scatter_plot":   [("x_col","x_col"), ("y_col","y_col"), ("color_col","color_col"), ("size_col","size_col"), ("trendline","trendline"), ("palette","palette")],
-                            "matrix_table":   [("index_col","index_col"), ("columns_col","columns_col"), ("values_col","values_col"), ("agg","agg"), ("view_type","view_type"), ("sort_rows","sort_rows"), ("top_n_rows","top_n_rows")],
+                            "matrix_heatmap": [("index_col","index_col"), ("columns_col","columns_col"), ("values_col","values_col"), ("agg","agg"), ("sort_rows","sort_rows"), ("top_n_rows","top_n_rows")],
+                            "matrix_table":   [("index_col","index_col"), ("columns_col","columns_col"), ("values_col","values_col"), ("agg","agg"), ("sort_rows","sort_rows"), ("top_n_rows","top_n_rows")],
                             "map_plot":       [("map_mode","map_mode"), ("lat_col","lat_col"), ("lon_col","lon_col"), ("location_col","location_col"), ("color_col","color_col"), ("value_col","value_col"), ("agg_func","agg_func"), ("map_style","map_style"), ("marker_opacity","marker_opacity"), ("invert_colorscale","invert_colorscale"), ("show_borders","show_borders"), ("geo_col","geo_col"), ("choropleth_colorscale","choropleth_colorscale"), ("choropleth_projection","choropleth_projection"), ("choropleth_scope","choropleth_scope"), ("choropleth_show_borders","choropleth_show_borders")],
                         }
                         for widget_key, gen_key in _compat_map.get(regen_type, []):

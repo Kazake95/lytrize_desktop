@@ -1015,7 +1015,6 @@ def _insights_matrix(
     columns_col: str = None,
     values_col: str = None,
     agg: str = "mean",
-    view_type: str = "Heatmap",
     **kwargs,
 ) -> list[str]:
     """Insights for Matrix Heatmap / Pivot Table charts."""
@@ -1043,18 +1042,10 @@ def _insights_matrix(
     bot_val = float(flat.min())
 
     # ── Overview ──
-    is_heatmap = view_type and "heatmap" in str(view_type).lower()
-    if is_heatmap:
-        insights.append(
-            f"📊 This heatmap shows the **{agg.title()}** of **{values_col}** "
-            f"for each combination of **{index_col}** (rows) and **{columns_col}** (columns). "
-            f"Warmer/darker cells = higher values; lighter cells = lower values."
-        )
-    else:
-        insights.append(
-            f"📊 This table shows the **{agg.title()}** of **{values_col}** "
-            f"for each combination of **{index_col}** and **{columns_col}**."
-        )
+    insights.append(
+        f"📊 This chart shows the **{agg.title()}** of **{values_col}** "
+        f"for each combination of **{index_col}** (rows) and **{columns_col}** (columns). "
+    )
 
     # ── Key findings ──
     insights.append(
@@ -1289,7 +1280,8 @@ _FN_MAP: dict = {
     "pie_chart":    _insights_pie,
     "time_series":  _insights_time_series,
     "scatter_plot":  _insights_scatter,
-    "matrix_table":  _insights_matrix,
+    "matrix_heatmap": _insights_matrix,
+    "matrix_table":   _insights_matrix,
     "map_plot":      _insights_map,
     "outlier":       _insights_outlier_chart,
 }

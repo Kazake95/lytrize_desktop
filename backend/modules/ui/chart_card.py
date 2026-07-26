@@ -357,7 +357,7 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
 
         # Axis post-processing that depends on the *display* meta
         _ctype_now = st.session_state.get(f"chart_type_{uid}", chart_type)
-        _is_table = _ctype_now == "matrix_table" and _meta_view != "heatmap"
+        _is_table = _ctype_now == "matrix_table"
 
         if _is_table:
             st.markdown(
