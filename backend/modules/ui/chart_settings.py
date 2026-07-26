@@ -153,12 +153,11 @@ CHART_TYPE_SETTINGS: dict[str, dict[str, Any]] = {
     "pie_chart": {
         "has_axes": False, "has_legend": True,
         "controls": ["title", "subtitle", "legend_labels",
-                    "donut_hole", "pie_textinfo", "pull_slices",
-                    "pie_rotation", "pie_direction",
-                    "pie_label_size", "pie_label_color",
-                    "pie_value_size", "pie_value_color"],
+                "donut_hole", "pie_textinfo", "pull_slices",
+                "pie_rotation", "pie_direction",
+                "pie_value_size", "pie_value_color"],
         "typography": ["family", "font_style", "header", "subtitle",
-                      "legend_title", "legend_item", "pie_label", "pie_value"],
+                      "legend_title", "legend_item"],
     },
 }
 
