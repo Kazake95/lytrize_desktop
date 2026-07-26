@@ -52,7 +52,6 @@ Upload a CSV or Excel file and get interactive charts, dashboards, and insights 
 | **📤 Export** | Download as a self-contained HTML file — then use your browser's DevTools to save as PNG |
 | **🧹 Data tools** | Rename columns, change data types, flag outliers, and handle missing values before analysis |
 | **💾 Session backup & restore** | Save local session backups and restore any compatible JSON backup, including ones shared by other users |
-| **💾 Auto-save** | Analyses and dashboards save automatically — pick up where you left off after a restart |
 | **🔒 Fully offline** | No telemetry, no analytics, no outbound network requests |
 | **🚀 Fast** | Chunked CSV reader, dtype optimization, and smart sampling handle files up to 400 MB |
 
