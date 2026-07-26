@@ -314,6 +314,9 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
                 unsafe_allow_html=False,
             )
             _stype = chart_type
+            _meta_view = meta.get("_matrix_view", "") or getattr(
+                fig, "_lytrize_meta", {}
+            ).get("matrix_view", "")
 
             # Chart Settings ---------------------------------------------------
             with st.expander("⚙️ Chart Settings", expanded=False):
@@ -321,6 +324,7 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
                     uid, title, fig, _stype, meta, auto_insights,
                     key_prefix=key_prefix,
                     show_text_style=False,
+                    matrix_view=_meta_view,
                 )
                 # Persist any changed meta keys via callback
                 if on_meta_changed:
@@ -353,9 +357,6 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
 
         # Axis post-processing that depends on the *display* meta
         _ctype_now = st.session_state.get(f"chart_type_{uid}", chart_type)
-        _meta_view = meta.get("_matrix_view", "") or getattr(
-            fig, "_lytrize_meta", {}
-        ).get("matrix_view", "")
         _is_table = _ctype_now == "matrix_table" and _meta_view != "heatmap"
 
         if _is_table:

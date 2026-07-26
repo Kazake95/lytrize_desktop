@@ -63,7 +63,6 @@ FONT_STACK_MAP: dict[str, str] = {
 }
 
 
-
 def resolve_font_stack(font_name: str) -> str:
     """Resolve a clean font name to a highly compatible CSS system font stack."""
     return FONT_STACK_MAP.get(font_name, font_name)
@@ -100,11 +99,11 @@ CHART_TYPE_SETTINGS: dict[str, dict[str, Any]] = {
     "correlation": {
         "has_axes": False, "has_legend": False,
         "controls": ["title", "subtitle",
-                    "colorbar_range", "colorbar_title",
+                    "heatmap_colorscale", "colorbar_title",
                     "heatmap_show_text", "heatmap_annotation_precision",
                     "heatmap_annotation_size", "heatmap_annotation_color"],
         "typography": ["family", "font_style", "header", "subtitle",
-                      "axis_title", "axis_tick"],
+                      "axis_tick"],
     },
     "time_series": {
         "has_axes": True, "has_legend": True,
@@ -137,21 +136,20 @@ CHART_TYPE_SETTINGS: dict[str, dict[str, Any]] = {
     "matrix_heatmap": {
         "has_axes": False, "has_legend": False,
         "controls": ["title", "subtitle",
-                    "heatmap_colorscale", "colorbar_range", "colorbar_title",
+                    "heatmap_colorscale",
                     "heatmap_show_text", "heatmap_annotation_precision",
-                    "heatmap_annotation_size", "heatmap_annotation_color",
-                    "heatmap_font_size", "heatmap_header_size",
-                    "heatmap_cell_height", "heatmap_header_height"],
+                    "heatmap_annotation_size", "heatmap_annotation_color"],
         "typography": ["family", "font_style", "header", "subtitle",
-                      "axis_title", "axis_tick"],
+                      "axis_tick"],
     },
     "map_plot": {
         "has_axes": False, "has_legend": False,
         "controls": ["title", "subtitle",
                     "show_colorbar", "colorbar_title",
-                    "colorbar_range", "heatmap_colorscale",
+                    "heatmap_colorscale",
                     "marker_opacity", "marker_size"],
-        "typography": ["family", "font_style", "header", "subtitle"],
+        "typography": ["family", "font_style", "header", "subtitle",
+                      "axis_title", "axis_tick"],
     },
     "pie_chart": {
         "has_axes": False, "has_legend": True,
@@ -206,14 +204,14 @@ def default_text_style() -> dict:
         "subtitle_color":     "#64748b",
         "subtitle_family":    "Inter",
         "subtitle_font_style":"Normal",
-        "legend_title_size":  12,
-        "legend_title_color": "#cbd5e1",
-        "legend_item_size":   11,
-        "legend_item_color":  "#e2e8f0",
         "axis_title_size":    12,
         "axis_title_color":   "#cbd5e1",
         "axis_tick_size":     10,
         "axis_tick_color":    "#94a3b8",
+        "legend_title_size":  12,
+        "legend_title_color": "#cbd5e1",
+        "legend_item_size":   11,
+        "legend_item_color":  "#e2e8f0",
         "legend_bgcolor":     "rgba(0,0,0,0)",
         "pie_label_size":     11,
         "pie_label_color":    "#e2e8f0",
@@ -530,12 +528,6 @@ def apply_chart_display_options(
             if ttype in ("heatmap", "choropleth"):
                 if opts.get("heatmap_colorscale"):
                     tr.colorscale = str(opts["heatmap_colorscale"])
-                zmin_val = _float_or_none(opts.get("colorbar_zmin"))
-                zmax_val = _float_or_none(opts.get("colorbar_zmax"))
-                if zmin_val is not None:
-                    tr.zmin = zmin_val
-                if zmax_val is not None:
-                    tr.zmax = zmax_val
                 show_text = opts.get("heatmap_show_text")
                 if show_text is False:
                     tr.text         = None
@@ -588,20 +580,25 @@ def apply_chart_display_options(
                             tr.texttemplate = "%{text}"
                 ann_size       = opts.get("heatmap_annotation_size")
                 ann_color_mode = opts.get("heatmap_annotation_color", "auto")
-                if ann_color_mode == "auto":
-                    try:
-                        z_vals = [v for row in (tr.z or []) for v in (row or []) if v is not None]
-                        if z_vals:
-                            z_mid   = (min(z_vals) + max(z_vals)) / 2
-                            z_range = max(z_vals) - min(z_vals) or 1
-                            norm_mid = (z_mid - min(z_vals)) / z_range
-                            ann_color = "white" if norm_mid < 0.55 else "#1e293b"
-                        else:
+                # Handle auto mode vs direct hex color
+                if ann_color_mode in ("auto", "light", "dark"):
+                    if ann_color_mode == "auto":
+                        try:
+                            z_vals = [v for row in (tr.z or []) for v in (row or []) if v is not None]
+                            if z_vals:
+                                z_mid   = (min(z_vals) + max(z_vals)) / 2
+                                z_range = max(z_vals) - min(z_vals) or 1
+                                norm_mid = (z_mid - min(z_vals)) / z_range
+                                ann_color = "white" if norm_mid < 0.55 else "#1e293b"
+                            else:
+                                ann_color = "white"
+                        except Exception:
                             ann_color = "white"
-                    except Exception:
-                        ann_color = "white"
+                    else:
+                        ann_color = {"light": "white", "dark": "#1e293b"}.get(ann_color_mode)
                 else:
-                    ann_color = {"light": "white", "dark": "#1e293b"}.get(ann_color_mode)
+                    # Direct hex color from color picker
+                    ann_color = ann_color_mode if ann_color_mode.startswith("#") else None
                 if ann_size is not None or ann_color is not None:
                     existing_tf = getattr(tr, "textfont", None)
                     _tf_family = _safe_get_font_attr(existing_tf, "family", None)
@@ -676,8 +673,8 @@ def apply_chart_display_options(
                         for _ in range(n_cols_t)
                     ]
 
-            # Apply font family to textfont if it exists
-            if hasattr(tr, "textfont") and tr.textfont is not None:
+            # Apply font family to textfont if it exists (skip heatmap - handled separately below)
+            if hasattr(tr, "textfont") and tr.textfont is not None and ttype != "heatmap":
                 try:
                     tr.textfont.family = _font_family
                 except Exception:
@@ -740,8 +737,6 @@ def apply_chart_display_options(
         _sub_size       = int(ts.get("subtitle_size", 11))
         _sub_color      = str(ts.get("subtitle_color", "#64748b"))
 
-        _ax_title_size  = int(ts.get("axis_title_size", 12))
-        _ax_title_color = str(ts.get("axis_title_color", "#cbd5e1"))
         _ax_tick_size   = int(ts.get("axis_tick_size", 10))
         _ax_tick_color  = str(ts.get("axis_tick_color", "#94a3b8"))
         _leg_title_size  = int(ts.get("legend_title_size", 12))
@@ -794,10 +789,16 @@ def apply_chart_display_options(
             for t in f2.data
         )
         if not _is_map_chart:
-            axis_title_font = dict(size=_ax_title_size, color=_ax_title_color, family=_font_family, weight=_weight, style=_style)
+            caps = get_chart_type_capabilities(chart_type)
+            if "axis_title" in caps.get("typography", []) and chart_type != "correlation":
+                _ax_title_size  = int(ts.get("axis_title_size", 12))
+                _ax_title_color = str(ts.get("axis_title_color", "#cbd5e1"))
+                axis_title_font = dict(size=_ax_title_size, color=_ax_title_color, family=_font_family, weight=_weight, style=_style)
+                f2.update_xaxes(title_font=axis_title_font)
+                f2.update_yaxes(title_font=axis_title_font)
             axis_tick_font  = dict(size=_ax_tick_size,  color=_ax_tick_color,  family=_font_family, weight=_weight, style=_style)
-            f2.update_xaxes(title_font=axis_title_font, tickfont=axis_tick_font)
-            f2.update_yaxes(title_font=axis_title_font, tickfont=axis_tick_font)
+            f2.update_xaxes(tickfont=axis_tick_font)
+            f2.update_yaxes(tickfont=axis_tick_font)
 
         _leg_bgcolor = str(ts.get("legend_bgcolor", "rgba(0,0,0,0)"))
         f2.update_layout(
@@ -917,6 +918,14 @@ def apply_chart_display_options(
                 except Exception:
                     pass
         else:
+            # Apply colorscale via update_coloraxes for px.imshow compatibility
+            _map_cs = opts.get("heatmap_colorscale")
+            if _map_cs:
+                try:
+                    f2.update_coloraxes(colorscale=str(_map_cs))
+                except Exception:
+                    pass
+
             for tr in f2.data:
                 ttype_for_cb = str(getattr(tr, "type", "")).lower()
                 if ttype_for_cb not in ("heatmap", "choropleth"):
@@ -944,8 +953,12 @@ def apply_chart_display_options(
                         tr.textfont = new_tf
                 except Exception:
                     pass
-                f2.update_xaxes(tickfont=dict(size=hdr_sz, family=cb_family, **_cb_font_suffix))
-                f2.update_yaxes(tickfont=dict(size=hdr_sz, family=cb_family, **_cb_font_suffix))
+                _caps = get_chart_type_capabilities(chart_type)
+                try:
+                    f2.update_xaxes(tickfont=dict(size=_ax_tick_size, color=_ax_tick_color, family=cb_family, **_cb_font_suffix))
+                    f2.update_yaxes(tickfont=dict(size=_ax_tick_size, color=_ax_tick_color, family=cb_family, **_cb_font_suffix))
+                except Exception:
+                    pass
                 try:
                     tr.colorbar.tickfont = dict(
                         size=cb_tick_sz, color=cb_tick_col, family=cb_family, **_cb_font_suffix)
@@ -1226,35 +1239,23 @@ def render_chart_settings_controls(uid: str, title: str, fig, chart_type: str,
         )
     if "heatmap_annotation_color" in controls:
         _ac = opts.get("heatmap_annotation_color", "auto")
-        opts["heatmap_annotation_color"] = st.selectbox(
+        if _ac == "auto":
+            _default_ann_color = "#ffffff"
+        elif _ac == "light":
+            _default_ann_color = "#ffffff"
+        elif _ac == "dark":
+            _default_ann_color = "#1e293b"
+        else:
+            _default_ann_color = _ac if _ac.startswith("#") else "#ffffff"
+        
+        _ann_color = st.color_picker(
             "Annotation color",
-            ["auto", "light", "dark"],
-            index=["auto", "light", "dark"].index(_ac)
-            if _ac in ("auto", "light", "dark") else 0,
+            value=_default_ann_color,
             key=f"{key_prefix}_hac_{uid}",
+            help="Choose annotation text color. 'auto' mode will adapt based on cell values.",
         )
-    if "colorbar_title" in controls:
-        opts["colorbar_title"] = st.text_input(
-            "Colorbar title",
-            value=opts.get("colorbar_title", ""),
-            key=f"{key_prefix}_cbt_{uid}",
-        )
-    if "colorbar_range" in controls:
-        c1, c2 = st.columns(2)
-        with c1:
-            _zmin = st.number_input(
-                "Colorbar min",
-                value=float(opts.get("colorbar_zmin", 0.0)),
-                key=f"{key_prefix}_cbmin_{uid}",
-            )
-            opts["colorbar_zmin"] = _zmin
-        with c2:
-            _zmax = st.number_input(
-                "Colorbar max",
-                value=float(opts.get("colorbar_zmax", 1.0)),
-                key=f"{key_prefix}_cbmax_{uid}",
-            )
-            opts["colorbar_zmax"] = _zmax
+        # Store the selected color directly
+        opts["heatmap_annotation_color"] = _ann_color
     if "table_font_size" in controls:
         opts["table_font_size"] = st.slider(
             "Table font size", 8, 24,
@@ -1464,21 +1465,21 @@ def render_typography_controls(uid: str, fig, chart_type: str,
         if _atc != text_style.get("axis_tick_color"):
             text_style["axis_tick_color"] = _atc
 
-    if "axis_title" in caps.get("typography", []):
-        _atits = st.number_input(
+    if "axis_title" in caps.get("typography", []) and chart_type != "correlation":
+        _ax_title_sz = st.number_input(
             "Axis title size", 8, 24,
             int(text_style.get("axis_title_size", 12)), 1,
-            key=f"{key_prefix}_atitsize_{uid}",
+            key=f"{key_prefix}_ax_titlesize_{uid}",
         )
-        if _atits != text_style.get("axis_title_size"):
-            text_style["axis_title_size"] = _atits
-        _atitc = st.color_picker(
+        if _ax_title_sz != text_style.get("axis_title_size"):
+            text_style["axis_title_size"] = _ax_title_sz
+        _ax_title_col = st.color_picker(
             "Axis title color",
             text_style.get("axis_title_color", "#cbd5e1"),
-            key=f"{key_prefix}_atitcolor_{uid}",
+            key=f"{key_prefix}_ax_titlecolor_{uid}",
         )
-        if _atitc != text_style.get("axis_title_color"):
-            text_style["axis_title_color"] = _atitc
+        if _ax_title_col != text_style.get("axis_title_color"):
+            text_style["axis_title_color"] = _ax_title_col
 
     if "legend_title" in caps.get("typography", []) or "legend_item" in caps.get("typography", []):
         _lts = st.number_input(

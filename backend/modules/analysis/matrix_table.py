@@ -192,23 +192,23 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
                 bordercolor="rgba(100,116,139,0.3)", borderwidth=1,
             ),
         ))
-        axis_common = dict(
-            tickfont=dict(color="#94a3b8", size=10),
-            showgrid=False,
-            linecolor="rgba(100,116,139,0.25)",
-            automargin=True,
-        )
         _layout = chart_layout(height=height)
         _layout["margin"] = dict(l=10, r=100, t=58, b=90)
         fig.update_layout(**_layout)
         fig.update_layout(
             title=dict(text=base_title, font=dict(color="#e2e8f0", size=13)),
-            xaxis=dict(**axis_common,
-                       title=dict(text=cols, font=dict(color="#cbd5e1", size=12)),
-                       tickangle=-30, side="bottom"),
-            yaxis=dict(**axis_common,
-                       title=dict(text=idx, font=dict(color="#cbd5e1", size=12)),
-                       autorange="reversed"),
+            xaxis=dict(
+                showgrid=False,
+                linecolor="rgba(100,116,139,0.25)",
+                automargin=True,
+                tickangle=-30, side="bottom",
+            ),
+            yaxis=dict(
+                showgrid=False,
+                linecolor="rgba(100,116,139,0.25)",
+                automargin=True,
+                autorange="reversed",
+            ),
         )
         fig._lytrize_meta = {
             "analysis_type": "matrix_heatmap",
