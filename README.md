@@ -24,10 +24,13 @@ Upload a CSV or Excel file and get interactive charts, dashboards, and insights 
 
 ## Screenshots
 
+| Start Up | Home Screen] | Backup/Restore |
+|---|---|---|
+| ![Start Up](backend/assets/screenshots/3.png) | ![Home Screen](backend/assets/screenshots/4.png) | ![Backup/Restore](backend/assets/screenshots/5.png) |
+
 | Upload & Clean | Analysis | Dashboard |
 |---|---|---|
-| ![Start Up](backend/assets/screenshots/3.png) | ![Home Screen](backend/assets/screenshots/4.png) | ![Backup/Restore](backend/assets/screenshots/5.png) 
-| ![Upload page](backend/assets/screenshots/6.png) | ![Analysis page](backend/assets/screenshots/7.png) | ![Dashboard](backend/assets/screenshots/10.png)
+| ![Upload](backend/assets/screenshots/6.png) | ![Analysis page](backend/assets/screenshots/7.png) | ![Dashboard](backend/assets/screenshots/10.png)
 
 > **Note:** If the screenshots above don't display, replace the placeholder images in `backend/assets/screenshots/` with real captures. Run `mkdir -p backend/assets/screenshots` and drop in `upload.png`, `analysis.png`, and `dashboard.png`.
 
