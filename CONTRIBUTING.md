@@ -149,8 +149,8 @@ Lytrize has a **two-layer architecture**: a PySide6 desktop launcher that manage
 │  modules/                                                           │
 │    charts.py     — Palettes, chart_layout(), insight engine,        │
 │                    charts_to_json(), charts_json_cached()             │
-│    database.py   — SQLite schema, init_db(), CRUD, auth,            │
-│                    backup/restore, session management                │
+│    database.py   — SQLite schema, init_db(), CRUD, backup/restore,  │
+│                    session management                              │
 │    export.py     — generate_html_report(), theme system,            │
 │                    _merge_theme(), _apply_axes(), _apply_legend_names()│
 │                                                                     │
@@ -286,7 +286,7 @@ This will use the source tree's `backend/app.py` directly (no `/opt/lytrize` nee
 The main Streamlit application. Key responsibilities:
 
 - **`main()`** — Orchestrates app startup: initializes the database, injects CSS, creates/restores the guest user, restores drafts, and dispatches to the active page.
-- **`_init_db_once()`** — Cached function that calls `init_db()` and `cleanup_expired_tokens()` exactly once per process.
+- **`_init_db_once()`** — Cached function that calls `init_db()` exactly once per process.
 - **`_restore_draft(user_id)`** — Reloads an in-progress analysis session from `draft_sessions` into `session_state`: charts (deserialized from Plotly JSON), KPIs, dashboard title, layout mode, column descriptions, and the DataFrame snapshot.
 - **Routing** — Reads `st.session_state.page` (or the `p` URL parameter) and calls the corresponding page function. URL parameters `p` (page) and `sid` (session ID) are kept in sync.
 
@@ -312,13 +312,13 @@ Shared configuration constants:
 
 All SQLite operations. Key functions:
 
-- **`init_db()`** — Creates all tables (`users`, `sessions`, `user_activity`, `login_tokens`, `draft_sessions`). Safe to call every startup (`CREATE TABLE IF NOT EXISTS`). Includes migration logic via `ALTER TABLE ... ADD COLUMN` wrapped in `try/except`.
+- **`init_db()`** — Creates all tables (`users`, `sessions`, `user_activity`, `draft_sessions`). Safe to call every startup (`CREATE TABLE IF NOT EXISTS`). Includes migration logic via `ALTER TABLE ... ADD COLUMN` wrapped in `try/except`.
 - **`_connect()`** — Returns a SQLite connection with WAL mode, NORMAL synchronous, 8MB cache, MEMORY temp store, and 128MB mmap.
 - **`_db()`** — Context manager that commits on success and rolls back on error.
-- **`register_user(username, email, password)`** — Creates a new account with PBKDF2-HMAC-SHA256 hashing (260,000 iterations).
-- **`login_user(username, password)`** — Validates credentials with rate limiting (5 attempts per 5 minutes).
-- **`create_token(user_id, username)`** / **`validate_token(token)`** / **`revoke_token(token)`** — 7-day persistent login tokens.
 - **`get_or_create_guest_user()`** — Returns the permanent local guest user, creating it if needed.
+- **`save_draft(...)`** / **`get_draft(user_id)`** / **`clear_draft(user_id)`** — Draft session management (auto-save during analysis).
+- **`save_session_db(...)`** / **`update_session_db(...)`** / **`delete_session_db(...)`** — Saved session CRUD.
+- **`get_user_sessions(user_id)`** — Returns the 20 most recent sessions (cached with `@st.cache_data`, 30s TTL).
 - **`save_draft(...)`** / **`get_draft(user_id)`** / **`clear_draft(user_id)`** — Draft session management (auto-save during analysis).
 - **`save_session_db(...)`** / **`update_session_db(...)`** / **`delete_session_db(...)`** — Saved session CRUD.
 - **`get_user_sessions(user_id)`** — Returns the 20 most recent sessions (cached with `@st.cache_data`, 30s TTL).
@@ -364,7 +364,7 @@ Each runner module implements a `run_<type>(df, **kwargs)` function that returns
 | `time_series.py` | `run_time_series(df, **kwargs)` | Line charts with date grouping and aggregation |
 | `scatter_plot.py` | `run_scatter_plot(df, **kwargs)` | Scatter plots with trendlines (OLS/LOWESS) |
 | `matrix_table.py` | `run_matrix_table(df, **kwargs)` | Pivot table as a data table |
-| `matrix_table.py` | `run_matrix_heatmap(df, **kwargs)` | Pivot table as a heatmap |
+| `matrix_heatmap.py` | `run_matrix_heatmap(df, **kwargs)` | Pivot table as a heatmap |
 | `outlier.py` | `run_outlier(df, **kwargs)` | IQR-based outlier detection charts |
 | `outlier.py` | `run_outlier_upload(df)` | Outlier summary for the upload page |
 | `map_plot.py` | `run_map_plot(df, **kwargs)` | Geographic scatter or choropleth maps |
@@ -410,7 +410,7 @@ Each runner module implements a `run_<type>(df, **kwargs)` function that returns
 - Chart rendering with per-chart settings (Chart Settings + Typography expanders).
 - HTML export via `generate_html_report()`.
 
-#### `auth.py` — Profile & Backup
+#### `auth.py` — Guest Profile & Backup
 - Guest profile page with local data information.
 - **Backup** — Exports all saved sessions as a portable JSON file (select which sessions to include).
 - **Restore** — Imports sessions from a Lytrize backup JSON file.
