@@ -164,6 +164,30 @@ def get_display_fig(uid: str, base_fig, meta: dict, chart_type: str, *,
         return st.session_state.get(cache_key, base_fig)
 
     fig = apply_chart_display_options(base_fig, meta, chart_type, _inplace=False)
+
+    # Apply x/y axis labels from meta to the display figure
+    x_lbl = meta.get("x_label", "")
+    y_lbl = meta.get("y_label", "")
+    if x_lbl or y_lbl:
+        try:
+            text_style = meta.get("text_style", {})
+            style = _default_text_style()
+            if isinstance(text_style, dict):
+                for _k, _v in text_style.items():
+                    if _v not in (None, ""):
+                        style[_k] = _v
+            axis_title_font = dict(
+                size=int(style["axis_title_size"]),
+                color=str(style["axis_title_color"]),
+                family=str(style["family"]),
+            )
+            if x_lbl:
+                fig.update_xaxes(title_text=x_lbl, title_font=axis_title_font)
+            if y_lbl:
+                fig.update_yaxes(title_text=y_lbl, title_font=axis_title_font)
+        except Exception:
+            pass
+
     st.session_state[cache_key] = fig
     st.session_state[hash_key]  = cache_hash
     return fig

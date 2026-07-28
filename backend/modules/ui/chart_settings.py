@@ -782,6 +782,28 @@ def apply_chart_display_options(
             ),
         )
 
+        # Add subtitle as a Plotly annotation so it appears instantly on the figure
+        _subtitle_text = meta.get("subtitle", "")
+        if _subtitle_text:
+            try:
+                _sub_family_raw = str(ts.get("subtitle_family") or _raw_family)
+                if _sub_family_raw == "Inter" and _raw_family not in ("Inter", ""):
+                    _sub_family_raw = _raw_family
+                _sub_family = resolve_font_stack(_sub_family_raw)
+                _sub_size_val = int(ts.get("subtitle_size", 11))
+                _sub_color_val = str(ts.get("subtitle_color", "#64748b"))
+                f2.add_annotation(
+                    text=_subtitle_text,
+                    xref="paper", yref="paper",
+                    x=0.5, y=1.0,
+                    showarrow=False,
+                    font=dict(size=_sub_size_val, color=_sub_color_val, family=_sub_family),
+                    align="center",
+                    yshift=-8,
+                )
+            except Exception:
+                pass
+
         _is_map_chart = chart_type in ("map_plot",) or any(
             str(getattr(t, "type", "")).lower() in ("choropleth", "scattermapbox", "scattermap")
             for t in f2.data
