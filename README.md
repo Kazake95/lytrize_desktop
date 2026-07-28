@@ -24,15 +24,13 @@ Upload a CSV or Excel file and get interactive charts, dashboards, and insights 
 
 ## Screenshots
 
-| Start Up | Home Screen] | Backup/Restore |
+| Start Up | Home Screen | Backup/Restore |
 |---|---|---|
 | ![Start Up](backend/assets/screenshots/3.png) | ![Home Screen](backend/assets/screenshots/4.png) | ![Backup/Restore](backend/assets/screenshots/5.png) |
 
-| Upload & Clean | Analysis | Dashboard |
+| Upload | Analysis | Dashboard building |
 |---|---|---|
 | ![Upload](backend/assets/screenshots/6.png) | ![Analysis page](backend/assets/screenshots/7.png) | ![Dashboard](backend/assets/screenshots/10.png)
-
-> **Note:** If the screenshots above don't display, replace the placeholder images in `backend/assets/screenshots/` with real captures. Run `mkdir -p backend/assets/screenshots` and drop in `upload.png`, `analysis.png`, and `dashboard.png`.
 
 ---
 
@@ -50,7 +48,7 @@ Upload a CSV or Excel file and get interactive charts, dashboards, and insights 
 
 | | |
 |---|---|
-| **📊 10 chart types** | Bar, pie/donut, scatter, histogram, time series, correlation heatmap, matrix/pivot, geographic map, outlier, and data quality |
+| **📊 11 chart types** | Bar, pie/donut, scatter, histogram, time series, correlation, pivot table, matrix heatmap, geographic map, outlier, and data quality |
 | **🔍 Auto insights** | Plain-English observations generated for every chart automatically |
 | **🗂️ Dashboard builder** | Arrange charts in a portrait (2-column) or landscape (3-column) grid, add KPI summary cards, set a title |
 | **📤 Export** | Download as a self-contained HTML file — then use your browser's DevTools to save as PNG |
