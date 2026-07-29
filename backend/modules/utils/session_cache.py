@@ -121,7 +121,8 @@ def df_cache_path(user_id: int) -> Path:
     base.mkdir(parents=True, exist_ok=True)
     try:
         base.chmod(0o700)
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
         pass
 
     return base / f"df_{user_id}.parquet"
@@ -141,7 +142,8 @@ def save_df_snapshot(user_id: int, df=None) -> None:
         df.to_parquet(str(path), index=False, engine="pyarrow", compression="snappy")
         try:
             path.chmod(0o600)
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
     except Exception as exc:
         log.warning(
@@ -175,7 +177,8 @@ def load_df_snapshot(user_id: int) -> Optional[pd.DataFrame]:
                 _MAX_SNAPSHOT_BYTES / 1_048_576,
             )
             return None
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
         pass
 
     try:

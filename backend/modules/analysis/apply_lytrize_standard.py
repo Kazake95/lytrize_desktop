@@ -1,3 +1,4 @@
+import logging
 
 
 """modules/analysis/apply_lytrize_standard.py -- Universal chart standardiser."""
@@ -11,28 +12,10 @@ from modules.charts import chart_layout
 
 
 
-def _plotly_version() -> tuple:
-    """Return (major, minor) for the installed Plotly version."""
-    try:
-        ver = importlib.metadata.version("plotly")
-        parts = ver.split(".")
-        return int(parts[0]), int(parts[1]) if len(parts) > 1 else 0
-    except Exception:
-        return (5, 0)
-
-
-
-
-_PLOTLY_SUPPORTS_SUBTITLE = _plotly_version() >= (5, 21)
-
-
-
-
 def apply_lytrize_standard(
     fig,
     *,
     title,
-    subtitle=None,
     xaxis=None,
     yaxis=None,
     legend=None,
@@ -49,12 +32,7 @@ def apply_lytrize_standard(
     layout = chart_layout(height=height)
 
 
-    if _PLOTLY_SUPPORTS_SUBTITLE and subtitle:
-        title_dict = dict(text=title, subtitle=dict(text=subtitle))
-    elif subtitle:
-        title_dict = dict(text=f"{title}<br><sup>{subtitle}</sup>")
-    else:
-        title_dict = dict(text=title)
+    title_dict = dict(text=title)
 
 
     fig.update_layout(
@@ -88,7 +66,8 @@ def apply_lytrize_standard(
                     "<extra>%{fullData.name}</extra>",
                     "<extra></extra>"
                 )
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
 
 

@@ -1,4 +1,5 @@
 """modules/analysis/scatter_plot.py -- Scatter plot runner."""
+import logging
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -71,7 +72,8 @@ def run_scatter_plot(df, x_col=None, y_col=None, color_col=None, size_col=None,
             raw = pd.to_numeric(df[size_col], errors="coerce").reindex(plot_df.index)
             if raw.dropna().nunique() > 1:
                 size_arr = _normalise_size(raw.fillna(raw.median()))
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
 
 
@@ -117,7 +119,8 @@ def run_scatter_plot(df, x_col=None, y_col=None, color_col=None, size_col=None,
                         trace.marker.size = size_arr[mask].values
                     else:
                         trace.marker.size = size_arr.values
-                except Exception:
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                     pass
 
 

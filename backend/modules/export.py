@@ -53,8 +53,6 @@ def _default_text_style() -> dict:
         "family": "Inter, system-ui, sans-serif",
         "header_size": 28,
         "header_color": "#6163df",
-        "subtitle_size": 11,
-        "subtitle_color": "#64748b",
         "legend_title_size": 12,
         "legend_title_color": "#cbd5e1",
         "legend_item_size": 11,
@@ -270,7 +268,6 @@ def generate_html_report(
 
 
         display_title = meta.get("custom_title") or chart_title
-        subtitle      = meta.get("subtitle", "")
         col_span      = "grid-column: 1 / -1;" if meta.get("full_width") else ""
         text_style    = _merge_text_style(meta.get("text_style", {}))
 
@@ -335,9 +332,6 @@ def generate_html_report(
             f'<h2 style="font-size:{text_style["header_size"] / 16:.2f}rem;'
             f'font-family:{text_style["family"]};color:{text_style["header_color"]};">'
             f'{_h(display_title)}</h2>'
-            + (f'<p class="subtitle" style="font-size:{text_style["subtitle_size"] / 16:.2f}rem;'
-               f'font-family:{text_style["family"]};color:{text_style["subtitle_color"]};">'
-               f'{_h(subtitle)}</p>' if subtitle else "")
             + f'<div class="chart-wrap">{chart_html}</div>'
             + insight_html + notes_html
             + "</div>"
@@ -443,7 +437,6 @@ def generate_html_report(
       font-size: 0.95rem; font-weight: 700;
       margin-bottom: 0.15rem; color: {t['text_color']};
     }}
-    .subtitle {{ font-size: 0.78rem; color: {t['text_color']}; }}
     .chart-wrap {{ width: 100%; overflow: hidden; display: block; }}
     .chart-wrap .js-plotly-plot {{ width: 100% !important; display: block !important; }}
     .chart-wrap .plotly          {{ width: 100% !important; }}

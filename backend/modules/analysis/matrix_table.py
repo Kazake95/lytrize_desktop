@@ -1,4 +1,5 @@
 """modules/analysis/matrix_table.py -- Pivot table & heatmap runner."""
+import logging
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -309,7 +310,8 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
                      if row[j] is not None and not (isinstance(row[j], float) and np.isnan(row[j]))]
             if clean:
                 vmin, vmax = min(clean), max(clean)
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
         col_bg = []
         for i, row in enumerate(z_values):

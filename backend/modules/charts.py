@@ -1,4 +1,5 @@
 """modules/charts.py -- Shared chart utilities, palettes, and the auto-insight engine."""
+import logging
 
 
 import json
@@ -63,7 +64,8 @@ def _charts_json_cached(chart_uids_tuple, notes_hash):
                 "chart_type":    ctype,
                 "meta":          meta,
             })
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
     return json.dumps(out)
 
@@ -98,7 +100,8 @@ def charts_to_json(charts: list) -> str:
                 "chart_type":    chart_type,
                 "meta":          meta,
             })
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
     return json.dumps(out)
 
@@ -328,7 +331,8 @@ def _fmt_label(value) -> str:
             if ts.hour or ts.minute or ts.second:
                 return ts.strftime("%d %b %Y %H:%M")
             return ts.strftime("%d %b %Y")
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
         pass
     return str(value)
 
@@ -434,7 +438,8 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                 f"The middle 80% of records fall between "
                 f"{_fmt_num(p10)} and {_fmt_num(p90)}."
             )
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
 
     # ----- correlation -----
@@ -491,7 +496,8 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                             total_pairs += 1
                             if abs(fv) >= 0.6:
                                 strong_pairs += 1
-                        except Exception:
+                        except Exception as exc:
+                            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                             pass
                 if total_pairs > 1:
                     insights.append(
@@ -499,13 +505,15 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                         f"{'has' if strong_pairs == 1 else 'have'} a correlation "
                         "above 0.6 — scan the darkest cells for the most actionable links."
                     )
-            except Exception:
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                 pass
 
             insights.append(
                 "Correlation shows association, not causation — use it as a lead for deeper investigation."
             )
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
 
     # ----- outlier -----
@@ -559,7 +567,8 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                 insights.append(
                     f"No outliers detected in {_named(col)} — the data looks clean."
                 )
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
 
     # ----- time series -----
@@ -684,7 +693,8 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                                 f"Lowest: **{bot_cat}** at {_fmt_num(min(vals))} ({bot_pct:.1f}%) — "
                                 "a significant gap from the top; worth investigating if this is expected."
                             )
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
 
     # ----- scatter -----
@@ -778,7 +788,8 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                             "Try colouring by a category column to separate groups."
                         )
 
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
 
         if not insights:
@@ -819,7 +830,8 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                         if vals.min() != 0 else
                         f"The gap between top and bottom is {_fmt_num(val_range)}."
                     )
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
         if not insights:
             insights.append(
@@ -842,7 +854,8 @@ def generate_chart_insights(chart_type: str, title: str, fig,
                 ]
                 if details:
                     insights.append("Data quality split — " + "; ".join(details) + ".")
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
         insights.append(
             "Resolve missing or duplicate rows before using these charts for decisions."

@@ -1,4 +1,5 @@
 """app.py -- Lytrize Desktop application entry point."""
+import logging
 
 
 import warnings
@@ -19,7 +20,8 @@ except (AttributeError, Exception):
 try:
     import plotly.offline as _poff
     _poff._DEFAULT_INCLUDE_PLOTLYJS = "inline"
-except Exception:
+except Exception as exc:
+    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
     pass
 
 
@@ -95,11 +97,13 @@ def _restore_draft(user_id: int) -> None:
                 st.session_state[f"auto_insights_{uid}"] = item.get("auto_insights", [])
                 st.session_state[f"chart_type_{uid}"]    = item.get("chart_type", "")
                 st.session_state[f"chart_meta_{uid}"]    = item.get("meta", {})
-            except Exception:
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                 pass
         if charts:
             st.session_state.charts = charts
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
         pass
 
 
@@ -118,7 +122,8 @@ def _restore_draft(user_id: int) -> None:
                         st.session_state[k] = v
             elif k not in st.session_state:
                 st.session_state[k] = v
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
         pass
 
 
@@ -129,7 +134,8 @@ def _restore_draft(user_id: int) -> None:
             col_descs = json.loads(draft.get("col_descriptions_json", "{}") or "{}")
             if col_descs:
                 st.session_state.col_descriptions = col_descs
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
 
 

@@ -10,8 +10,8 @@ Public surface
 * render_chart_card(...)  -- drop-in replacement for the per-chart block that
                             used to live in analysis._render_chart_list and
                             dashboard._render_chart.
-* _apply_axes / _apply_legend_names are re-exported from dashboard so
-  chart_card can reuse them without duplicating logic.
+* _apply_axes / _apply_legend_names duplicate the logic in dashboard.py
+  (kept local intentionally -- see note below).
 """
 
 from __future__ import annotations
@@ -23,8 +23,27 @@ from typing import Any
 
 import streamlit as st
 
+from modules.ui.chart_settings import default_text_style as _default_text_style
+
 # ---------------------------------------------------------------------------
-# Re-use axis / legend helpers that already exist in dashboard.py
+# Axis / legend helpers.
+#
+# NOTE (2026): these were previously reimplemented from scratch here, in
+# export.py, and in dashboard.py, with a stray comment claiming this file
+# "re-exports" them from dashboard.py (it never did). The typography DEFAULTS
+# are now deduplicated -- _default_text_style() above is just an alias for
+# the single canonical dict in chart_settings.default_text_style(), so all
+# three call sites always agree on default font/size/colour values.
+#
+# _apply_axes / _apply_legend_names themselves are still kept as separate
+# local copies in chart_card.py, dashboard.py, and export.py, because their
+# behaviour has quietly diverged over time (e.g. dashboard.py's version logs
+# failures and supports an `_inplace` flag; export.py's version has slightly
+# different empty-legend-title handling for HTML report generation). Merging
+# those three into one shared function is a real improvement but needs a
+# human to confirm which behaviour is "correct" for each call site and to
+# test chart rendering + report export before/after -- flagging this instead
+# of guessing, to avoid silently changing report/chart output.
 # ---------------------------------------------------------------------------
 def _apply_axes(fig, x_lbl, y_lbl, text_style: dict | None = None, *, _inplace: bool = False):
     """Apply axis labels + tick fonts.  Kept here so chart_card is self-contained."""
@@ -97,21 +116,6 @@ def _apply_legend_names(fig, legend_names: dict, legend_title: str = "",
         return fig
 
 
-def _default_text_style() -> dict:
-    """Minimal text_style defaults needed for axis / legend helpers."""
-    return {
-        "family": "Inter",
-        "axis_title_size": 12,
-        "axis_title_color": "#cbd5e1",
-        "axis_tick_size": 10,
-        "axis_tick_color": "#94a3b8",
-        "legend_item_size": 11,
-        "legend_item_color": "#e2e8f0",
-        "legend_title_size": 12,
-        "legend_title_color": "#cbd5e1",
-    }
-
-
 # ---------------------------------------------------------------------------
 # Display-figure cache helper (Phase 2: shared, memoized)
 # ---------------------------------------------------------------------------
@@ -164,30 +168,6 @@ def get_display_fig(uid: str, base_fig, meta: dict, chart_type: str, *,
         return st.session_state.get(cache_key, base_fig)
 
     fig = apply_chart_display_options(base_fig, meta, chart_type, _inplace=False)
-
-    # Apply x/y axis labels from meta to the display figure
-    x_lbl = meta.get("x_label", "")
-    y_lbl = meta.get("y_label", "")
-    if x_lbl or y_lbl:
-        try:
-            text_style = meta.get("text_style", {})
-            style = _default_text_style()
-            if isinstance(text_style, dict):
-                for _k, _v in text_style.items():
-                    if _v not in (None, ""):
-                        style[_k] = _v
-            axis_title_font = dict(
-                size=int(style["axis_title_size"]),
-                color=str(style["axis_title_color"]),
-                family=str(style["family"]),
-            )
-            if x_lbl:
-                fig.update_xaxes(title_text=x_lbl, title_font=axis_title_font)
-            if y_lbl:
-                fig.update_yaxes(title_text=y_lbl, title_font=axis_title_font)
-        except Exception:
-            pass
-
     st.session_state[cache_key] = fig
     st.session_state[hash_key]  = cache_hash
     return fig
@@ -219,7 +199,7 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
 
     UI layout
     ---------
-    * Top bar:  Edit button | Delete button (title/subtitle rendered inside Plotly).
+    * Top bar:  Edit button | Delete button (title rendered inside Plotly).
     * Two-column body:
         - Left  (1/3): Chart Settings expander + Typography expander.
         - Right (2/3): plotly_chart + auto-insights + notes text_area.
@@ -233,10 +213,15 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
     )
 
     # ------------------------------------------------------------------ #
-    # Resolve title / subtitle display + typography
+    # Resolve title display + typography
     # ------------------------------------------------------------------ #
-    display_title = meta.get("custom_title") or title
-    subtitle = meta.get("subtitle", "")
+    # FIX: Read the title from the widget's session-state key so that typing
+    # in the Chart Settings title field is reflected immediately in the
+    # preview above the chart on the same fragment rerun.  The ``meta``
+    # parameter is captured at fragment-entry and is stale by the time the
+    # settings expander updates session_state later in this run.
+    _w_title = st.session_state.get(f"{key_prefix}_title_{uid}")
+    display_title = _w_title if _w_title is not None else (meta.get("custom_title") or title)
     text_style = meta.get("text_style") or {}
 
     # Read typography widget values from session_state (set by render_typography_controls).
@@ -252,24 +237,10 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
     _hdr_style  = str(st.session_state.get(f"{key_prefix}_hfont_style_{uid}",
                      text_style.get("header_font_style", "Normal"))).lower()
 
-    _sub_size   = int(st.session_state.get(f"{key_prefix}_ssize_{uid}",
-                     text_style.get("subtitle_size", 11)))
-    _sub_color  = str(st.session_state.get(f"{key_prefix}_scolor_{uid}",
-                     text_style.get("subtitle_color", "#64748b")))
-    _sub_family_raw = str(st.session_state.get(f"{key_prefix}_subfont_{uid}",
-                         text_style.get("subtitle_family", "Inter")))
-    _sub_family = resolve_font_stack(_sub_family_raw) if _sub_family_raw else "Inter, system-ui, sans-serif"
-    _sub_style  = str(st.session_state.get(f"{key_prefix}_subfont_style_{uid}",
-                     text_style.get("subtitle_font_style", "Normal"))).lower()
-
     # Resolve HTML-safe style
     _hdr_weight = "700" if "bold" in _hdr_style else "400"
     _hdr_italic = "italic" if "italic" in _hdr_style else "normal"
     _hdr_decor  = "underline" if "underline" in _hdr_style else "none"
-
-    _sub_weight = "bold" if "bold" in _sub_style else "normal"
-    _sub_italic = "italic" if "italic" in _sub_style else "normal"
-    _sub_decor  = "underline" if "underline" in _sub_style else "none"
 
     # ------------------------------------------------------------------ #
     # Top control bar: title preview (left) + Edit / Delete buttons (right)
@@ -277,8 +248,8 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
     ctrl = st.columns([9, 2, 1])
     with ctrl[0]:
         # HTML title preview — uses typography controls for style.
-        # _hdr_family / _sub_family are already CSS font stacks (e.g. "Georgia, serif"),
-        # so they must NOT be wrapped in extra quotes.
+        # _hdr_family is already a CSS font stack (e.g. "Georgia, serif"),
+        # so it must NOT be wrapped in extra quotes.
         st.markdown(
             f'<div style="font-size:{_hdr_size}px;font-weight:{_hdr_weight};'
             f'font-style:{_hdr_italic};text-decoration:{_hdr_decor};'
@@ -286,14 +257,6 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
             f'margin-bottom:0.1rem;">{html.escape(str(display_title))}</div>',
             unsafe_allow_html=True,
         )
-        if subtitle:
-            st.markdown(
-                f'<div style="font-size:{_sub_size}px;font-weight:{_sub_weight};'
-                f'font-style:{_sub_italic};text-decoration:{_sub_decor};'
-                f'color:{_sub_color};font-family:{_sub_family};'
-                f'margin-top:-2px;margin-bottom:4px;">{html.escape(str(subtitle))}</div>',
-                unsafe_allow_html=True,
-            )
     with ctrl[1]:
         # Show Edit button whenever we are NOT in read-only (viewing_saved) mode
         # and the chart type supports regeneration.
@@ -342,34 +305,36 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
                 fig, "_lytrize_meta", {}
             ).get("matrix_view", "")
 
-            # Chart Settings ---------------------------------------------------
+            # Chart Settings + Typography (merged into one expander with tabs
+            # to minimise vertical space — the single biggest compactness win)
             with st.expander("⚙️ Chart Settings", expanded=False):
-                updates = render_chart_settings_controls(
-                    uid, title, fig, _stype, meta, auto_insights,
-                    key_prefix=key_prefix,
-                    show_text_style=False,
-                    matrix_view=_meta_view,
-                )
-                # Persist any changed meta keys via callback
-                if on_meta_changed:
-                    for _ckey, _cval in updates.items():
-                        on_meta_changed(uid, _ckey, _cval)
+                _set_tab, _typo_tab = st.tabs(["Layout", "Typography"])
+                with _set_tab:
+                    updates = render_chart_settings_controls(
+                        uid, title, fig, _stype, meta, auto_insights,
+                        key_prefix=key_prefix,
+                        show_text_style=False,
+                        matrix_view=_meta_view,
+                    )
+                    # Persist any changed meta keys via callback
+                    if on_meta_changed:
+                        for _ckey, _cval in updates.items():
+                            on_meta_changed(uid, _ckey, _cval)
 
-            # Typography -------------------------------------------------------
-            # Re-read meta so we see any Chart Settings updates from this run,
-            # then merge typography updates onto the existing text_style so
-            # keys from other expanders are never dropped.
-            from modules.ui.font_manager import inject_font_preview_css
-            with st.expander("🎨 Typography", expanded=False):
-                inject_font_preview_css()  # session-guarded; idempotent
-                _meta_for_typo = st.session_state.get(f"chart_meta_{uid}", meta)
-                text_updates = render_typography_controls(
-                    uid, fig, _stype, _meta_for_typo, key_prefix=key_prefix,
-                )
-                if on_meta_changed and text_updates:
-                    _merged = dict(_meta_for_typo.get("text_style", {}))
-                    _merged.update(text_updates)
-                    on_meta_changed(uid, "text_style", _merged)
+                with _typo_tab:
+                    # Re-read meta so we see any Chart Settings updates from
+                    # this run, then merge typography updates onto the existing
+                    # text_style so keys from other tabs are never dropped.
+                    from modules.ui.font_manager import inject_font_preview_css
+                    inject_font_preview_css()  # session-guarded; idempotent
+                    _meta_for_typo = st.session_state.get(f"chart_meta_{uid}", meta)
+                    text_updates = render_typography_controls(
+                        uid, fig, _stype, _meta_for_typo, key_prefix=key_prefix,
+                    )
+                    if on_meta_changed and text_updates:
+                        _merged = dict(_meta_for_typo.get("text_style", {}))
+                        _merged.update(text_updates)
+                        on_meta_changed(uid, "text_style", _merged)
 
     # ---- RIGHT: figure render + insights + notes ---------------------- #
     with chart_col:

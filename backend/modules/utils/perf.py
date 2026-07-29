@@ -1,4 +1,5 @@
 """modules/utils/perf.py -- Performance utilities for large dataset handling."""
+import logging
 
 
 import pandas as pd
@@ -103,12 +104,14 @@ def read_csv_fast(file, **kwargs) -> pd.DataFrame:
     elif hasattr(file, "getvalue"):
         try:
             file_size = len(file.getvalue())
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
     elif isinstance(file, (str, Path)):
         try:
             file_size = os.path.getsize(file)
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
 
 
@@ -189,7 +192,8 @@ def _pivot_impl(df: pd.DataFrame, index: str, columns: str,
 try:
     import streamlit as _st
     _pivot_impl = _st.cache_data(show_spinner=False, ttl=300)(_pivot_impl)
-except Exception:
+except Exception as exc:
+    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
     pass
 
 

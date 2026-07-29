@@ -78,7 +78,8 @@ def _db():
     except Exception:
         try:
             conn.rollback()
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
         raise
     finally:
@@ -160,7 +161,8 @@ def _ensure_index(conn, index_sql: str) -> None:
     """Create an index if it does not already exist."""
     try:
         conn.cursor().execute(index_sql)
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
         pass
 
 
@@ -274,7 +276,8 @@ def init_db() -> None:
         ]:
             try:
                 c.execute(ddl)
-            except Exception:
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                 pass
 
 
@@ -286,7 +289,8 @@ def init_db() -> None:
             ]:
                 if col not in existing:
                     c.execute(f"ALTER TABLE sessions ADD COLUMN {col} {typedef}")
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
 
 
@@ -376,7 +380,8 @@ def log_activity(
                 "VALUES (?,?,?,?)",
                 (user_id, session_id, action_type, str(detail)[:1000]),
             )
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
         pass
 
 
@@ -392,11 +397,13 @@ def get_or_create_guest_user() -> dict:
         except sqlite3.OperationalError:
             try:
                 conn.close()
-            except Exception:
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                 pass
             try:
                 init_db()
-            except Exception:
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                 pass
             conn = _connect()
             try:
@@ -447,7 +454,8 @@ def get_or_create_guest_user() -> dict:
         conn2.close()
         if uid2:
             return {"id": uid2, "username": _GUEST_USERNAME, "is_guest": True}
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
         pass
     log.error("get_or_create_guest_user: failed to obtain a valid guest user_id")
     return {"id": None, "username": _GUEST_USERNAME, "is_guest": True}
@@ -487,7 +495,8 @@ def merge_user_data(source_user_id: int, target_user_id: int) -> None:
 
         try:
             get_user_sessions.clear()
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
     except Exception as e:
         log.warning("merge_user_data: %s", e)
@@ -524,7 +533,8 @@ def save_draft(
                      dashboard_title, kpis_json, chart_meta_json, layout_mode,
                      col_descriptions_json),
                 )
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
         pass
 
 
@@ -541,13 +551,15 @@ def get_draft(user_id: int) -> Optional[dict]:
         desc = c.description
         if row and desc:
             return {col[0]: val for col, val in zip(desc, row)}
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
         pass
     finally:
         if conn is not None:
             try:
                 conn.close()
-            except Exception:
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                 pass
     return None
 
@@ -559,7 +571,8 @@ def clear_draft(user_id: int) -> None:
     try:
         with _db() as conn:
             _execute(conn, _ph("DELETE FROM draft_sessions WHERE user_id=?"), (user_id,))
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
         pass
 
 
@@ -628,7 +641,8 @@ def get_session_uuid(session_id: int, user_id=None) -> Optional[str]:
         if conn is not None:
             try:
                 conn.close()
-            except Exception:
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                 pass
 
 
@@ -723,13 +737,15 @@ def delete_session_db(session_id: int, user_id: int) -> bool:
 
     try:
         get_user_sessions.clear()
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
         pass
 
 
     try:
         st.cache_data.clear()
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
         pass
 
 
@@ -857,13 +873,15 @@ def get_session_meta(session_id: int, user_id=None) -> Optional[dict]:
                 "export_text_json":   row[5] or "{}",
                 "export_colours_json": row[6] or "{}",
             }
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
         pass
     finally:
         if conn is not None:
             try:
                 conn.close()
-            except Exception:
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                 pass
     return None
 
@@ -912,7 +930,8 @@ def get_session_charts(session_id: int, user_id=None) -> list:
             meta          = item.get("meta", {})
             fig           = pio.from_json(item["fig_json"])
             charts.append((uid, item["title"], fig, desc, auto_insights, chart_type, meta))
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
     return charts
 
@@ -1128,13 +1147,15 @@ def import_sessions_from_dict(
 
         try:
             get_user_sessions.clear()
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
 
 
         try:
             st.cache_data.clear()
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
 
 

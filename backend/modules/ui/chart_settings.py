@@ -2,6 +2,7 @@
 
 
 from __future__ import annotations
+import logging
 
 
 import copy
@@ -72,9 +73,9 @@ def resolve_font_stack(font_name: str) -> str:
 CHART_TYPE_SETTINGS: dict[str, dict[str, Any]] = {
     "categorical": {
         "has_axes": True, "has_legend": False,
-        "controls": ["title", "subtitle", "axes_labels",
+        "controls": ["title", "axes_labels",
                     "show_value_labels", "label_position", "bar_gap", "bar_mode"],
-        "typography": ["family", "font_style", "header", "subtitle",
+        "typography": ["family", "font_style", "header",
                       "axis_title", "axis_tick"],
     },
     "descriptive": {
@@ -84,90 +85,214 @@ CHART_TYPE_SETTINGS: dict[str, dict[str, Any]] = {
     },
     "statistical": {
         "has_axes": True, "has_legend": True,
-        "controls": ["title", "subtitle", "axes_labels", "legend_labels",
+        "controls": ["title", "axes_labels", "legend_labels",
                     "show_value_labels", "label_position", "bar_gap", "bar_mode"],
-        "typography": ["family", "font_style", "header", "subtitle",
+        "typography": ["family", "font_style", "header",
                       "axis_title", "axis_tick", "legend_title", "legend_item"],
     },
     "distribution": {
         "has_axes": True, "has_legend": True,
-        "controls": ["title", "subtitle", "axes_labels", "legend_labels",
+        "controls": ["title", "axes_labels", "legend_labels",
                     "histogram_bins", "histogram_opacity", "bar_mode"],
-        "typography": ["family", "font_style", "header", "subtitle",
+        "typography": ["family", "font_style", "header",
                       "axis_title", "axis_tick", "legend_title", "legend_item"],
     },
     "correlation": {
         "has_axes": False, "has_legend": False,
-        "controls": ["title", "subtitle",
+        "controls": ["title",
                     "heatmap_colorscale", "colorbar_title",
                     "heatmap_show_text", "heatmap_annotation_precision",
                     "heatmap_annotation_size", "heatmap_annotation_color"],
-        "typography": ["family", "font_style", "header", "subtitle",
+        "typography": ["family", "font_style", "header",
                       "axis_tick"],
     },
     "time_series": {
         "has_axes": True, "has_legend": True,
-        "controls": ["title", "subtitle", "axes_labels", "legend_labels",
+        "controls": ["title", "axes_labels", "legend_labels",
                     "line_width", "line_shape", "show_markers", "line_fill",
                     "show_value_labels"],
-        "typography": ["family", "font_style", "header", "subtitle",
+        "typography": ["family", "font_style", "header",
                       "axis_title", "axis_tick", "legend_title", "legend_item"],
     },
     "scatter_plot": {
         "has_axes": True, "has_legend": True,
-        "controls": ["title", "subtitle", "axes_labels", "legend_labels",
+        "controls": ["title", "axes_labels", "legend_labels",
                     "marker_opacity", "marker_size", "show_value_labels",
                     "line_width", "show_markers", "line_fill"],
-        "typography": ["family", "font_style", "header", "subtitle",
+        "typography": ["family", "font_style", "header",
                       "axis_title", "axis_tick", "legend_title", "legend_item"],
     },
     "matrix_table": {
         "has_axes": False, "has_legend": False,
-        "controls": ["title", "subtitle",
+        "controls": ["title",
                     "table_font_size", "table_font_color",
                     "table_header_font_size", "table_header_color",
                     "table_row_height", "table_header_height",
                     "table_index_align", "table_data_align",
                     "table_stripe_even_color", "table_stripe_odd_color",
                     "table_number_format"],
-        "typography": ["family", "font_style", "header", "subtitle"],
+        "typography": ["family", "font_style", "header"],
     },
     "matrix_heatmap": {
         "has_axes": False, "has_legend": False,
-        "controls": ["title", "subtitle",
+        "controls": ["title",
                     "heatmap_colorscale",
                     "heatmap_show_text", "heatmap_annotation_precision",
                     "heatmap_annotation_size", "heatmap_annotation_color"],
-        "typography": ["family", "font_style", "header", "subtitle",
+        "typography": ["family", "font_style", "header",
                       "axis_tick"],
     },
     "map_plot": {
         "has_axes": False, "has_legend": False,
-        "controls": ["title", "subtitle",
+        "controls": ["title",
                     "show_colorbar", "colorbar_title",
                     "heatmap_colorscale",
                     "marker_opacity", "marker_size"],
-        "typography": ["family", "font_style", "header", "subtitle",
+        "typography": ["family", "font_style", "header",
                       "axis_title", "axis_tick"],
     },
     "pie_chart": {
         "has_axes": False, "has_legend": True,
-        "controls": ["title", "subtitle", "legend_labels",
+        "controls": ["title", "legend_labels",
                 "donut_hole", "pie_textinfo", "pull_slices",
                 "pie_rotation", "pie_direction",
                 "pie_value_size", "pie_value_color"],
-        "typography": ["family", "font_style", "header", "subtitle",
+        "typography": ["family", "font_style", "header",
                       "legend_title", "legend_item"],
     },
 }
 
 
+# ---------------------------------------------------------------------------
+# Compact-layout constants
+# ---------------------------------------------------------------------------
+
+# Controls moved behind the "Advanced" popover per chart type (opt-in).
+# If a chart type is absent here, ALL its controls stay in the main view.
+CONTROLS_ADVANCED: dict[str, list[str]] = {
+    "categorical":    ["bar_gap"],
+    "statistical":    ["bar_gap"],
+    "distribution":   ["histogram_opacity"],
+    "correlation":    ["heatmap_annotation_precision", "heatmap_annotation_color"],
+    "time_series":    ["line_shape", "line_fill"],
+    "scatter_plot":   ["line_width", "show_markers", "line_fill"],
+    "matrix_table":   ["table_index_align", "table_data_align",
+                       "table_stripe_even_color", "table_stripe_odd_color",
+                       "table_number_format", "table_header_height"],
+    "matrix_heatmap": ["heatmap_annotation_precision", "heatmap_annotation_color"],
+    "map_plot":       ["marker_opacity", "marker_size"],
+    "pie_chart":      ["pie_rotation", "pie_direction", "pull_slices",
+                       "pie_value_size", "pie_value_color"],
+}
+
+# Control metadata: control_name -> {type, label, key_suffix, ...params}
+# Used by the compact auto-column renderer. Keyed on control NAME so any
+# new chart type just declares its controls list and the renderer handles it.
+_CONTROL_META: dict[str, dict] = {
+    # Checkboxes
+    "show_value_labels": {"t": "check", "l": "Value labels", "k": "svl", "d": False},
+    "show_markers":      {"t": "check", "l": "Markers", "k": "sm", "d": True},
+    "show_colorbar":     {"t": "check", "l": "Colorbar", "k": "scb", "d": True},
+    "heatmap_show_text": {"t": "check", "l": "Annotations", "k": "hst", "d": True},
+    # Selects
+    "label_position":      {"t": "select", "l": "Label pos", "k": "lpos", "o": ["outside", "inside", "auto"], "d": "outside"},
+    "bar_mode":            {"t": "select", "l": "Bar mode", "k": "bmode", "o": ["group", "stack", "relative", "overlay"], "d": "group"},
+    "line_shape":          {"t": "select", "l": "Line shape", "k": "ls", "o": ["linear", "spline", "hv", "vh", "hvh", "vhv"], "d": "linear"},
+    "line_fill":           {"t": "select", "l": "Fill", "k": "lf", "o": ["none", "tozeroy", "tozerox", "tonexty", "tonextx"], "d": "none"},
+    "pie_textinfo":        {"t": "select", "l": "Text info", "k": "pti", "o": ["label", "percent", "value", "label+percent", "label+value"], "d": "label+percent"},
+    "pie_direction":       {"t": "select", "l": "Direction", "k": "pd", "o": ["clockwise", "counterclockwise"], "d": "clockwise"},
+    "table_index_align":   {"t": "select", "l": "Index align", "k": "tia", "o": ["left", "center", "right"], "d": "left"},
+    "table_data_align":    {"t": "select", "l": "Data align", "k": "tda", "o": ["left", "center", "right"], "d": "right"},
+    "table_number_format": {"t": "select", "l": "Num format", "k": "tnf", "o": [",.2f", ",.1f", ",.0f", ".2f", ".1f", ".0f"], "d": ",.2f"},
+    "heatmap_colorscale":  {"t": "select", "l": "Colorscale", "k": "cs", "o": "COLORSCALES_ALL", "d": "RdBu"},
+    # Sliders
+    "bar_gap":                      {"t": "slider", "l": "Bar gap", "k": "bgap", "lo": 0.0, "hi": 1.0, "d": 0.28, "s": 0.01},
+    "histogram_bins":               {"t": "slider", "l": "Bins", "k": "hbins", "lo": 5, "hi": 200, "d": 30, "s": 1},
+    "histogram_opacity":            {"t": "slider", "l": "Opacity", "k": "hop", "lo": 0.1, "hi": 1.0, "d": 0.8, "s": 0.05},
+    "line_width":                   {"t": "slider", "l": "Line width", "k": "lw", "lo": 1, "hi": 10, "d": 2, "s": 1},
+    "marker_opacity":               {"t": "slider", "l": "M. opacity", "k": "mo", "lo": 0.1, "hi": 1.0, "d": 0.8, "s": 0.05},
+    "marker_size":                  {"t": "slider", "l": "M. size", "k": "ms", "lo": 2, "hi": 30, "d": 6, "s": 1},
+    "donut_hole":                   {"t": "slider", "l": "Donut", "k": "dh", "lo": 0.0, "hi": 0.9, "d": 0.0, "s": 0.05},
+    "pull_slices":                  {"t": "slider", "l": "Pull", "k": "ps", "lo": 0.0, "hi": 0.5, "d": 0.0, "s": 0.01},
+    "pie_rotation":                 {"t": "slider", "l": "Rotation", "k": "pr", "lo": 0, "hi": 360, "d": 0, "s": 1},
+    "pie_label_size":               {"t": "slider", "l": "Label sz", "k": "pls", "lo": 6, "hi": 24, "d": 11, "s": 1},
+    "pie_value_size":               {"t": "slider", "l": "Value sz", "k": "pvs", "lo": 6, "hi": 24, "d": 11, "s": 1},
+    "heatmap_annotation_precision": {"t": "slider", "l": "Precision", "k": "hap", "lo": 0, "hi": 10, "d": 2, "s": 1},
+    "heatmap_annotation_size":      {"t": "slider", "l": "Ann sz", "k": "has", "lo": 6, "hi": 24, "d": 10, "s": 1},
+    "table_font_size":              {"t": "slider", "l": "Font sz", "k": "tfs", "lo": 8, "hi": 24, "d": 11, "s": 1},
+    "table_header_font_size":       {"t": "slider", "l": "Hdr font", "k": "thfs", "lo": 8, "hi": 24, "d": 12, "s": 1},
+    "table_row_height":             {"t": "slider", "l": "Row h", "k": "trh", "lo": 16, "hi": 60, "d": 26, "s": 1},
+    "table_header_height":          {"t": "slider", "l": "Hdr h", "k": "thh", "lo": 16, "hi": 60, "d": 28, "s": 1},
+    # Colors
+    "pie_label_color":              {"t": "color", "l": "Label", "k": "plc", "d": "#e2e8f0"},
+    "pie_value_color":              {"t": "color", "l": "Value", "k": "pvc", "d": "#e2e8f0"},
+    "table_font_color":             {"t": "color", "l": "Font", "k": "tfc", "d": "#f1f5f9"},
+    "table_header_color":           {"t": "color", "l": "Header", "k": "thc", "d": "#6163df"},
+    "table_stripe_even_color":      {"t": "color", "l": "Even", "k": "tsec", "d": "#1e293b"},
+    "table_stripe_odd_color":       {"t": "color", "l": "Odd", "k": "tsoc", "d": "#0f172a"},
+    "heatmap_annotation_color":     {"t": "color", "l": "Ann color", "k": "hac", "d": "#ffffff"},
+    # Text
+    "row_index_header":             {"t": "text", "l": "Row index", "k": "rih", "d": ""},
+}
+
+
+def _render_control(control: str, opts: dict, uid: str, key_prefix: str) -> None:
+    """Render a single control widget. Updates opts in-place."""
+    m = _CONTROL_META.get(control)
+    if not m:
+        return
+    _key = f"{key_prefix}_{m['k']}_{uid}"
+
+    # Special case: heatmap_annotation_color has auto/light/dark modes
+    if control == "heatmap_annotation_color":
+        _ac = opts.get(control, "auto")
+        if _ac in ("auto", "light"):
+            _default = "#ffffff"
+        elif _ac == "dark":
+            _default = "#1e293b"
+        else:
+            _default = _ac if str(_ac).startswith("#") else "#ffffff"
+        opts[control] = st.color_picker(
+            m["l"], value=_default, key=_key,
+            help="Auto adapts to cell values")
+        return
+
+    _val = opts.get(control, m["d"])
+    if m["t"] == "check":
+        opts[control] = st.checkbox(m["l"], value=bool(_val), key=_key)
+    elif m["t"] == "select":
+        _options = COLORSCALES_ALL if m["o"] == "COLORSCALES_ALL" else m["o"]
+        _idx = _options.index(_val) if _val in _options else 0
+        opts[control] = st.selectbox(m["l"], _options, index=_idx, key=_key)
+    elif m["t"] == "slider":
+        if isinstance(m["lo"], int) and isinstance(m["hi"], int):
+            opts[control] = st.slider(
+                m["l"], m["lo"], m["hi"], int(_val), m["s"], key=_key)
+        else:
+            opts[control] = st.slider(
+                m["l"], m["lo"], m["hi"], float(_val), m["s"], key=_key)
+    elif m["t"] == "color":
+        opts[control] = st.color_picker(m["l"], value=str(_val), key=_key)
+    elif m["t"] == "text":
+        opts[control] = st.text_input(m["l"], value=str(_val), key=_key)
+
+
+def _render_in_rows(controls: list[str], per_row: int,
+                    opts: dict, uid: str, key_prefix: str) -> None:
+    """Render a list of controls in rows of *per_row* columns."""
+    for i in range(0, len(controls), per_row):
+        _row = controls[i:i + per_row]
+        _cols = st.columns(len(_row))
+        for j, c in enumerate(_row):
+            with _cols[j]:
+                _render_control(c, opts, uid, key_prefix)
+
 
 def get_chart_type_capabilities(chart_type: str) -> dict[str, Any]:
     return CHART_TYPE_SETTINGS.get(chart_type, {
         "has_axes": False, "has_legend": False,
-        "controls": ["title", "subtitle"],
-        "typography": ["family", "font_style", "header", "subtitle"],
+        "controls": ["title"],
+        "typography": ["family", "font_style", "header"],
     })
 
 
@@ -179,6 +304,23 @@ def has_control(chart_type: str, control: str) -> bool:
 
 def has_typography(chart_type: str, typo_category: str) -> bool:
     return typo_category in get_chart_type_capabilities(chart_type).get("typography", [])
+
+
+def is_dual_axis_chart(fig) -> bool:
+    """Detect if a figure has dual Y-axes (secondary_y traces)."""
+    try:
+        yaxis_count = sum(1 for tr in getattr(fig, 'data', []) if getattr(tr, 'yaxis', None) == 'y2')
+        return yaxis_count > 0
+    except Exception:
+        return False
+
+
+def _safe_get_secondary_traces(fig):
+    """Get traces on secondary Y-axis safely."""
+    try:
+        return [tr for tr in getattr(fig, 'data', []) if getattr(tr, 'yaxis', None) == 'y2']
+    except Exception:
+        return []
 
 
 
@@ -198,10 +340,6 @@ def default_text_style() -> dict:
         "header_color":       "#6163df",
         "header_family":      "Inter",
         "header_font_style":  "Normal",
-        "subtitle_size":      11,
-        "subtitle_color":     "#64748b",
-        "subtitle_family":    "Inter",
-        "subtitle_font_style":"Normal",
         "axis_title_size":    12,
         "axis_title_color":   "#cbd5e1",
         "axis_tick_size":     10,
@@ -342,7 +480,7 @@ def _apply_font_only(fig, meta: dict | None, chart_type: str = ""):
     """Lightweight font-only post-processor — no deepcopy, no trace iteration.
 
     Only touches ``fig.layout.title.font`` and ``fig.layout.font`` so that
-    font-family / size / colour changes for the (suppressed) title and subtitle
+    font-family / size / colour changes for the (suppressed) title
     are reflected without the cost of a full ``apply_chart_display_options``.
     Returns the same figure object (mutated in-place).
     """
@@ -363,13 +501,6 @@ def _apply_font_only(fig, meta: dict | None, chart_type: str = ""):
     _hdr_size   = int(ts.get("header_size", 28))
     _hdr_color  = str(ts.get("header_color", "#6163df"))
 
-    _sub_family_raw = str(ts.get("subtitle_family") or _raw_family)
-    if _sub_family_raw == "Inter" and _raw_family not in ("Inter", ""):
-        _sub_family_raw = _raw_family
-    _sub_family = resolve_font_stack(_sub_family_raw)
-    _sub_size   = int(ts.get("subtitle_size", 11))
-    _sub_color  = str(ts.get("subtitle_color", "#64748b"))
-
     _fs_lower = str(ts.get("font_style", "Normal")).lower()
     _weight = "bold" if "bold" in _fs_lower else "normal"
     _style  = "italic" if "italic" in _fs_lower else "normal"
@@ -382,7 +513,8 @@ def _apply_font_only(fig, meta: dict | None, chart_type: str = ""):
             ),
             font=dict(family=_font_family, weight=_weight, style=_style),
         )
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
         pass
     return fig
 
@@ -401,8 +533,7 @@ def _font_only_hash(meta: dict | None) -> str:
         return ""
     relevant = {}
     for key in ("family", "font_style", "header_size", "header_color",
-                "header_family", "header_font_style", "subtitle_size",
-                "subtitle_color", "subtitle_family", "subtitle_font_style"):
+                "header_family", "header_font_style"):
         if key in text_style:
             relevant[key] = text_style[key]
     return json.dumps(relevant, sort_keys=True, default=str)
@@ -562,7 +693,8 @@ def apply_chart_display_options(
                                 z_arr = z_raw.values
                             elif z_raw is not None:
                                 z_arr = z_raw
-                        except Exception:
+                        except Exception as exc:
+                            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                             pass
                         if z_arr is not None:
                             new_text = []
@@ -656,7 +788,8 @@ def apply_chart_display_options(
                 if hdr_text_color and hasattr(tr.header, "font"):
                     try:
                         tr.header.font.color = str(hdr_text_color)
-                    except Exception:
+                    except Exception as exc:
+                        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                         pass
 
                 stripe_even = opts.get("table_stripe_even_color")
@@ -675,7 +808,8 @@ def apply_chart_display_options(
             if hasattr(tr, "textfont") and tr.textfont is not None and ttype != "heatmap":
                 try:
                     tr.textfont.family = _font_family
-                except Exception:
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                     pass
 
         except Exception:
@@ -704,20 +838,30 @@ def apply_chart_display_options(
         ),
     )
 
-    f2.update_xaxes(
-        title=dict(font=_font_style_dict),
-        tickfont=_font_style_dict,
-    )
-    f2.update_yaxes(
-        title=dict(font=_font_style_dict),
-        tickfont=_font_style_dict,
-    )
+    _x_label = meta.get("x_label", "")
+    _y_label = meta.get("y_label", "")
+    _y2_label = meta.get("y2_label", "")
+
+    if _x_label:
+        f2.update_xaxes(title=dict(text=_x_label, font=_font_style_dict))
+    else:
+        f2.update_xaxes(title=dict(font=_font_style_dict))
+        
+    if _y_label:
+        f2.update_yaxes(title=dict(text=_y_label, font=_font_style_dict), secondary_y=False)
+    else:
+        f2.update_yaxes(title=dict(font=_font_style_dict), secondary_y=False)
+        
+    if _y2_label:
+        f2.update_yaxes(title=dict(text=_y2_label, font=_font_style_dict), secondary_y=True)
+    elif is_dual_axis_chart(f2):
+        f2.update_yaxes(title=dict(font=_font_style_dict), secondary_y=True)
 
     text_style = meta.get("text_style", {})
     if isinstance(text_style, dict) and text_style:
         ts = merge_text_style(text_style)
 
-        # The global "family" is the master control.  Header / subtitle
+        # The global "family" is the master control.  Header
         # fonts follow it unless explicitly customized to a non-default.
         _hdr_family_raw = str(ts.get("header_family") or _raw_family)
         if _hdr_family_raw == "Inter" and _raw_family not in ("Inter", ""):
@@ -726,14 +870,6 @@ def apply_chart_display_options(
         _hdr_style      = str(ts.get("header_font_style", "Normal"))
         _hdr_size       = int(ts.get("header_size", 28))
         _hdr_color      = str(ts.get("header_color", "#6163df"))
-
-        _sub_family_raw = str(ts.get("subtitle_family") or _raw_family)
-        if _sub_family_raw == "Inter" and _raw_family not in ("Inter", ""):
-            _sub_family_raw = _raw_family
-        _sub_family     = resolve_font_stack(_sub_family_raw)
-        _sub_style      = str(ts.get("subtitle_font_style", "Normal"))
-        _sub_size       = int(ts.get("subtitle_size", 11))
-        _sub_color      = str(ts.get("subtitle_color", "#64748b"))
 
         _ax_tick_size   = int(ts.get("axis_tick_size", 10))
         _ax_tick_color  = str(ts.get("axis_tick_color", "#94a3b8"))
@@ -770,10 +906,11 @@ def apply_chart_display_options(
                             if txt is not None and isinstance(txt, (list, tuple)) and len(txt) <= 500:
                                 tr.text = [_wrap_html_style(str(v) if v is not None else "", tr_style) for v in txt]
                         setattr(tr, font_attr, new_font)
-            except Exception:
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                 pass
 
-        # The title/subtitle are rendered in the HTML preview area (chart_card ctrl[0]),
+        # The title is rendered in the HTML preview area (chart_card ctrl[0]),
         # so the Plotly native title is suppressed here to avoid the duplicate.
         f2.update_layout(
             title=dict(
@@ -781,28 +918,6 @@ def apply_chart_display_options(
                 font=dict(size=_hdr_size, color=_hdr_color, family=_hdr_family),
             ),
         )
-
-        # Add subtitle as a Plotly annotation so it appears instantly on the figure
-        _subtitle_text = meta.get("subtitle", "")
-        if _subtitle_text:
-            try:
-                _sub_family_raw = str(ts.get("subtitle_family") or _raw_family)
-                if _sub_family_raw == "Inter" and _raw_family not in ("Inter", ""):
-                    _sub_family_raw = _raw_family
-                _sub_family = resolve_font_stack(_sub_family_raw)
-                _sub_size_val = int(ts.get("subtitle_size", 11))
-                _sub_color_val = str(ts.get("subtitle_color", "#64748b"))
-                f2.add_annotation(
-                    text=_subtitle_text,
-                    xref="paper", yref="paper",
-                    x=0.5, y=1.0,
-                    showarrow=False,
-                    font=dict(size=_sub_size_val, color=_sub_color_val, family=_sub_family),
-                    align="center",
-                    yshift=-8,
-                )
-            except Exception:
-                pass
 
         _is_map_chart = chart_type in ("map_plot",) or any(
             str(getattr(t, "type", "")).lower() in ("choropleth", "scattermapbox", "scattermap")
@@ -855,7 +970,8 @@ def apply_chart_display_options(
                             else:
                                 for _k, _v in _upd.items():
                                     setattr(_pf, _k, _v)
-                        except Exception:
+                        except Exception as exc:
+                            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                             pass
 
         _pie_val_clr = opts.get("pie_value_color") or ts.get("pie_value_color")
@@ -876,7 +992,8 @@ def apply_chart_display_options(
                             else:
                                 for _k, _v in _upd.items():
                                     setattr(_pf, _k, _v)
-                        except Exception:
+                        except Exception as exc:
+                            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                             pass
 
     # ============================================================
@@ -899,7 +1016,8 @@ def apply_chart_display_options(
                         tr.colorbar.title.text = cb_title
                     tr.colorbar.title.font = dict(
                         size=cb_title_sz, color=cb_title_col, family=cb_family, **_cb_font_suffix)
-                except Exception:
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                     pass
             try:
                 cb_kwargs = dict(
@@ -908,13 +1026,15 @@ def apply_chart_display_options(
                 if cb_title:
                     cb_kwargs["title"] = dict(text=cb_title, font=dict(size=cb_title_sz, color=cb_title_col, family=cb_family, **_cb_font_suffix))
                 f2.update_coloraxes(colorbar=cb_kwargs)
-            except Exception:
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                 pass
             _map_cs = opts.get("heatmap_colorscale")
             if _map_cs:
                 try:
                     f2.update_coloraxes(colorscale=str(_map_cs))
-                except Exception:
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                     pass
             _hover_prec = int(opts.get("hover_decimals", 2))
             for _tr in f2.data:
@@ -935,7 +1055,8 @@ def apply_chart_display_options(
                         r"%\{([a-z.]+)(?::[^}]*)?\}|%\{([a-z]+\[[^\]]*\])\}",
                         _fmt, str(_ht),
                     )
-                except Exception:
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                     pass
         else:
             # Apply colorscale via update_coloraxes for px.imshow compatibility
@@ -943,7 +1064,8 @@ def apply_chart_display_options(
             if _map_cs:
                 try:
                     f2.update_coloraxes(colorscale=str(_map_cs))
-                except Exception:
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                     pass
 
             for tr in f2.data:
@@ -971,13 +1093,15 @@ def apply_chart_display_options(
                         }
                         new_tf.update(_cb_font_suffix)
                         tr.textfont = new_tf
-                except Exception:
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                     pass
                 _caps = get_chart_type_capabilities(chart_type)
                 try:
                     f2.update_xaxes(tickfont=dict(size=_ax_tick_size, color=_ax_tick_color, family=cb_family, **_cb_font_suffix))
                     f2.update_yaxes(tickfont=dict(size=_ax_tick_size, color=_ax_tick_color, family=cb_family, **_cb_font_suffix))
-                except Exception:
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                     pass
                 try:
                     tr.colorbar.tickfont = dict(
@@ -986,7 +1110,8 @@ def apply_chart_display_options(
                         tr.colorbar.title.text = cb_title
                     tr.colorbar.title.font = dict(
                         size=cb_title_sz, color=cb_title_col, family=cb_family, **_cb_font_suffix)
-                except Exception:
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                     pass
 
     # ============================================================
@@ -1009,7 +1134,8 @@ def apply_chart_display_options(
                                 style=_style,
                             )
                             setattr(tr, font_attr, new_font)
-                except Exception:
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                     pass
 
             elif ttype in ("scatter", "scattergl"):
@@ -1025,7 +1151,8 @@ def apply_chart_display_options(
                                 style=_style,
                             )
                             setattr(tr, font_attr, new_font)
-                except Exception:
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                     pass
 
     return f2
@@ -1039,9 +1166,10 @@ def render_chart_settings_controls(uid: str, title: str, fig, chart_type: str,
                                    key_prefix: str = "analysis",
                                    show_text_style: bool = False,
                                    matrix_view: str = "") -> dict:
-    """Render the Chart Settings expander for a single chart.
+    """Render the Chart Settings for a single chart (compact column layout).
 
     Returns a dict of changed meta keys so the caller can persist them.
+    Uses _render_control / _render_in_rows for auto-grouped multi-column rows.
     """
     opts = dict(meta.get("display_options", {}))
     result: dict[str, Any] = {}
@@ -1051,8 +1179,13 @@ def render_chart_settings_controls(uid: str, title: str, fig, chart_type: str,
         stype = "matrix_heatmap"
 
     caps = get_chart_type_capabilities(stype)
+    controls = caps.get("controls", [])
+    _adv = set(CONTROLS_ADVANCED.get(stype, []))
 
-    # ---- title / subtitle ------------------------------------------------
+    def _is_main(c):
+        return c in controls and c not in _adv and c in _CONTROL_META
+
+    # ---- title (full width) ----------------------------------------------
     nt = st.text_input(
         "Chart title",
         value=meta.get("custom_title", title),
@@ -1060,309 +1193,91 @@ def render_chart_settings_controls(uid: str, title: str, fig, chart_type: str,
     )
     if nt != meta.get("custom_title", title):
         result["custom_title"] = nt
-    sub = st.text_input(
-        "Subtitle",
-        value=meta.get("subtitle", ""),
-        key=f"{key_prefix}_subtitle_{uid}",
-    )
-    if sub != meta.get("subtitle", ""):
-        result["subtitle"] = sub
 
-    # ---- axes labels (only for charts with axes) -------------------------
+    # ---- axes labels (adaptive: 2 or 3 columns for dual-axis charts) -----
     if caps.get("has_axes", False):
-        xl = st.text_input(
-            "X-axis label",
-            value=meta.get("x_label", ""),
-            key=f"{key_prefix}_xl_{uid}",
-        )
-        if xl != meta.get("x_label", ""):
-            result["x_label"] = xl
-        yl = st.text_input(
-            "Y-axis label",
-            value=meta.get("y_label", ""),
-            key=f"{key_prefix}_yl_{uid}",
-        )
-        if yl != meta.get("y_label", ""):
-            result["y_label"] = yl
+        _is_dual = is_dual_axis_chart(fig)
+        if _is_dual:
+            # Dual-axis: X-axis | Y-axis (left) | Y-axis (right)
+            _ac = st.columns(3)
+            with _ac[0]:
+                xl = st.text_input(
+                    "X-axis", value=meta.get("x_label", ""),
+                    key=f"{key_prefix}_xl_{uid}",
+                )
+            with _ac[1]:
+                yl = st.text_input(
+                    "Y-axis (left)", value=meta.get("y_label", ""),
+                    key=f"{key_prefix}_yl_{uid}",
+                )
+            with _ac[2]:
+                y2l = st.text_input(
+                    "Y-axis (right)", value=meta.get("y2_label", ""),
+                    key=f"{key_prefix}_y2l_{uid}",
+                )
+            if xl != meta.get("x_label", ""):
+                result["x_label"] = xl
+            if yl != meta.get("y_label", ""):
+                result["y_label"] = yl
+            if y2l != meta.get("y2_label", ""):
+                result["y2_label"] = y2l
+        else:
+            # Single-axis: X-axis | Y-axis
+            _ac = st.columns(2)
+            with _ac[0]:
+                xl = st.text_input(
+                    "X-axis", value=meta.get("x_label", ""),
+                    key=f"{key_prefix}_xl_{uid}",
+                )
+            with _ac[1]:
+                yl = st.text_input(
+                    "Y-axis", value=meta.get("y_label", ""),
+                    key=f"{key_prefix}_yl_{uid}",
+                )
+            if xl != meta.get("x_label", ""):
+                result["x_label"] = xl
+            if yl != meta.get("y_label", ""):
+                result["y_label"] = yl
 
-    # ---- legend title (only for charts with legend) ----------------------
+    # ---- legend title (full width) ---------------------------------------
     if caps.get("has_legend", False):
         _leg_title = st.text_input(
-            "Legend title",
-            value=meta.get("legend_title", ""),
+            "Legend title", value=meta.get("legend_title", ""),
             key=f"{key_prefix}_leg_title_{uid}",
         )
         if _leg_title != meta.get("legend_title", ""):
             result["legend_title"] = _leg_title
 
-    # ---- display options -------------------------------------------------
-    controls = caps.get("controls", [])
+    # ---- main controls grouped by widget type -----------------------------
+    _main = [c for c in controls if _is_main(c)]
 
-    if "show_value_labels" in controls:
-        opts["show_value_labels"] = st.checkbox(
-            "Show value labels",
-            value=bool(opts.get("show_value_labels", False)),
-            key=f"{key_prefix}_svl_{uid}",
-        )
-    if "label_position" in controls:
-        _lp = opts.get("label_position", "outside")
-        opts["label_position"] = st.selectbox(
-            "Label position",
-            ["outside", "inside", "auto"],
-            index=0 if _lp == "outside" else 1 if _lp == "inside" else 2,
-            key=f"{key_prefix}_lpos_{uid}",
-        )
-    if "bar_gap" in controls:
-        opts["bar_gap"] = st.slider(
-            "Bar gap", 0.0, 1.0, float(opts.get("bar_gap", 0.28)), 0.01,
-            key=f"{key_prefix}_bgap_{uid}",
-        )
-    if "bar_mode" in controls:
-        _bm = opts.get("bar_mode", "group")
-        opts["bar_mode"] = st.selectbox(
-            "Bar mode",
-            ["group", "stack", "relative", "overlay"],
-            index=["group", "stack", "relative", "overlay"].index(_bm)
-            if _bm in ("group", "stack", "relative", "overlay") else 0,
-            key=f"{key_prefix}_bmode_{uid}",
-        )
-    if "histogram_bins" in controls:
-        opts["histogram_bins"] = st.slider(
-            "Histogram bins", 5, 200, int(opts.get("histogram_bins", 30)), 1,
-            key=f"{key_prefix}_hbins_{uid}",
-        )
-    if "histogram_opacity" in controls:
-        opts["histogram_opacity"] = st.slider(
-            "Opacity", 0.1, 1.0, float(opts.get("histogram_opacity", 0.8)), 0.05,
-            key=f"{key_prefix}_hop_{uid}",
-        )
-    if "line_width" in controls:
-        opts["line_width"] = st.slider(
-            "Line width", 1, 10, int(opts.get("line_width", 2)), 1,
-            key=f"{key_prefix}_lw_{uid}",
-        )
-    if "line_shape" in controls:
-        _ls = opts.get("line_shape", "linear")
-        opts["line_shape"] = st.selectbox(
-            "Line shape",
-            ["linear", "spline", "hv", "vh", "hvh", "vhv"],
-            index=["linear", "spline", "hv", "vh", "hvh", "vhv"].index(_ls)
-            if _ls in ("linear", "spline", "hv", "vh", "hvh", "vhv") else 0,
-            key=f"{key_prefix}_ls_{uid}",
-        )
-    if "show_markers" in controls:
-        opts["show_markers"] = st.checkbox(
-            "Show markers",
-            value=bool(opts.get("show_markers", True)),
-            key=f"{key_prefix}_sm_{uid}",
-        )
-    if "line_fill" in controls:
-        _lf = opts.get("line_fill", "none")
-        opts["line_fill"] = st.selectbox(
-            "Fill",
-            ["none", "tozeroy", "tozerox", "tonexty", "tonextx"],
-            index=["none", "tozeroy", "tozerox", "tonexty", "tonextx"].index(_lf)
-            if _lf in ("none", "tozeroy", "tozerox", "tonexty", "tonextx") else 0,
-            key=f"{key_prefix}_lf_{uid}",
-        )
-    if "marker_opacity" in controls:
-        opts["marker_opacity"] = st.slider(
-            "Marker opacity", 0.1, 1.0, float(opts.get("marker_opacity", 0.8)), 0.05,
-            key=f"{key_prefix}_mo_{uid}",
-        )
-    if "marker_size" in controls:
-        opts["marker_size"] = st.slider(
-            "Marker size", 2, 30, int(opts.get("marker_size", 6)), 1,
-            key=f"{key_prefix}_ms_{uid}",
-        )
-    if "donut_hole" in controls:
-        opts["donut_hole"] = st.slider(
-            "Donut hole", 0.0, 0.9, float(opts.get("donut_hole", 0.0)), 0.05,
-            key=f"{key_prefix}_dh_{uid}",
-        )
-    if "pie_textinfo" in controls:
-        _pti = opts.get("pie_textinfo", "label+percent")
-        opts["pie_textinfo"] = st.selectbox(
-            "Text info",
-            ["label", "percent", "value", "label+percent", "label+value"],
-            index=["label", "percent", "value", "label+percent", "label+value"].index(_pti)
-            if _pti in ("label", "percent", "value", "label+percent", "label+value") else 3,
-            key=f"{key_prefix}_pti_{uid}",
-        )
-    if "pull_slices" in controls:
-        opts["pull_slices"] = st.slider(
-            "Pull slices", 0.0, 0.5, float(opts.get("pull_slices", 0.0)), 0.01,
-            key=f"{key_prefix}_ps_{uid}",
-        )
-    if "pie_rotation" in controls:
-        opts["pie_rotation"] = st.slider(
-            "Rotation", 0, 360, int(opts.get("pie_rotation", 0)), 1,
-            key=f"{key_prefix}_pr_{uid}",
-        )
-    if "pie_direction" in controls:
-        _pd = opts.get("pie_direction", "clockwise")
-        opts["pie_direction"] = st.selectbox(
-            "Direction",
-            ["clockwise", "counterclockwise"],
-            index=0 if _pd == "clockwise" else 1,
-            key=f"{key_prefix}_pd_{uid}",
-        )
-    if "pie_label_size" in controls:
-        opts["pie_label_size"] = st.slider(
-            "Pie label size", 6, 24,
-            int(opts.get("pie_label_size", 11)), 1,
-            key=f"{key_prefix}_pls_{uid}",
-        )
-    if "pie_label_color" in controls:
-        opts["pie_label_color"] = st.color_picker(
-            "Pie label color",
-            value=opts.get("pie_label_color", "#e2e8f0"),
-            key=f"{key_prefix}_plc_{uid}",
-        )
-    if "pie_value_size" in controls:
-        opts["pie_value_size"] = st.slider(
-            "Pie value size", 6, 24,
-            int(opts.get("pie_value_size", 11)), 1,
-            key=f"{key_prefix}_pvs_{uid}",
-        )
-    if "pie_value_color" in controls:
-        opts["pie_value_color"] = st.color_picker(
-            "Pie value color",
-            value=opts.get("pie_value_color", "#e2e8f0"),
-            key=f"{key_prefix}_pvc_{uid}",
-        )
-    if "heatmap_colorscale" in controls:
-        _cs = opts.get("heatmap_colorscale", "RdBu")
-        opts["heatmap_colorscale"] = st.selectbox(
-            "Colorscale",
-            COLORSCALES_ALL,
-            index=COLORSCALES_ALL.index(_cs) if _cs in COLORSCALES_ALL else 0,
-            key=f"{key_prefix}_cs_{uid}",
-        )
-    if "heatmap_show_text" in controls:
-        opts["heatmap_show_text"] = st.checkbox(
-            "Show annotations",
-            value=bool(opts.get("heatmap_show_text", True)),
-            key=f"{key_prefix}_hst_{uid}",
-        )
-    if "heatmap_annotation_precision" in controls:
-        opts["heatmap_annotation_precision"] = st.slider(
-            "Annotation precision", 0, 10,
-            int(opts.get("heatmap_annotation_precision", 2)), 1,
-            key=f"{key_prefix}_hap_{uid}",
-        )
-    if "heatmap_annotation_size" in controls:
-        opts["heatmap_annotation_size"] = st.slider(
-            "Annotation size", 6, 24,
-            int(opts.get("heatmap_annotation_size", 10)), 1,
-            key=f"{key_prefix}_has_{uid}",
-        )
-    if "heatmap_annotation_color" in controls:
-        _ac = opts.get("heatmap_annotation_color", "auto")
-        if _ac == "auto":
-            _default_ann_color = "#ffffff"
-        elif _ac == "light":
-            _default_ann_color = "#ffffff"
-        elif _ac == "dark":
-            _default_ann_color = "#1e293b"
-        else:
-            _default_ann_color = _ac if _ac.startswith("#") else "#ffffff"
-        
-        _ann_color = st.color_picker(
-            "Annotation color",
-            value=_default_ann_color,
-            key=f"{key_prefix}_hac_{uid}",
-            help="Choose annotation text color. 'auto' mode will adapt based on cell values.",
-        )
-        # Store the selected color directly
-        opts["heatmap_annotation_color"] = _ann_color
-    if "table_font_size" in controls:
-        opts["table_font_size"] = st.slider(
-            "Table font size", 8, 24,
-            int(opts.get("table_font_size", 11)), 1,
-            key=f"{key_prefix}_tfs_{uid}",
-        )
-    if "table_font_color" in controls:
-        opts["table_font_color"] = st.color_picker(
-            "Table font color",
-            value=opts.get("table_font_color", "#f1f5f9"),
-            key=f"{key_prefix}_tfc_{uid}",
-        )
-    if "table_header_font_size" in controls:
-        opts["table_header_font_size"] = st.slider(
-            "Header font size", 8, 24,
-            int(opts.get("table_header_font_size", 12)), 1,
-            key=f"{key_prefix}_thfs_{uid}",
-        )
-    if "table_header_color" in controls:
-        opts["table_header_color"] = st.color_picker(
-            "Header color",
-            value=opts.get("table_header_color", "#6163df"),
-            key=f"{key_prefix}_thc_{uid}",
-        )
-    if "table_row_height" in controls:
-        opts["table_row_height"] = st.slider(
-            "Row height", 16, 60,
-            int(opts.get("table_row_height", 26)), 1,
-            key=f"{key_prefix}_trh_{uid}",
-        )
-    if "table_header_height" in controls:
-        opts["table_header_height"] = st.slider(
-            "Header height", 16, 60,
-            int(opts.get("table_header_height", 28)), 1,
-            key=f"{key_prefix}_thh_{uid}",
-        )
-    if "table_index_align" in controls:
-        _ia = opts.get("table_index_align", "left")
-        opts["table_index_align"] = st.selectbox(
-            "Index align",
-            ["left", "center", "right"],
-            index=["left", "center", "right"].index(_ia)
-            if _ia in ("left", "center", "right") else 0,
-            key=f"{key_prefix}_tia_{uid}",
-        )
-    if "table_data_align" in controls:
-        _da = opts.get("table_data_align", "right")
-        opts["table_data_align"] = st.selectbox(
-            "Data align",
-            ["left", "center", "right"],
-            index=["left", "center", "right"].index(_da)
-            if _da in ("left", "center", "right") else 2,
-            key=f"{key_prefix}_tda_{uid}",
-        )
-    if "table_stripe_even_color" in controls:
-        opts["table_stripe_even_color"] = st.color_picker(
-            "Stripe even color",
-            value=opts.get("table_stripe_even_color", "#1e293b"),
-            key=f"{key_prefix}_tsec_{uid}",
-        )
-    if "table_stripe_odd_color" in controls:
-        opts["table_stripe_odd_color"] = st.color_picker(
-            "Stripe odd color",
-            value=opts.get("table_stripe_odd_color", "#0f172a"),
-            key=f"{key_prefix}_tsoc_{uid}",
-        )
-    if "table_number_format" in controls:
-        _nf = opts.get("table_number_format", ",.2f")
-        opts["table_number_format"] = st.selectbox(
-            "Number format",
-            [",.2f", ",.1f", ",.0f", ".2f", ".1f", ".0f"],
-            index=[",.2f", ",.1f", ",.0f", ".2f", ".1f", ".0f"].index(_nf)
-            if _nf in (",.2f", ",.1f", ",.0f", ".2f", ".1f", ".0f") else 0,
-            key=f"{key_prefix}_tnf_{uid}",
-        )
-    if "row_index_header" in controls:
-        opts["row_index_header"] = st.text_input(
-            "Row index header",
-            value=opts.get("row_index_header", ""),
-            key=f"{key_prefix}_rih_{uid}",
-        )
-    if "show_colorbar" in controls:
-        opts["show_colorbar"] = st.checkbox(
-            "Show colorbar",
-            value=bool(opts.get("show_colorbar", True)),
-            key=f"{key_prefix}_scb_{uid}",
-        )
+    # Checkboxes (4 per row)
+    _checks = [c for c in _main if _CONTROL_META[c]["t"] == "check"]
+    _render_in_rows(_checks, 4, opts, uid, key_prefix)
+
+    # Selects (2 per row)
+    _sels = [c for c in _main if _CONTROL_META[c]["t"] == "select"]
+    _render_in_rows(_sels, 2, opts, uid, key_prefix)
+
+    # Sliders (2 per row)
+    _slis = [c for c in _main if _CONTROL_META[c]["t"] == "slider"]
+    _render_in_rows(_slis, 2, opts, uid, key_prefix)
+
+    # Colors (3 per row)
+    _cols = [c for c in _main if _CONTROL_META[c]["t"] == "color"]
+    _render_in_rows(_cols, 3, opts, uid, key_prefix)
+
+    # Text (full width)
+    _txts = [c for c in _main if _CONTROL_META[c]["t"] == "text"]
+    for c in _txts:
+        _render_control(c, opts, uid, key_prefix)
+
+    # ---- advanced popover -------------------------------------------------
+    _adv_present = [c for c in controls if c in _adv and c in _CONTROL_META]
+    if _adv_present:
+        with st.popover("⚙️ Advanced"):
+            for c in _adv_present:
+                _render_control(c, opts, uid, key_prefix)
 
     result["display_options"] = opts
     return result
@@ -1370,36 +1285,44 @@ def render_chart_settings_controls(uid: str, title: str, fig, chart_type: str,
 
 def render_typography_controls(uid: str, fig, chart_type: str,
                                meta: dict, *, key_prefix: str = "analysis") -> dict:
-    """Render the Typography expander for a single chart.
+    """Render the Typography controls for a single chart (compact layout).
 
     Returns a dict of typography key-value pairs (flat dict, NOT {"text_style": ...}).
+    Global row: font family, style, header size, header color, header font.
+    Per-element (axis, legend, pie) in an Advanced popover.
     """
     text_style = dict(meta.get("text_style", {}))
-
     inject_font_preview_css()
-    fam = font_select(
-        "Font family",
-        text_style.get("family", "Inter"),
-        key=f"{key_prefix}_font_{uid}",
-    )
-    if fam != text_style.get("family"):
-        text_style["family"] = fam
+    caps = get_chart_type_capabilities(chart_type)
+    typo = caps.get("typography", [])
 
-    fs = st.selectbox(
-        "Font style",
-        ["Normal", "Bold", "Italic", "Bold Italic", "Underline"],
-        index=["Normal", "Bold", "Italic", "Bold Italic", "Underline"].index(
-            text_style.get("font_style", "Normal")
-        ) if text_style.get("font_style", "Normal") in (
-            "Normal", "Bold", "Italic", "Bold Italic", "Underline"
-        ) else 0,
-        key=f"{key_prefix}_fstyle_{uid}",
-    )
-    if fs != text_style.get("font_style"):
-        text_style["font_style"] = fs
+    # ---- global row 1: Font family | Font style (2 columns) ---------------
+    _r1 = st.columns(2)
+    with _r1[0]:
+        fam = font_select(
+            "Font family",
+            text_style.get("family", "Inter"),
+            key=f"{key_prefix}_font_{uid}",
+        )
+        if fam != text_style.get("family"):
+            text_style["family"] = fam
+    with _r1[1]:
+        fs = st.selectbox(
+            "Font style",
+            ["Normal", "Bold", "Italic", "Bold Italic", "Underline"],
+            index=["Normal", "Bold", "Italic", "Bold Italic", "Underline"].index(
+                text_style.get("font_style", "Normal")
+            ) if text_style.get("font_style", "Normal") in (
+                "Normal", "Bold", "Italic", "Bold Italic", "Underline"
+            ) else 0,
+            key=f"{key_prefix}_fstyle_{uid}",
+        )
+        if fs != text_style.get("font_style"):
+            text_style["font_style"] = fs
 
-    c1, c2 = st.columns(2)
-    with c1:
+    # ---- global row 2: Header size | Header color (2 cols) ---------------
+    _r2 = st.columns(2)
+    with _r2[0]:
         _hs = st.number_input(
             "Header size", 10, 60,
             int(text_style.get("header_size", 28)), 1,
@@ -1407,6 +1330,7 @@ def render_typography_controls(uid: str, fig, chart_type: str,
         )
         if _hs != text_style.get("header_size"):
             text_style["header_size"] = _hs
+    with _r2[1]:
         _hc = st.color_picker(
             "Header color",
             text_style.get("header_color", "#6163df"),
@@ -1414,13 +1338,18 @@ def render_typography_controls(uid: str, fig, chart_type: str,
         )
         if _hc != text_style.get("header_color"):
             text_style["header_color"] = _hc
+
+    # ---- global row 3: Header font | Header font style (2 cols) -----------
+    _r3 = st.columns(2)
+    with _r3[0]:
         _hfam = font_select(
-            "Header font family",
+            "Header font",
             text_style.get("header_family", text_style.get("family", "Inter")),
             key=f"{key_prefix}_hfont_{uid}",
         )
         if _hfam != text_style.get("header_family", text_style.get("family", "Inter")):
             text_style["header_family"] = _hfam
+    with _r3[1]:
         _hfstyle = st.selectbox(
             "Header font style",
             ["Normal", "Bold", "Italic", "Bold Italic", "Underline"],
@@ -1431,136 +1360,135 @@ def render_typography_controls(uid: str, fig, chart_type: str,
             ) else 0,
             key=f"{key_prefix}_hfont_style_{uid}",
         )
-        if _hfstyle != text_style.get("header_font_style", "Normal"):
+        if _hfstyle != text_style.get("header_font_style"):
             text_style["header_font_style"] = _hfstyle
-    with c2:
-        _ss = st.number_input(
-            "Subtitle size", 8, 40,
-            int(text_style.get("subtitle_size", 11)), 1,
-            key=f"{key_prefix}_ssize_{uid}",
-        )
-        if _ss != text_style.get("subtitle_size"):
-            text_style["subtitle_size"] = _ss
-        _sc = st.color_picker(
-            "Subtitle color",
-            text_style.get("subtitle_color", "#64748b"),
-            key=f"{key_prefix}_scolor_{uid}",
-        )
-        if _sc != text_style.get("subtitle_color"):
-            text_style["subtitle_color"] = _sc
-        _sfam = font_select(
-            "Subtitle font family",
-            text_style.get("subtitle_family", text_style.get("family", "Inter")),
-            key=f"{key_prefix}_subfont_{uid}",
-        )
-        if _sfam != text_style.get("subtitle_family", text_style.get("family", "Inter")):
-            text_style["subtitle_family"] = _sfam
-        _sfstyle = st.selectbox(
-            "Subtitle font style",
-            ["Normal", "Bold", "Italic", "Bold Italic", "Underline"],
-            index=["Normal", "Bold", "Italic", "Bold Italic", "Underline"].index(
-                text_style.get("subtitle_font_style", "Normal")
-            ) if text_style.get("subtitle_font_style", "Normal") in (
-                "Normal", "Bold", "Italic", "Bold Italic", "Underline"
-            ) else 0,
-            key=f"{key_prefix}_subfont_style_{uid}",
-        )
-        if _sfstyle != text_style.get("subtitle_font_style", "Normal"):
-            text_style["subtitle_font_style"] = _sfstyle
 
-    caps = get_chart_type_capabilities(chart_type)
-    if "axis_tick" in caps.get("typography", []):
-        _ats = st.number_input(
-            "Axis tick size", 6, 18,
-            int(text_style.get("axis_tick_size", 10)), 1,
-            key=f"{key_prefix}_atsize_{uid}",
-        )
-        if _ats != text_style.get("axis_tick_size"):
-            text_style["axis_tick_size"] = _ats
-        _atc = st.color_picker(
-            "Axis tick color",
-            text_style.get("axis_tick_color", "#94a3b8"),
-            key=f"{key_prefix}_atcolor_{uid}",
-        )
-        if _atc != text_style.get("axis_tick_color"):
-            text_style["axis_tick_color"] = _atc
+    # ---- advanced: per-element typography ---------------------------------
+    _has_adv = any(t in typo for t in
+                   ["axis_tick", "axis_title", "legend_title",
+                    "legend_item", "pie_label", "pie_value"])
+    if _has_adv:
+        with st.popover("⚙️ Advanced"):
+            # Axis tick
+            if "axis_tick" in typo:
+                st.caption("Axis ticks")
+                _tc = st.columns(2)
+                with _tc[0]:
+                    _ats = st.number_input(
+                        "Tick size", 6, 18,
+                        int(text_style.get("axis_tick_size", 10)), 1,
+                        key=f"{key_prefix}_atsize_{uid}",
+                    )
+                    if _ats != text_style.get("axis_tick_size"):
+                        text_style["axis_tick_size"] = _ats
+                with _tc[1]:
+                    _atc = st.color_picker(
+                        "Tick color",
+                        text_style.get("axis_tick_color", "#94a3b8"),
+                        key=f"{key_prefix}_atcolor_{uid}",
+                    )
+                    if _atc != text_style.get("axis_tick_color"):
+                        text_style["axis_tick_color"] = _atc
 
-    if "axis_title" in caps.get("typography", []) and chart_type != "correlation":
-        _ax_title_sz = st.number_input(
-            "Axis title size", 8, 24,
-            int(text_style.get("axis_title_size", 12)), 1,
-            key=f"{key_prefix}_ax_titlesize_{uid}",
-        )
-        if _ax_title_sz != text_style.get("axis_title_size"):
-            text_style["axis_title_size"] = _ax_title_sz
-        _ax_title_col = st.color_picker(
-            "Axis title color",
-            text_style.get("axis_title_color", "#cbd5e1"),
-            key=f"{key_prefix}_ax_titlecolor_{uid}",
-        )
-        if _ax_title_col != text_style.get("axis_title_color"):
-            text_style["axis_title_color"] = _ax_title_col
+            # Axis title
+            if "axis_title" in typo and chart_type != "correlation":
+                st.caption("Axis titles")
+                _ac = st.columns(2)
+                with _ac[0]:
+                    _axs = st.number_input(
+                        "Title size", 8, 24,
+                        int(text_style.get("axis_title_size", 12)), 1,
+                        key=f"{key_prefix}_ax_titlesize_{uid}",
+                    )
+                    if _axs != text_style.get("axis_title_size"):
+                        text_style["axis_title_size"] = _axs
+                with _ac[1]:
+                    _axc = st.color_picker(
+                        "Title color",
+                        text_style.get("axis_title_color", "#cbd5e1"),
+                        key=f"{key_prefix}_ax_titlecolor_{uid}",
+                    )
+                    if _axc != text_style.get("axis_title_color"):
+                        text_style["axis_title_color"] = _axc
 
-    if "legend_title" in caps.get("typography", []) or "legend_item" in caps.get("typography", []):
-        _lts = st.number_input(
-            "Legend title size", 8, 24,
-            int(text_style.get("legend_title_size", 12)), 1,
-            key=f"{key_prefix}_ltsize_{uid}",
-        )
-        if _lts != text_style.get("legend_title_size"):
-            text_style["legend_title_size"] = _lts
-        _ltc = st.color_picker(
-            "Legend title color",
-            text_style.get("legend_title_color", "#cbd5e1"),
-            key=f"{key_prefix}_ltcolor_{uid}",
-        )
-        if _ltc != text_style.get("legend_title_color"):
-            text_style["legend_title_color"] = _ltc
-        _lis = st.number_input(
-            "Legend item size", 8, 20,
-            int(text_style.get("legend_item_size", 11)), 1,
-            key=f"{key_prefix}_lisize_{uid}",
-        )
-        if _lis != text_style.get("legend_item_size"):
-            text_style["legend_item_size"] = _lis
-        _lic = st.color_picker(
-            "Legend item color",
-            text_style.get("legend_item_color", "#e2e8f0"),
-            key=f"{key_prefix}_licolor_{uid}",
-        )
-        if _lic != text_style.get("legend_item_color"):
-            text_style["legend_item_color"] = _lic
+            # Legend
+            if "legend_title" in typo or "legend_item" in typo:
+                st.caption("Legend")
+                _lc = st.columns(2)
+                with _lc[0]:
+                    _lts = st.number_input(
+                        "Title size", 8, 24,
+                        int(text_style.get("legend_title_size", 12)), 1,
+                        key=f"{key_prefix}_ltsize_{uid}",
+                    )
+                    if _lts != text_style.get("legend_title_size"):
+                        text_style["legend_title_size"] = _lts
+                with _lc[1]:
+                    _ltc = st.color_picker(
+                        "Title color",
+                        text_style.get("legend_title_color", "#cbd5e1"),
+                        key=f"{key_prefix}_ltcolor_{uid}",
+                    )
+                    if _ltc != text_style.get("legend_title_color"):
+                        text_style["legend_title_color"] = _ltc
+                _lc2 = st.columns(2)
+                with _lc2[0]:
+                    _lis = st.number_input(
+                        "Item size", 8, 20,
+                        int(text_style.get("legend_item_size", 11)), 1,
+                        key=f"{key_prefix}_lisize_{uid}",
+                    )
+                    if _lis != text_style.get("legend_item_size"):
+                        text_style["legend_item_size"] = _lis
+                with _lc2[1]:
+                    _lic = st.color_picker(
+                        "Item color",
+                        text_style.get("legend_item_color", "#e2e8f0"),
+                        key=f"{key_prefix}_licolor_{uid}",
+                    )
+                    if _lic != text_style.get("legend_item_color"):
+                        text_style["legend_item_color"] = _lic
 
-    if "pie_label" in caps.get("typography", []):
-        _pls = st.number_input(
-            "Pie label size", 8, 24,
-            int(text_style.get("pie_label_size", 11)), 1,
-            key=f"{key_prefix}_plsize_{uid}",
-        )
-        if _pls != text_style.get("pie_label_size"):
-            text_style["pie_label_size"] = _pls
-        _plc = st.color_picker(
-            "Pie label color",
-            text_style.get("pie_label_color", "#e2e8f0"),
-            key=f"{key_prefix}_plcolor_{uid}",
-        )
-        if _plc != text_style.get("pie_label_color"):
-            text_style["pie_label_color"] = _plc
+            # Pie label
+            if "pie_label" in typo:
+                st.caption("Pie labels")
+                _pc = st.columns(2)
+                with _pc[0]:
+                    _pls = st.number_input(
+                        "Label size", 8, 24,
+                        int(text_style.get("pie_label_size", 11)), 1,
+                        key=f"{key_prefix}_plsize_{uid}",
+                    )
+                    if _pls != text_style.get("pie_label_size"):
+                        text_style["pie_label_size"] = _pls
+                with _pc[1]:
+                    _plc = st.color_picker(
+                        "Label color",
+                        text_style.get("pie_label_color", "#e2e8f0"),
+                        key=f"{key_prefix}_plcolor_{uid}",
+                    )
+                    if _plc != text_style.get("pie_label_color"):
+                        text_style["pie_label_color"] = _plc
 
-    if "pie_value" in caps.get("typography", []):
-        _pvs = st.number_input(
-            "Pie value size", 8, 24,
-            int(text_style.get("pie_value_size", 11)), 1,
-            key=f"{key_prefix}_pvsize_{uid}",
-        )
-        if _pvs != text_style.get("pie_value_size"):
-            text_style["pie_value_size"] = _pvs
-        _pvc = st.color_picker(
-            "Pie value color",
-            text_style.get("pie_value_color", "#e2e8f0"),
-            key=f"{key_prefix}_pvcolor_{uid}",
-        )
-        if _pvc != text_style.get("pie_value_color"):
-            text_style["pie_value_color"] = _pvc
+            # Pie value
+            if "pie_value" in typo:
+                st.caption("Pie values")
+                _vc = st.columns(2)
+                with _vc[0]:
+                    _pvs = st.number_input(
+                        "Value size", 8, 24,
+                        int(text_style.get("pie_value_size", 11)), 1,
+                        key=f"{key_prefix}_pvsize_{uid}",
+                    )
+                    if _pvs != text_style.get("pie_value_size"):
+                        text_style["pie_value_size"] = _pvs
+                with _vc[1]:
+                    _pvc = st.color_picker(
+                        "Value color",
+                        text_style.get("pie_value_color", "#e2e8f0"),
+                        key=f"{key_prefix}_pvcolor_{uid}",
+                    )
+                    if _pvc != text_style.get("pie_value_color"):
+                        text_style["pie_value_color"] = _pvc
 
     return text_style

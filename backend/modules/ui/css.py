@@ -23,6 +23,7 @@ all shared component styles used across every page.
 """
 
 from __future__ import annotations
+import logging
 
 import base64
 import os
@@ -52,7 +53,8 @@ def set_theme_mode(mode: str) -> None:
         import streamlit as _st
         _st.session_state["theme"] = mode if mode in THEME_MODES else "dark"
         _css_block.cache_clear()
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
         pass
 
 

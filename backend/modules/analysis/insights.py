@@ -10,6 +10,7 @@ Public API (imported by other modules):
 """
 
 from __future__ import annotations
+import logging
 
 import numpy as np
 import pandas as pd
@@ -47,9 +48,34 @@ def _pct(part: float, whole: float, precision: int = 1) -> str:
         return "—"
 
 
+def _col_ref(col: str, col_descriptions: dict | None = None) -> str:
+    """Return the human-friendly description for a column if available.
+    
+    Falls back to the original column name when no description is provided
+    or the column is not in the descriptions map.
+    """
+    if not col_descriptions:
+        return col
+    desc = col_descriptions.get(col, "").strip()
+    return desc if desc else col
+
+
+def _get_col_descriptions() -> dict | None:
+    """Safely fetch column descriptions from Streamlit session state."""
+    try:
+        import streamlit as st
+        return st.session_state.get("col_descriptions") or None
+    except Exception:
+        return None
+
+
 def _plural(count, singular: str, plural: str = None) -> str:
     """Return singular or plural noun based on count."""
     return singular if int(count) == 1 else (plural or f"{singular}s")
+
+
+# Cache for column descriptions to avoid repeated session_state lookups
+_COL_DESC_CACHE: dict = {}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -232,6 +258,7 @@ def _insights_statistical(
     x_cols=None,
     y_cols=None,
     agg: str = "mean",
+    col_descriptions: dict | None = None,
     **kwargs,
 ) -> list[str]:
     """Insights for the Statistical aggregation chart."""
@@ -263,9 +290,11 @@ def _insights_statistical(
             bot_val   = float(agg_s.iloc[-1])
             top_share = top_val / total if total else 0
 
+            metric_ref = _col_ref(metric, col_descriptions)
+
             # ── Key findings ──
             insights.append(
-                f"🏆 **Top** — **{top_cat}**: {metric} {agg_lbl} is **{_n(top_val)}** "
+                f"🏆 **Top** — **{top_cat}**: {metric_ref} {agg_lbl} is **{_n(top_val)}** "
                 f"({_pct(top_val, total)} of total)"
             )
             if n >= 3:
@@ -273,11 +302,11 @@ def _insights_statistical(
                 mid_cat = str(agg_s.index[mid_idx])
                 mid_val = float(agg_s.iloc[mid_idx])
                 insights.append(
-                    f"📊 **Middle** — **{mid_cat}**: {metric} {agg_lbl} is **{_n(mid_val)}** "
+                    f"📊 **Middle** — **{mid_cat}**: {metric_ref} {agg_lbl} is **{_n(mid_val)}** "
                     f"({_pct(mid_val, total)} of total)"
                 )
             insights.append(
-                f"🔻 **Lowest** — **{bot_cat}**: {metric} {agg_lbl} is **{_n(bot_val)}** "
+                f"🔻 **Lowest** — **{bot_cat}**: {metric_ref} {agg_lbl} is **{_n(bot_val)}** "
                 f"({_pct(bot_val, total)} of total)"
             )
 
@@ -293,7 +322,7 @@ def _insights_statistical(
                     )
             elif top_val > 0:
                 insights.append(
-                    f"⚠️ **{bot_cat}** has a zero or near-zero {metric} — "
+                    f"⚠️ **{bot_cat}** has a zero or near-zero {metric_ref} — "
                     f"check whether data is missing or this category genuinely has no activity."
                 )
 
@@ -301,7 +330,7 @@ def _insights_statistical(
             if top_share > 0.5:
                 conc = _concentration_word(top_share, n)
                 insights.append(
-                    f"⚠️ **{top_cat}** alone accounts for more than half of all {metric} "
+                    f"⚠️ **{top_cat}** alone accounts for more than half of all {metric_ref} "
                     f"— this is {conc}. The overall total is heavily driven by this one group."
                 )
 
@@ -333,8 +362,9 @@ def _insights_statistical(
         # ── Key findings ──
         if len(vals) == 1:
             col, val = next(iter(vals.items()))
+            col_ref = _col_ref(col, col_descriptions)
             insights.append(
-                f"💡 The **{agg_lbl_lower}** of **{col}** across "
+                f"💡 The **{agg_lbl_lower}** of **{col_ref}** across "
                 f"the entire dataset is **{_n(val)}**."
             )
         else:
@@ -343,14 +373,14 @@ def _insights_statistical(
             bot_col, bot_val = sorted_vals[-1]
 
             metric_summary = ", ".join(
-                f"**{c}** = {_n(v)}" for c, v in sorted_vals
+                f"**{_col_ref(c, col_descriptions)}** = {_n(v)}" for c, v in sorted_vals
             )
             insights.append(
                 f"💡 {agg_lbl} values: {metric_summary}."
             )
             insights.append(
-                f"🏆 **{top_col}** has the highest {agg_lbl_lower} ({_n(top_val)}); "
-                f"**{bot_col}** has the lowest ({_n(bot_val)})."
+                f"🏆 **{_col_ref(top_col, col_descriptions)}** has the highest {agg_lbl_lower} ({_n(top_val)}); "
+                f"**{_col_ref(bot_col, col_descriptions)}** has the lowest ({_n(bot_val)})."
             )
 
         # ── Variability ──
@@ -360,7 +390,7 @@ def _insights_statistical(
             if cv > 0.4:
                 var_word = _variability_word(cv)
                 insights.append(
-                    f"⚠️ **{most_variable}** is {var_word} across rows — "
+                    f"⚠️ **{_col_ref(most_variable, col_descriptions)}** is {var_word} across rows — "
                     f"its spread is {cv * 100:.0f}% of its average. "
                     f"The {agg_lbl_lower} may be heavily influenced by a few extreme values."
                 )
@@ -372,6 +402,7 @@ def _insights_distribution(
     df: pd.DataFrame,
     x_cols=None,
     y_cols=None,
+    col_descriptions: dict | None = None,
     **kwargs,
 ) -> list[str]:
     """Insights for Distribution (histogram + box plot) charts."""
@@ -394,9 +425,11 @@ def _insights_distribution(
         p10  = float(s.quantile(0.10))
         p90  = float(s.quantile(0.90))
 
+        col_ref = _col_ref(col, col_descriptions)
+
         # ── Overview ──
         insights.append(
-            f"📊 **{col}** — this chart shows how values are spread across the range. "
+            f"📊 **{col_ref}** — this chart shows how values are spread across the range. "
             f"Think of it as a landscape: the tallest bars are where most of your data lives."
         )
 
@@ -435,7 +468,7 @@ def _insights_distribution(
                     else "many"
                 )
                 insights.append(
-                    f"⚠️ There are {severity} unusual values in **{col}** "
+                    f"⚠️ There are {severity} unusual values in **{col_ref}** "
                     f"({n_out:,} rows, {_pct(n_out, len(s))}) — "
                     f"these sit far outside the typical range ({_n(lo)} to {_n(hi)}). "
                     f"Use the Outlier Detection tool on the upload page to inspect them."
@@ -466,6 +499,7 @@ def _insights_correlation(
     df: pd.DataFrame,
     x_cols=None,
     y_cols=None,
+    col_descriptions: dict | None = None,
     **kwargs,
 ) -> list[str]:
     """Insights for the Correlation heatmap."""
@@ -508,16 +542,20 @@ def _insights_correlation(
         a, b, r = strong_pos[0]
         strength = _correlation_strength_word(r)
         direction = _correlation_direction_phrase(r)
+        a_ref = _col_ref(a, col_descriptions)
+        b_ref = _col_ref(b, col_descriptions)
         insights.append(
-            f"🔗 **{a}** and **{b}** move {strength} {direction}."
+            f"🔗 **{a_ref}** and **{b_ref}** move {strength} {direction}."
         )
 
     # ── Strongest negative ──
     strong_neg = [(a, b, r) for a, b, r in by_abs if r < -0.3]
     if strong_neg:
         a, b, r = strong_neg[0]
+        a_ref = _col_ref(a, col_descriptions)
+        b_ref = _col_ref(b, col_descriptions)
         insights.append(
-            f"📉 **{a}** and **{b}** move {_correlation_strength_word(r)} "
+            f"📉 **{a_ref}** and **{b_ref}** move {_correlation_strength_word(r)} "
             f"in **opposite directions** — when one rises, the other tends to fall. "
             f"This trade-off relationship is common in scenarios like price vs. demand."
         )
@@ -535,8 +573,10 @@ def _insights_correlation(
     redundant = [(a, b, r) for a, b, r in pairs if r > 0.9]
     if redundant:
         a, b, r = redundant[0]
+        a_ref = _col_ref(a, col_descriptions)
+        b_ref = _col_ref(b, col_descriptions)
         insights.append(
-            f"✅ **{a}** and **{b}** move almost perfectly together "
+            f"✅ **{a_ref}** and **{b_ref}** move almost perfectly together "
             f"(correlation ≈ {r:.2f}) — they may be measuring the same "
             f"underlying thing in different units. You may only need one "
             f"of them in a predictive model; using both could add noise."
@@ -556,6 +596,7 @@ def _insights_categorical(
     y_cols=None,
     agg: str = "mean",
     top_n=None,
+    col_descriptions: dict | None = None,
     **kwargs,
 ) -> list[str]:
     """Insights for Categorical Bar/Column charts."""
@@ -583,15 +624,17 @@ def _insights_categorical(
                 n_cats    = len(agg_s)
                 top_share = top_val / total
 
+                metric_ref = _col_ref(metric, col_descriptions)
+
                 # ── Overview ──
                 insights.append(
-                    f"📊 This chart compares **{agg_lbl_lower} {metric}** "
+                    f"📊 This chart compares **{agg_lbl_lower} {metric_ref}** "
                     f"across each **{col}** category."
                 )
 
                 # ── Key findings ──
                 insights.append(
-                    f"🏆 **{top_cat}** leads in {metric} — "
+                    f"🏆 **{top_cat}** leads in {metric_ref} — "
                     f"{_n(top_val)}, which is {_pct(top_val, total)} of the total."
                 )
 
@@ -599,7 +642,7 @@ def _insights_categorical(
                 conc = _concentration_word(top_share, n_cats)
                 if top_share > 0.5:
                     insights.append(
-                        f"⚠️ **{top_cat}** alone makes up more than half of all {metric}. "
+                        f"⚠️ **{top_cat}** alone makes up more than half of all {metric_ref}. "
                         f"This heavy **{conc}** means the overall total is very sensitive to "
                         f"what happens in this one category — a risk if conditions change."
                     )
@@ -617,7 +660,7 @@ def _insights_categorical(
                         tail = "the remaining categories still carry significant weight."
                     insights.append(
                         f"📊 The top 3 categories account for **{top3_share * 100:.0f}%** of "
-                        f"total {metric} — {tail} "
+                        f"total {metric_ref} — {tail} "
                         f"Focus here for the biggest impact."
                     )
 
@@ -647,14 +690,16 @@ def _insights_categorical(
             top_count = int(vc.iloc[0])
             n_unique  = len(vc)
 
+            col_ref = _col_ref(col, col_descriptions)
+
             # ── Overview ──
             insights.append(
-                f"📊 This chart shows the count of rows for each **{col}** category."
+                f"📊 This chart shows the count of rows for each **{col_ref}** category."
             )
 
             # ── Key findings ──
             insights.append(
-                f"🏆 **{top_cat}** is the most common value in **{col}** — "
+                f"🏆 **{top_cat}** is the most common value in **{col_ref}** — "
                 f"{top_count:,} rows ({_pct(top_count, n_total)})."
             )
 
@@ -674,6 +719,7 @@ def _insights_pie(
     y_cols=None,
     agg: str = "mean",
     top_n=None,
+    col_descriptions: dict | None = None,
     **kwargs,
 ) -> list[str]:
     """Insights for Pie / Donut charts."""
@@ -700,16 +746,18 @@ def _insights_pie(
                 n_cats   = len(agg_s)
                 share    = top_val / total
 
+                metric_ref = _col_ref(metric, col_descriptions)
+
                 # ── Overview ──
                 insights.append(
-                    f"📊 This chart shows how total **{metric}** is divided among "
+                    f"📊 This chart shows how total **{metric_ref}** is divided among "
                     f"**{col}** categories. Each slice is one category's share of the whole."
                 )
 
                 # ── Key finding ──
                 insights.append(
                     f"🏆 **{top_cat}** is the largest slice, making up "
-                    f"**{_pct(top_val, total)}** of total {metric}."
+                    f"**{_pct(top_val, total)}** of total {metric_ref}."
                 )
 
                 # ── Top 3 share ──
@@ -717,7 +765,7 @@ def _insights_pie(
                     top3_share = float(agg_s.iloc[:3].sum()) / total
                     insights.append(
                         f"📊 The top 3 categories together account for "
-                        f"**{top3_share * 100:.0f}%** of all {metric}."
+                        f"**{top3_share * 100:.0f}%** of all {metric_ref}."
                     )
 
                 # ── Dominance analysis ──
@@ -745,9 +793,11 @@ def _insights_pie(
             n_cats    = len(vc)
             share     = top_count / total if total else 0
 
+            col_ref = _col_ref(col, col_descriptions)
+
             # ── Overview ──
             insights.append(
-                f"📊 This chart shows how rows are split across **{col}** categories."
+                f"📊 This chart shows how rows are split across **{col_ref}** categories."
             )
 
             # ── Key finding ──
@@ -772,6 +822,7 @@ def _insights_time_series(
     y_cols=None,
     agg: str = "mean",
     date_part=None,
+    col_descriptions: dict | None = None,
     **kwargs,
 ) -> list[str]:
     """Insights for Time Series line charts."""
@@ -798,6 +849,8 @@ def _insights_time_series(
             continue
 
         try:
+            metric_ref = _col_ref(metric, col_descriptions)
+
             if date_part:
                 if date_part == "month_name":
                     temp["_p"] = temp["_dt"].dt.month_name()
@@ -814,13 +867,13 @@ def _insights_time_series(
 
                 # ── Overview ──
                 insights.append(
-                    f"📊 This chart shows how **{metric}** varies by "
+                    f"📊 This chart shows how **{metric_ref}** varies by "
                     f"**{period_name}** — look for repeating highs and lows."
                 )
 
                 # ── Key findings ──
                 insights.append(
-                    f"🏆 **{peak_period}** had the highest {metric} ({_n(g.max())}); "
+                    f"🏆 **{peak_period}** had the highest {metric_ref} ({_n(g.max())}); "
                     f"**{trough_period}** had the lowest ({_n(g.min())})."
                 )
 
@@ -831,14 +884,14 @@ def _insights_time_series(
                     var_word = _variability_word(cv)
                     if cv > 0.35:
                         insights.append(
-                            f"⚠️ **{metric}** is {var_word} across periods "
+                            f"⚠️ **{metric_ref}** is {var_word} across periods "
                             f"(range: {_n(g.min())} → {_n(g.max())}) — "
                             f"the pattern may be seasonal or driven by a specific event. "
                             f"Look for the same peaks repeating at regular intervals."
                         )
                     elif cv < 0.05:
                         insights.append(
-                            f"✅ **{metric}** is remarkably stable across "
+                            f"✅ **{metric_ref}** is remarkably stable across "
                             f"{_plural(len(g), 'period')} — values stay close to "
                             f"{_n(float(g.mean()))} with very little variation. "
                             f"Useful as a reliable baseline."
@@ -854,7 +907,7 @@ def _insights_time_series(
 
                 # ── Overview ──
                 insights.append(
-                    f"📊 This chart tracks **{metric}** over time from "
+                    f"📊 This chart tracks **{metric_ref}** over time from "
                     f"the earliest to the latest data point. Look for trends, spikes, or dips."
                 )
 
@@ -864,13 +917,13 @@ def _insights_time_series(
                     trend_word = _trend_word(change * 100)
                     icon = "📈" if change > 0 else "📉"
                     insights.append(
-                        f"{icon} **{metric}** {trend_word} — "
+                        f"{icon} **{metric_ref}** {trend_word} — "
                         f"from **{_n(first_val)}** to **{_n(last_val)}** "
                         f"(a **{abs(change) * 100:.1f}%** change)."
                     )
                 else:
                     insights.append(
-                        f"📊 **{metric}** starts at {_n(first_val)} and "
+                        f"📊 **{metric_ref}** starts at {_n(first_val)} and "
                         f"ends at {_n(last_val)}."
                     )
 
@@ -892,20 +945,20 @@ def _insights_time_series(
                     var_word = _variability_word(cv)
                     if cv > 0.35:
                         insights.append(
-                            f"⚠️ **{metric}** is {var_word} over time "
+                            f"⚠️ **{metric_ref}** is {var_word} over time "
                             f"(the spread is {cv * 100:.0f}% of the average). "
                             f"This may point to seasonal patterns or irregular events — "
                             f"investigate before using this trend for forecasting."
                         )
                     elif cv < 0.05:
                         insights.append(
-                            f"✅ **{metric}** is very consistent over time "
+                            f"✅ **{metric_ref}** is very consistent over time "
                             f"— values stay close to {_n(mean_val)} with minimal variation. "
                             f"A reliable baseline for benchmarking or targets."
                         )
                     else:
                         insights.append(
-                            f"💡 **{metric}** shows moderate variability — "
+                            f"💡 **{metric_ref}** shows moderate variability — "
                             f"look for repeating peaks or dips that could signal seasonality."
                         )
 
@@ -921,6 +974,7 @@ def _insights_scatter(
     y_col: str = None,
     color_col: str = None,
     size_col: str = None,
+    col_descriptions: dict | None = None,
     **kwargs,
 ) -> list[str]:
     """Insights for Scatter Plot charts."""
@@ -940,10 +994,13 @@ def _insights_scatter(
     except Exception:
         return []
 
+    x_ref = _col_ref(x_col, col_descriptions)
+    y_ref = _col_ref(y_col, col_descriptions)
+
     # ── Overview ──
     insights.append(
-        f"📊 This scatter plot shows each data point as a dot, with **{x_col}** on the "
-        f"X-axis and **{y_col}** on the Y-axis. The pattern of dots reveals whether "
+        f"📊 This scatter plot shows each data point as a dot, with **{x_ref}** on the "
+        f"X-axis and **{y_ref}** on the Y-axis. The pattern of dots reveals whether "
         f"the two columns move together."
     )
 
@@ -951,7 +1008,7 @@ def _insights_scatter(
     strength = _correlation_strength_word(r)
     direction = _correlation_direction_phrase(r)
     insights.append(
-        f"💡 **{x_col}** and **{y_col}** move {strength} "
+        f"💡 **{x_ref}** and **{y_ref}** move {strength} "
         f"{direction} (correlation ≈ {r:.2f})."
     )
 
@@ -959,22 +1016,22 @@ def _insights_scatter(
     if abs(r) >= 0.5:
         if r > 0:
             insights.append(
-                f"✅ Higher **{x_col}** tends to go with higher **{y_col}** — "
+                f"✅ Higher **{x_ref}** tends to go with higher **{y_ref}** — "
                 f"knowing one gives a useful clue about the other."
             )
         else:
             insights.append(
-                f"🔍 Higher **{x_col}** tends to go with lower **{y_col}** — "
+                f"🔍 Higher **{x_ref}** tends to go with lower **{y_ref}** — "
                 f"a trade-off relationship: when one rises, the other falls."
             )
     elif abs(r) < 0.15:
         insights.append(
-            f"🔍 **{x_col}** and **{y_col}** appear unrelated here — "
+            f"🔍 **{x_ref}** and **{y_ref}** appear unrelated here — "
             f"changes in one do not reliably predict changes in the other."
         )
     else:
         insights.append(
-            f"💡 There is a modest link between **{x_col}** and **{y_col}** — "
+            f"💡 There is a modest link between **{x_ref}** and **{y_ref}** — "
             f"the relationship may exist but other factors likely play a role too."
         )
 
@@ -986,18 +1043,20 @@ def _insights_scatter(
                 top_g = str(group_means[y_col].idxmax())
                 bot_g = str(group_means[y_col].idxmin())
                 insights.append(
-                    f"📊 By group: **{top_g}** has the highest average {y_col} "
+                    f"📊 By group: **{top_g}** has the highest average {y_ref} "
                     f"({_n(float(group_means.loc[top_g, y_col]))}); "
                     f"**{bot_g}** has the lowest "
                     f"({_n(float(group_means.loc[bot_g, y_col]))})."
                 )
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
 
     # ── Size column ──
     if size_col and size_col in df.columns:
+        size_ref = _col_ref(size_col, col_descriptions)
         insights.append(
-            f"🔍 Marker **size** reflects **{size_col}** — larger dots = higher values. "
+            f"🔍 Marker **size** reflects **{size_ref}** — larger dots = higher values. "
             f"Hover over any dot to see its exact value."
         )
 
@@ -1015,6 +1074,7 @@ def _insights_matrix(
     columns_col: str = None,
     values_col: str = None,
     agg: str = "mean",
+    col_descriptions: dict | None = None,
     **kwargs,
 ) -> list[str]:
     """Insights for Matrix Heatmap / Pivot Table charts."""
@@ -1041,20 +1101,24 @@ def _insights_matrix(
     top_val = float(flat.max())
     bot_val = float(flat.min())
 
+    values_ref = _col_ref(values_col, col_descriptions)
+    index_ref = _col_ref(index_col, col_descriptions)
+    columns_ref = _col_ref(columns_col, col_descriptions)
+
     # ── Overview ──
     insights.append(
-        f"📊 This chart shows the **{agg.title()}** of **{values_col}** "
-        f"for each combination of **{index_col}** (rows) and **{columns_col}** (columns). "
+        f"📊 This chart shows the **{agg.title()}** of **{values_ref}** "
+        f"for each combination of **{index_ref}** (rows) and **{columns_ref}** (columns). "
     )
 
     # ── Key findings ──
     insights.append(
-        f"🏆 **Highest cell:** {index_col} = **{top_idx[0]}** × "
-        f"{columns_col} = **{top_idx[1]}** → {_n(top_val)}"
+        f"🏆 **Highest cell:** {index_ref} = **{top_idx[0]}** × "
+        f"{columns_ref} = **{top_idx[1]}** → {_n(top_val)}"
     )
     insights.append(
-        f"🔻 **Lowest cell:** {index_col} = **{bot_idx[0]}** × "
-        f"{columns_col} = **{bot_idx[1]}** → {_n(bot_val)}"
+        f"🔻 **Lowest cell:** {index_ref} = **{bot_idx[0]}** × "
+        f"{columns_ref} = **{bot_idx[1]}** → {_n(bot_val)}"
     )
 
     # ── Range analysis ──
@@ -1096,6 +1160,7 @@ def _insights_map(
     lon_col: str = None,
     location_col: str = None,
     color_col: str = None,
+    col_descriptions: dict | None = None,
     **kwargs,
 ) -> list[str]:
     """Insights for Map Plot (geographic scatter) charts."""
@@ -1138,8 +1203,9 @@ def _insights_map(
         # ── Colour grouping ──
         if color_col and color_col in df.columns:
             n_groups = int(df[color_col].nunique())
+            color_ref = _col_ref(color_col, col_descriptions)
             insights.append(
-                f"🎨 Points coloured by **{color_col}** ({n_groups} distinct "
+                f"🎨 Points coloured by **{color_ref}** ({n_groups} distinct "
                 f"{_plural(n_groups, 'value')}). "
                 f"Look for geographic clustering by colour — same-colour clusters "
                 f"may reveal regional patterns. Hover any dot for exact details."
@@ -1154,10 +1220,12 @@ def _insights_map(
                     f"🏆 **{top_loc}** has the most data points ({top_cnt:,} rows) — "
                     f"zoom into that area first for the richest detail."
                 )
-            except Exception:
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                 pass
 
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
         pass
 
     return insights
@@ -1167,6 +1235,7 @@ def _insights_outlier_chart(
     df: pd.DataFrame,
     x_cols=None,
     y_cols=None,
+    col_descriptions: dict | None = None,
     **kwargs,
 ) -> list[str]:
     """Insights for Outlier scatter charts (run via the analysis page)."""
@@ -1202,8 +1271,9 @@ def _insights_outlier_chart(
                 else "some" if pct < 10
                 else "many"
             )
+            col_ref = _col_ref(col, col_descriptions)
             insights.append(
-                f"⚠️ **{col}**: {severity} unusual values — "
+                f"⚠️ **{col_ref}**: {severity} unusual values — "
                 f"**{n_out:,}** {_plural(n_out, 'point')} ({pct:.1f}%) "
                 f"outside the range {_n(lo)} to {_n(hi)}."
             )
@@ -1228,7 +1298,7 @@ def _insights_outlier_chart(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def outlier_insights(col: str, info: dict) -> list[str]:
+def outlier_insights(col: str, info: dict, col_descriptions: dict | None = None) -> list[str]:
     """Generate plain-English outlier insights from an IQR result dict.
 
     Called directly from ``modules.analysis.outlier`` on the upload page.
@@ -1241,9 +1311,11 @@ def outlier_insights(col: str, info: dict) -> list[str]:
     q1  = info["q1"]
     q3  = info["q3"]
 
+    col_ref = _col_ref(col, col_descriptions)
+
     if n == 0:
         return [
-            f"✅ No unusual values found in **{col}** — the numbers look clean here.",
+            f"✅ No unusual values found in **{col_ref}** — the numbers look clean here.",
         ]
 
     severity = (
@@ -1253,13 +1325,13 @@ def outlier_insights(col: str, info: dict) -> list[str]:
     )
 
     return [
-        f"📊 **{col}** — this column measures values across your dataset. "
+        f"📊 **{col_ref}** — this column measures values across your dataset. "
         f"Unusual values are those that fall far from the typical range.",
 
-        f"⚠️ **{n:,} {_plural(n, 'value')}** ({pct}%) in **{col}** are unusually high or low — "
+        f"⚠️ **{n:,} {_plural(n, 'value')}** ({pct}%) in **{col_ref}** are unusually high or low — "
         f"{severity} your data falls outside the expected range.",
 
-        f"🔍 The expected range for **{col}** is roughly **{_n(lo)}** to **{_n(hi)}**. "
+        f"🔍 The expected range for **{col_ref}** is roughly **{_n(lo)}** to **{_n(hi)}**. "
         f"The middle 50% of typical values sit between **{_n(q1)}** and **{_n(q3)}**.",
 
         f"💡 Unusual values often signal data-entry errors, one-off events, or genuine extremes — "
@@ -1303,6 +1375,10 @@ def generate_insights(
         if fn is None:
             return []
 
+        # Inject column descriptions from session state if not explicitly provided
+        if "col_descriptions" not in kwargs:
+            kwargs["col_descriptions"] = _get_col_descriptions()
+
         insights: list[str] = fn(df, **kwargs) or []
 
         # Append data context footer when insights exist
@@ -1324,7 +1400,8 @@ def generate_insights(
         try:
             import streamlit as st
             st.session_state[f"auto_insights_{uid}"] = insights
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
 
         return insights

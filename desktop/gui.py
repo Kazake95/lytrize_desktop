@@ -44,6 +44,7 @@ Threading model: all subprocess I/O is done in QThread subclasses;
 results are communicated back to the main thread exclusively via Qt signals.
 Never call Qt widget methods from a non-main thread.
 """
+import logging
 
 import json
 import os
@@ -114,18 +115,21 @@ def _save_prefs(data: dict) -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     try:
         DATA_DIR.chmod(0o700)
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
         pass
     tmp = PREFS.with_name(f".{PREFS.name}.tmp")
     tmp.write_text(json.dumps(data, indent=2))
     try:
         tmp.chmod(0o600)
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
         pass
     os.replace(tmp, PREFS)
     try:
         PREFS.chmod(0o600)
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
         pass
 
 
@@ -282,7 +286,8 @@ def _ensure_firefox_profile(profile_dir: Path) -> None:
     profile_dir.mkdir(parents=True, exist_ok=True)
     try:
         profile_dir.chmod(0o700)
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
         pass
 
     user_js = profile_dir / "user.js"
@@ -862,14 +867,16 @@ class Launcher(QWidget):
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         try:
             DATA_DIR.chmod(0o700)
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
 
         if self._wait_thread is not None:
             try:
                 self._wait_thread.ready.disconnect()
                 self._wait_thread.timeout.disconnect()
-            except Exception:
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                 pass
             self._wait_thread.quit()
             self._wait_thread.wait(2000)
@@ -878,7 +885,8 @@ class Launcher(QWidget):
         if self._watch_thread is not None:
             try:
                 self._watch_thread.crashed.disconnect()
-            except Exception:
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                 pass
             self._watch_thread.cancel()
             self._watch_thread.quit()
@@ -995,7 +1003,8 @@ class Launcher(QWidget):
             _CHROMIUM_PROFILE.mkdir(parents=True, exist_ok=True)
             try:
                 _CHROMIUM_PROFILE.chmod(0o700)
-            except Exception:
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                 pass
             subprocess.Popen(
                 [
@@ -1044,7 +1053,8 @@ class Launcher(QWidget):
         if self._watch_thread is not None:
             try:
                 self._watch_thread.crashed.disconnect()
-            except Exception:
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                 pass
             self._watch_thread.cancel()
 

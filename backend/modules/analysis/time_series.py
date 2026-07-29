@@ -1,4 +1,5 @@
 """modules/analysis/time_series.py -- Time series line chart runner."""
+import logging
 
 
 import pandas as pd
@@ -40,7 +41,8 @@ def run_time_series(df, x_cols=None, y_cols=None, agg="mean", date_part=None,
                 df[c] = pd.to_datetime(df[c])
                 dt_col = c
                 break
-            except Exception:
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                 pass
 
 
@@ -74,7 +76,8 @@ def run_time_series(df, x_cols=None, y_cols=None, agg="mean", date_part=None,
             try:
                 df["_p"] = tmp.dt.to_period(date_part).astype(str)
                 plot_x, x_label = "_p", f"{dt_col} ({date_part})"
-            except Exception:
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                 pass
 
 

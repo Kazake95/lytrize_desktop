@@ -1,4 +1,5 @@
 """modules/ui/column_manager.py"""
+import logging
 
 
 import streamlit as st
@@ -130,7 +131,8 @@ def show_column_manager(df):
                         # Accept if at least 50% parseable
                         if pd.to_datetime(sample, errors="coerce").notna().sum() >= len(sample) * 0.5:
                             date_like_cols.append(col)
-                    except Exception:
+                    except Exception as exc:
+                        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                         pass
             if not date_like_cols:
                 st.warning("No date-like columns found in the dataset. Parsing any column as string.")
@@ -282,7 +284,8 @@ def show_column_manager(df):
                                         s[still], format=fmt, errors="coerce"
                                     )
                                     result[still] = attempt
-                                except Exception:
+                                except Exception as exc:
+                                    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                                     pass
 
 

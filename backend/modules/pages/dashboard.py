@@ -456,7 +456,8 @@ def _render_kpi_section(df, readonly):
                             kpis_json       = json.dumps(st.session_state.kpis),
                             layout_mode     = st.session_state.get("layout_mode", "portrait"),
                         )
-                    except Exception:
+                    except Exception as exc:
+                        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                         pass
                 st.success(f"✅ {kpi['label']}: {kpi['value']}{kpi['suffix']}")
                 st.rerun()

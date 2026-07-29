@@ -1,4 +1,5 @@
 """modules/pages/analysis.py -- Analysis selection and chart generation page."""
+import logging
 
 
 import uuid, json
@@ -73,7 +74,8 @@ def _autosave() -> None:
                 try:
                     sm = get_session_meta(eid, uid)
                     kpis_json = sm.get("kpis_json", "[]") if sm else "[]"
-                except Exception:
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                     pass
                 st.session_state["_cached_kpis_json"] = kpis_json
 
@@ -91,9 +93,11 @@ def _autosave() -> None:
             )
             try:
                 st.toast("✅ Auto-saved", icon="✅")
-            except Exception:
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                 pass
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
 
 
@@ -125,7 +129,8 @@ def _restore_edit_notes() -> None:
             if restore_val and not st.session_state.get(note_key):
                 st.session_state[note_key] = restore_val
                 st.session_state.setdefault("_notes_shadow", {})[chart_uid] = restore_val
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
         pass
     st.session_state["_analysis_notes_loaded"] = True
 
@@ -157,7 +162,8 @@ def _persist_draft(page="analysis"):
                 from modules.utils.session_cache import save_df_snapshot
                 save_df_snapshot(uid)
                 st.session_state["_df_snapshot_sig"] = df_sig
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
 
 
@@ -433,7 +439,8 @@ def page_analysis():
                                     for k in _widget_spec_keys
                                 },
                             )
-                        except Exception:
+                        except Exception as exc:
+                            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                             pass
                     st.session_state.pop("_regen_uid",  None)
                     st.session_state.pop("_regen_type", None)

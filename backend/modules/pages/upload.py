@@ -1,4 +1,5 @@
 """modules/pages/upload.py -- File upload and column classification page."""
+import logging
 
 
 import streamlit as st
@@ -48,7 +49,8 @@ def _uploaded_signature(uploaded) -> str:
             tail = uploaded.read(65536)
             content_hash = hashlib.md5(head + tail).hexdigest()[:12]
             content_suffix = f":{content_hash}"
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
         finally:
             uploaded.seek(0)
@@ -242,7 +244,8 @@ def _save_upload_snapshot(df, file_name: str) -> None:
                 ),
             )
             st.session_state["_last_draft_upload_cache"] = draft_cache_key
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
         pass
 
 
