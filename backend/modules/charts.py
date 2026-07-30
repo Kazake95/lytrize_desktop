@@ -724,80 +724,129 @@ def generate_chart_insights(chart_type: str, title: str, fig,
             x_col = cols_match.group(1).strip() if cols_match else "X"
             y_col = cols_match.group(2).strip() if cols_match else "Y"
 
-            has_straight = False
-            has_smooth   = False
-            slope_val    = None
-            for _t in fig.data:
-                _mode = str(getattr(_t, "mode", ""))
-                _name = str(getattr(_t, "name", "")).lower()
-                if "lines" in _mode and "markers" not in _mode:
-                    if "ols" in _name or "=" in _name or "trendline" in _name:
-                        has_straight = True
-                        _slope_m = re.search(r"y\s*=\s*([+-]?[\d.]+)x", _name)
-                        if _slope_m:
-                            try: slope_val = float(_slope_m.group(1))
-                            except Exception: pass
-                    else:
-                        has_smooth = True
+            # Read trendline metadata from fig._lytrize_trendline (set by
+            # scatter_plot._add_trendline).  This is the single source of
+            # truth — it contains the actual computed values rather than
+            # relying on regex-parsing trace names.
+            _tl_meta = getattr(fig, "_lytrize_trendline", None) or {}
+            _tl_active = _tl_meta.get("active", False)
+            _tl_type   = _tl_meta.get("type", "")
+            _tl_n_pts  = _tl_meta.get("n_points", 0)
 
+            # Fallback: detect trendline from trace names (for charts
+            # generated before _lytrize_trendline was introduced).
+            if not _tl_active:
+                for _t in fig.data:
+                    _mode = str(getattr(_t, "mode", ""))
+                    _name = str(getattr(_t, "name", "")).lower()
+                    if "lines" in _mode and "markers" not in _mode:
+                        if "trend" in _name or "=" in _name:
+                            _tl_active = True
+                            _tl_type = "ols" if "=" in _name else "lowess"
+                            break
+
+            # Read r from title (set by scatter_plot runner)
             r_match = re.search(r"r\s*=\s*([+-]?\d+\.\d+)", title)
             r_val   = float(r_match.group(1)) if r_match else None
 
             scatter_trace = next(
                 (t for t in fig.data if "markers" in str(getattr(t, "mode", ""))), None)
 
-            if r_val is not None:
-                strength  = "strong" if abs(r_val) >= 0.7 else "moderate" if abs(r_val) >= 0.4 else "weak"
-                direction = "positive" if r_val > 0 else "negative"
-                insights.append(
-                    f"{_named(x_col)} and {_named(y_col)} show a {strength} {direction} "
-                    f"link (relationship score: {abs(r_val):+.2f})."
-                )
-                if abs(r_val) >= 0.7:
+            # ── Trendline overview (the main insight) ──
+            if _tl_active and _tl_type == "ols":
+                slope     = _tl_meta.get("slope")
+                intercept = _tl_meta.get("intercept")
+                r_sq      = _tl_meta.get("r_squared")
+                r_tl      = _tl_meta.get("r_value")
+                std_err   = _tl_meta.get("std_err")
+                within_1s = _tl_meta.get("within_one_sigma")
+
+                # Use trendline's own r if available (more precise), else title r
+                _r = r_tl if r_tl is not None else r_val
+
+                if _r is not None:
+                    strength  = "strong" if abs(_r) >= 0.7 else "moderate" if abs(_r) >= 0.4 else "weak"
+                    direction = "positive" if _r > 0 else "negative"
+                    insights.append(
+                        f"{_named(x_col)} and {_named(y_col)} show a {strength} {direction} "
+                        f"link (r = {_r:+.3f})."
+                    )
+
+                if r_sq is not None:
+                    insights.append(
+                        f"The trendline explains **{r_sq * 100:.1f}%** of the variance "
+                        f"in {_named(y_col)} (R² = {r_sq:.3f})."
+                    )
+
+                if slope is not None:
+                    direction_word = "increases" if slope > 0 else "decreases"
+                    insights.append(
+                        f"On average, each 1-unit increase in {_named(x_col)} is associated with "
+                        f"{_named(y_col)} {direction_word}ing by {abs(slope):.3g}."
+                    )
+
+                if intercept is not None:
+                    insights.append(
+                        f"When {_named(x_col)} is near zero, {_named(y_col)} is approximately "
+                        f"{intercept:,.3g} (the intercept)."
+                    )
+
+                if within_1s is not None and _tl_n_pts > 0:
+                    pct_close = within_1s / _tl_n_pts * 100
+                    insights.append(
+                        f"About **{pct_close:.0f}%** of points ({within_1s:,} of {_tl_n_pts:,}) "
+                        f"fall within one standard error of the trendline — "
+                        f"{'a tight fit suggesting the line is a reliable summary.' if pct_close >= 68 else 'moderate scatter around the line.' if pct_close >= 50 else 'wide scatter — the line shows direction but individual predictions will vary.'}"
+                    )
+
+                if _r is not None and abs(_r) >= 0.7:
                     insights.append(
                         "A strong link suggests a predictable pattern — when one moves, the other usually follows. "
                         "Check whether this is a direct cause or influenced by a third factor."
                     )
-                elif abs(r_val) >= 0.4:
+                elif _r is not None and abs(_r) >= 0.4:
                     insights.append(
                         "A moderate link exists. The two variables tend to move together, "
                         "but other factors also play a role."
                     )
-                else:
+                elif _r is not None:
                     insights.append(
                         "The link is weak — these variables move largely on their own. "
                         "A curved or more complex pattern may still be present."
                     )
 
-            if has_straight:
-                if slope_val is not None:
-                    direction_word = "increases" if slope_val > 0 else "decreases"
+            elif _tl_active and _tl_type == "lowess":
+                r_sq_raw = _tl_meta.get("r_squared_raw")
+                insights.append(
+                    f"A LOWESS smooth trendline is fitted, following the natural shape of the data. "
+                    f"Where it bends, the relationship between {_named(x_col)} and {_named(y_col)} changes."
+                )
+                if r_sq_raw is not None:
                     insights.append(
-                        f"On average, each 1-unit increase in {_named(x_col)} is associated with "
-                        f"{_named(y_col)} {direction_word}ing by {abs(slope_val):.3g}."
+                        f"The smoothed line explains roughly **{r_sq_raw * 100:.0f}%** of the "
+                        f"variance — a higher percentage means the curve captures the pattern well."
                     )
-                else:
-                    insights.append("A straight trendline is fitted, showing the overall direction.")
                 insights.append(
-                    "Points far from this line are unusual cases — they may be exceptions worth checking."
-                )
-
-            if has_smooth:
-                insights.append(
-                    "A smooth trendline is fitted, following the natural shape of the data. "
-                    "Where it bends, the relationship between the variables changes."
-                )
-                insights.append(
-                    f"Where the smooth line flattens, {_named(y_col)} stops responding to {_named(x_col)} — "
+                    f"Where the line flattens, {_named(y_col)} stops responding to {_named(x_col)} — "
                     "a potential saturation or threshold effect."
                 )
 
-            if not has_straight and not has_smooth and r_val is None:
+            elif not _tl_active and r_val is not None:
+                # No trendline fitted, but we have correlation from the title
+                strength  = "strong" if abs(r_val) >= 0.7 else "moderate" if abs(r_val) >= 0.4 else "weak"
+                direction = "positive" if r_val > 0 else "negative"
+                insights.append(
+                    f"{_named(x_col)} and {_named(y_col)} show a {strength} {direction} "
+                    f"correlation (r = {r_val:+.3f}). Add a trendline to quantify the relationship."
+                )
+
+            elif not _tl_active:
                 insights.append(
                     f"No trendline fitted yet. Add a straight line to quantify the overall direction, "
                     "or a smooth line to reveal curved patterns."
                 )
 
+            # ── Data point summary ──
             if scatter_trace:
                 n_pts = len(getattr(scatter_trace, "x", []) or [])
                 if n_pts:

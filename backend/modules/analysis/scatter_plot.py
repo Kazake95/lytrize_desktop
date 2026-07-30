@@ -45,6 +45,10 @@ def _add_trendline(fig, plot_df, x: str, y: str, tl_type: str) -> None:
     
     Uses scipy when available (supports both 'ols' and 'lowess').
     Falls back to pure numpy OLS when scipy is absent.
+    
+    The computed trendline metadata (slope, intercept, r_value, r_squared,
+    n_points, type) is stored on fig._lytrize_trendline for the auto-insight
+    engine to consume, so insights always reflect the actual rendered trend.
     """
     x_vals = pd.to_numeric(plot_df[x], errors="coerce").dropna().values
     y_vals = pd.to_numeric(plot_df[y], errors="coerce").dropna().values
@@ -53,7 +57,10 @@ def _add_trendline(fig, plot_df, x: str, y: str, tl_type: str) -> None:
     x_vals = x_vals[:min_len]
     y_vals = y_vals[:min_len]
     if min_len < 3:
+        fig._lytrize_trendline = {"type": tl_type, "n_points": 0, "active": False}
         return
+
+    trend_meta: dict = {"type": tl_type, "n_points": min_len, "active": True}
 
     if tl_type == "lowess" and _HAS_SCIPY:
         from scipy.interpolate import interp1d
@@ -70,10 +77,30 @@ def _add_trendline(fig, plot_df, x: str, y: str, tl_type: str) -> None:
             line=dict(width=2, dash="dot", color="#ef4444"),
             hovertemplate=f"<b>{y} (trend):</b> %{{y:,.3f}}<extra></extra>",
         ))
+        # Approximate linear-equivalent r for LOWESS by comparing smoothed
+        # values vs actual — this gives a rough goodness-of-fit indication.
+        y_actual_interp = np.interp(xs, x_vals, y_vals)
+        residuals = y_actual_interp - ys_smooth
+        ss_res = np.sum(residuals ** 2)
+        ss_tot = np.sum((y_actual_interp - np.mean(y_actual_interp)) ** 2)
+        trend_meta["r_squared_raw"] = 1.0 - (ss_res / ss_tot) if ss_tot != 0 else 0.0
     else:
         # OLS — works with or without scipy
         slope, intercept, r_val = _ols_trendline(x_vals, y_vals)
+        r_sq = r_val ** 2
         trend_y = slope * x_vals + intercept
+        # Residual analysis: count points within 1 standard error of the line
+        residuals = y_vals - trend_y
+        std_err = np.std(residuals)
+        within_one_sigma = int(np.sum(np.abs(residuals) <= std_err))
+        trend_meta.update({
+            "slope": slope,
+            "intercept": intercept,
+            "r_value": r_val,
+            "r_squared": r_sq,
+            "std_err": std_err,
+            "within_one_sigma": within_one_sigma,
+        })
         fig.add_trace(go.Scatter(
             x=x_vals, y=trend_y,
             mode="lines",
@@ -81,6 +108,8 @@ def _add_trendline(fig, plot_df, x: str, y: str, tl_type: str) -> None:
             line=dict(width=2, dash="dot", color="#ef4444"),
             hovertemplate=f"<b>{y} (trend):</b> %{{y:,.3f}}<extra></extra>",
         ))
+
+    fig._lytrize_trendline = trend_meta
 
 
 
