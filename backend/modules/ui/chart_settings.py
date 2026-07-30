@@ -6,7 +6,6 @@ import logging
 
 
 import copy
-import functools
 import json
 import re
 from typing import Any
@@ -15,7 +14,6 @@ from typing import Any
 import streamlit as st
 
 
-from modules.charts import clean_insight_text
 from modules.ui.font_manager import inject_font_preview_css, font_select
 
 

@@ -4,7 +4,6 @@ import logging
 
 import warnings
 import json
-import os
 
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -43,7 +42,7 @@ from modules.pages.home            import page_home
 from modules.pages.upload          import page_upload
 from modules.pages.analysis        import page_analysis
 from modules.pages.dashboard       import page_dashboard
-from modules.utils.session_cache   import save_df_snapshot, load_df_snapshot, set_df
+from modules.utils.session_cache   import load_df_snapshot, set_df
 
 
 
@@ -139,14 +138,11 @@ def _restore_draft(user_id: int) -> None:
             pass
 
 
-    saved_page   = draft.get("page", "")
-    df_available = st.session_state.get("df") is not None
-    has_charts   = bool(st.session_state.get("charts"))
-    if df_available:
-        if has_charts and saved_page in ("analysis", "dashboard"):
-            st.session_state._restore_to_page = saved_page
-        elif has_charts:
-            st.session_state._restore_to_page = "analysis"
+    # NOTE: we intentionally do NOT auto-navigate to "analysis"/"dashboard" here.
+    # The app should always land on Home after a restart. The draft's charts,
+    # dataframe, and KPIs are still loaded into session_state above, so if the
+    # user manually navigates to Analysis/Dashboard their in-progress work is
+    # still there to resume -- we just don't jump there automatically.
 
 
 
@@ -175,8 +171,7 @@ def main() -> None:
 
 
     if "page" not in st.session_state:
-        restore_page = st.session_state.pop("_restore_to_page", None)
-        st.session_state.page = restore_page if restore_page else "home"
+        st.session_state.page = "home"
 
 
     if "user_id" in st.session_state and url_nav == "home":

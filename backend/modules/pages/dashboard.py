@@ -1,5 +1,5 @@
 """modules/pages/dashboard.py -- Dashboard view, editing, saving, and PDF export."""
-import json, copy, datetime
+import json, copy
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as _comp  # used for live preview iframe
@@ -8,20 +8,17 @@ import re
 
 
 from modules.database import (
-    log_activity,
     save_session_db, update_session_db,
     get_session_charts, get_session_meta,
     clear_draft, save_draft,
 )
-from modules.charts import charts_to_json, clean_insight_text, _fmt_num, apply_hover_format
+from modules.charts import charts_to_json, _fmt_num
 from modules.export import generate_html_report
 from modules.ui.css import inject_footer, render_logo
 from modules.ui.chart_settings import (
     apply_chart_display_options,
-    compute_meta_hash,
     default_text_style as _shared_default_text_style,
     merge_text_style as _shared_merge_text_style,
-    render_chart_settings_controls,
 )
 from modules.ui.font_manager import inject_font_preview_css, font_select, get_font_stack
 
@@ -467,8 +464,7 @@ def _render_kpi_manage_panel(df, readonly: bool) -> None:
                         layout_mode     = st.session_state.get("layout_mode", "portrait"),
                     )
                 except Exception as exc:
-                    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                    pass
+                    _logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             st.success(f"✅ {kpi['label']}: {kpi['value']}{kpi['suffix']}")
             st.rerun()
     elif not readonly:

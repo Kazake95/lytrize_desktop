@@ -302,8 +302,7 @@ def show_dtype_transformer(df):
             try:
                 from modules.analysis.map_plot import (
                     _build_country_map, _build_us_state_map,
-                    resolve_geo_names, get_unresolved_values, _norm,
-                    _CHOROPLETH_SCALES,
+                    resolve_geo_names,
                 )
                 _str_cols = [
                     c for c in df.columns

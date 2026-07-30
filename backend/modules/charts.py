@@ -44,7 +44,6 @@ def _json_safe(obj):
 @session_cached
 def _charts_json_cached(chart_uids_tuple, notes_hash):
     """Recompute charts_json only when the chart set or notes change."""
-    from modules.ui.chart_settings import compute_meta_hash  # local to avoid circular
     # Rebuild the list from session_state live (charts tuple covers identity).
     charts = st.session_state.get("charts", [])
     # Attach fresh meta so the serialized payload is always up-to-date.
@@ -352,514 +351,545 @@ def _as_list(values) -> list:
         return []
 
 
+def _named(col: str, col_desc: dict) -> str:
+    """Return a column name, optionally annotated with its description."""
+    desc = col_desc.get(col, "").strip()
+    if desc:
+        short = desc[:55] + "…" if len(desc) > 55 else desc
+        return f"{col} ({short})"
+    return col
+
+
+def _primary_col_from_title(title: str) -> str:
+    """Strip known chart-title prefixes (e.g. 'Dist: ') to recover the column name."""
+    for prefix in ("Dist: ", "TS: ", "Outliers: ", "Trend: ",
+                   "Counts: ", "Time Series: "):
+        if title.startswith(prefix):
+            return title[len(prefix):]
+    return ""
+
+
+# ---------------------------------------------------------------------------
+# Per-chart-type insight generators.
+#
+# Each function inspects the figure/title for one chart type and returns a
+# list of plain-English insight strings. Splitting these out (instead of one
+# large if/elif ladder) keeps each chart type's logic independently readable,
+# testable, and editable without needing to hold the whole ladder in mind.
+# ---------------------------------------------------------------------------
+
+def _insights_distribution(fig, title: str, tl: str, col_desc: dict) -> list:
+    insights = []
+    try:
+        arr = _as_number_series(fig.data[0].x)
+        if arr.empty:
+            return []
+        col = _primary_col_from_title(title) or "this column"
+        mean, median, std = arr.mean(), arr.median(), arr.std()
+        skew = float(arr.skew())
+
+        insights.append(
+            f"{_named(col, col_desc)} centres around {_fmt_num(median)} "
+            f"(median). The average is {_fmt_num(mean)}, "
+            f"with a typical spread of ±{_fmt_num(std)}."
+        )
+
+        if abs(skew) > 1.5:
+            if skew > 0:
+                insights.append(
+                    "A small number of unusually high values are pulling the average "
+                    "above the typical case — the median is the more reliable benchmark here."
+                )
+            else:
+                insights.append(
+                    "A few very low values are dragging the average down — "
+                    "the median gives a fairer picture of the typical record."
+                )
+        elif abs(skew) > 0.5:
+            direction = "higher" if skew > 0 else "lower"
+            insights.append(
+                f"The distribution leans slightly {direction}, "
+                "so averages and medians tell a similar but not identical story."
+            )
+        else:
+            insights.append(
+                "Values are symmetrically distributed — the average and median "
+                "are close, making either a reliable summary."
+            )
+
+        q1, q3 = arr.quantile(0.25), arr.quantile(0.75)
+        iqr = q3 - q1
+        n_out = int(((arr < q1 - 1.5 * iqr) | (arr > q3 + 1.5 * iqr)).sum())
+        if n_out > 0:
+            pct_out = n_out / len(arr) * 100
+            insights.append(
+                f"{n_out:,} {_plural(n_out, 'value')} ({pct_out:.1f}%) "
+                f"{'sits' if n_out == 1 else 'sit'} outside the normal range — "
+                "check these before using totals or averages in reports."
+            )
+
+        p10, p90 = arr.quantile(0.10), arr.quantile(0.90)
+        insights.append(
+            f"The middle 80% of records fall between "
+            f"{_fmt_num(p10)} and {_fmt_num(p90)}."
+        )
+    except Exception as exc:
+        logging.getLogger(__name__).debug("distribution insights failed: %s", exc, exc_info=True)
+    return insights
+
+
+def _insights_correlation(fig, title: str, tl: str, col_desc: dict) -> list:
+    insights = []
+    try:
+        z        = fig.data[0].z
+        x_labels = _as_list(getattr(fig.data[0], "x", None))
+        y_labels = _as_list(getattr(fig.data[0], "y", None)) or x_labels
+        if z is not None:
+            best = None
+            for r, row in enumerate(z):
+                for c, val in enumerate(row):
+                    if r == c or val is None:
+                        continue
+                    try:
+                        fv = float(val)
+                    except Exception:
+                        continue
+                    if abs(fv) >= 1:
+                        continue
+                    if best is None or abs(fv) > abs(best[0]):
+                        left  = str(y_labels[r]) if r < len(y_labels) else f"Column {r+1}"
+                        right = str(x_labels[c]) if c < len(x_labels) else f"Column {c+1}"
+                        best  = (fv, left, right)
+            if best:
+                strength  = ("strong" if abs(best[0]) >= 0.7
+                             else "moderate" if abs(best[0]) >= 0.4 else "weak")
+                direction = ("tend to rise together"   if best[0] > 0
+                             else "move in opposite directions")
+                insights.append(
+                    f"{_named(best[1], col_desc)} and {_named(best[2], col_desc)} show the "
+                    f"strongest link: {strength} ({best[0]:+.2f}) — they {direction}."
+                )
+                if abs(best[0]) >= 0.7:
+                    insights.append(
+                        "A correlation above 0.7 is worth investigating for a "
+                        "cause-and-effect relationship, though correlation alone "
+                        "does not prove causation."
+                    )
+            else:
+                insights.append(
+                    "No clear relationship stands out. "
+                    "The selected columns appear largely independent of each other."
+                )
+
+        try:
+            strong_pairs, total_pairs = 0, 0
+            for r, row in enumerate(z):
+                for c_idx, val in enumerate(row):
+                    if r >= c_idx or val is None:
+                        continue
+                    try:
+                        fv = float(val)
+                        total_pairs += 1
+                        if abs(fv) >= 0.6:
+                            strong_pairs += 1
+                    except Exception as exc:
+                        logging.getLogger(__name__).debug(
+                            "correlation pair scan failed: %s", exc, exc_info=True
+                        )
+            if total_pairs > 1:
+                insights.append(
+                    f"{strong_pairs} of {total_pairs} column pairs "
+                    f"{'has' if strong_pairs == 1 else 'have'} a correlation "
+                    "above 0.6 — scan the darkest cells for the most actionable links."
+                )
+        except Exception as exc:
+            logging.getLogger(__name__).debug("correlation pair summary failed: %s", exc, exc_info=True)
+
+        insights.append(
+            "Correlation shows association, not causation — use it as a lead for deeper investigation."
+        )
+    except Exception as exc:
+        logging.getLogger(__name__).debug("correlation insights failed: %s", exc, exc_info=True)
+    return insights
+
+
+def _insights_outlier(fig, title: str, tl: str, col_desc: dict) -> list:
+    insights = []
+    try:
+        col = _primary_col_from_title(title) or "this column"
+        outlier_trace = next(
+            (t for t in fig.data
+             if "outlier" in str(getattr(t, "name", "")).lower()), None)
+
+        total_pts = sum(
+            len(getattr(t, "y", None) or []) for t in fig.data
+            if getattr(t, "y", None) is not None
+        )
+
+        if outlier_trace and len(getattr(outlier_trace, "y", []) or []) > 0:
+            n    = len(outlier_trace.y)
+            vals = _as_number_series(outlier_trace.y)
+            pct  = n / total_pts * 100 if total_pts > 0 else 0
+            if not vals.empty:
+                insights.append(
+                    f"{_named(col, col_desc)} has {n:,} {_plural(n, 'outlier')} "
+                    f"({pct:.1f}% of records), ranging from "
+                    f"{_fmt_num(vals.min())} to {_fmt_num(vals.max())}."
+                )
+            else:
+                insights.append(
+                    f"{_named(col, col_desc)}: {n:,} {_plural(n, 'outlier')} detected "
+                    f"({pct:.1f}% of records)."
+                )
+            if pct > 10:
+                insights.append(
+                    "Over 10% of records are flagged — this may indicate a "
+                    "measurement scale issue, data-entry errors, or a genuine "
+                    "multi-modal distribution. Review before computing averages."
+                )
+            elif n > 5:
+                insights.append(
+                    "Check these rows individually — they could be data-entry "
+                    "mistakes or legitimately exceptional events worth noting."
+                )
+            else:
+                insights.append(
+                    "A small number of outliers. Inspect each one; a single "
+                    "extreme value can shift averages and totals significantly."
+                )
+        else:
+            insights.append(
+                f"No outliers detected in {_named(col, col_desc)} — the data looks clean."
+            )
+    except Exception as exc:
+        logging.getLogger(__name__).debug("outlier insights failed: %s", exc, exc_info=True)
+    return insights
+
+
+def _insights_time_series(fig, title: str, tl: str, col_desc: dict) -> list:
+    insights = []
+    try:
+        col = _primary_col_from_title(title) or "the metric"
+        y = _as_number_series(fig.data[0].y)
+        x_vals = _as_list(getattr(fig.data[0], "x", None))
+        if len(y) >= 2:
+            trend = ("increased" if y.iloc[-1] > y.iloc[0]
+                     else "decreased" if y.iloc[-1] < y.iloc[0] else "stayed flat")
+            pct = ((y.iloc[-1] - y.iloc[0]) / abs(y.iloc[0]) * 100
+                   if y.iloc[0] != 0 else 0)
+            insights.append(
+                f"{_named(col, col_desc)} {trend} overall — "
+                f"from {_fmt_num(y.iloc[0])} to {_fmt_num(y.iloc[-1])} "
+                f"({_fmt_pct(pct)} change from first to last period)."
+            )
+
+            peak_i = int(y.reset_index(drop=True).idxmax())
+            low_i  = int(y.reset_index(drop=True).idxmin())
+            peak_x = f" at {_fmt_label(x_vals[peak_i])}" if peak_i < len(x_vals) else ""
+            low_x  = f" at {_fmt_label(x_vals[low_i])}"  if low_i  < len(x_vals) else ""
+            insights.append(
+                f"Peak: {_fmt_num(y.max())}{peak_x}. "
+                f"Lowest: {_fmt_num(y.min())}{low_x}. "
+                f"The range spans {_fmt_num(y.max() - y.min())}."
+            )
+
+            cv = y.std() / abs(y.mean()) if y.mean() != 0 else 0
+            if cv > 0.5:
+                insights.append(
+                    "High variability across periods — look for recurring "
+                    "seasonal patterns or one-off spikes before using this trend "
+                    "for forecasting."
+                )
+            elif cv < 0.1:
+                insights.append(
+                    "Very consistent across periods — a reliable baseline for benchmarking or targets."
+                )
+            else:
+                insights.append(
+                    "Moderate variability — look for repeating peaks or dips that could signal seasonality."
+                )
+    except Exception:
+        insights.append(
+            "Look for repeating peaks or dips; those often point to "
+            "seasonality or operating patterns."
+        )
+    return insights
+
+
+def _insights_categorical(fig, title: str, tl: str, col_desc: dict) -> list:
+    insights = []
+    try:
+        data = fig.data[0]
+        is_horiz = getattr(data, "orientation", "v") == "h"
+        if is_horiz:
+            vals = [v for v in _as_list(getattr(data, "x", None)) if v is not None]
+            xs   = _as_list(getattr(data, "y", None))
+        elif (hasattr(data, "y") and data.y is not None
+              and not isinstance(data.y[0] if len(data.y) else 0, str)):
+            vals = [v for v in _as_list(data.y) if v is not None]
+            xs   = _as_list(getattr(data, "x", None))
+        elif hasattr(data, "values") and data.values is not None:
+            vals = _as_list(data.values)
+            xs   = _as_list(getattr(data, "labels", None))
+        else:
+            vals = [v for v in _as_list(getattr(data, "x", None))
+                    if isinstance(v, (int, float))]
+            xs   = _as_list(getattr(data, "y", None))
+
+        if vals:
+            vals    = [float(v) for v in vals]
+            total   = sum(v for v in vals if v)
+            top_i   = vals.index(max(vals))
+            bot_i   = vals.index(min(vals))
+            top_cat = xs[top_i] if xs and top_i < len(xs) else str(top_i)
+            bot_cat = xs[bot_i] if xs and bot_i < len(xs) else str(bot_i)
+            top_pct = (max(vals) / total * 100) if total else 0
+
+            cat_col = next((c for c in col_desc if c.lower() in tl), "")
+            cat_ctx = f" ({col_desc[cat_col].strip()[:50]})" if cat_col and col_desc.get(cat_col) else ""
+            insights.append(
+                f"{top_cat}{cat_ctx} leads at {_fmt_num(max(vals))}, "
+                f"representing {top_pct:.1f}% of the total."
+            )
+
+            n_cats = len(vals)
+            if n_cats > 1:
+                sorted_vals = sorted(vals, reverse=True)
+                if len(sorted_vals) > 1 and sorted_vals[1]:
+                    ratio = sorted_vals[0] / sorted_vals[1]
+                    if ratio >= 2:
+                        insights.append(
+                            f"The top category is {ratio:.1f}× the second — "
+                            "a clear leader with a significant gap."
+                        )
+                    elif ratio >= 1.1:
+                        insights.append(
+                            f"The leader is {ratio:.1f}× the next category — "
+                            "a meaningful but not extreme gap."
+                        )
+
+                even_pct      = 100 / n_cats
+                concentration = max(vals) / total * 100
+                if concentration > 2.5 * even_pct:
+                    insights.append(
+                        f"Highly concentrated — a single category holds "
+                        f"{top_pct:.0f}% of the total across {n_cats} options. "
+                        "This creates dependency risk."
+                    )
+                elif concentration < 1.5 * even_pct:
+                    insights.append(
+                        f"Values are evenly spread across {n_cats} categories "
+                        "— no single category dominates."
+                    )
+
+                if total and min(vals) > 0:
+                    bot_pct = (min(vals) / total * 100)
+                    if max(vals) / max(min(vals), 1) >= 3:
+                        insights.append(
+                            f"Lowest: **{bot_cat}** at {_fmt_num(min(vals))} ({bot_pct:.1f}%) — "
+                            "a significant gap from the top; worth investigating if this is expected."
+                        )
+    except Exception as exc:
+        logging.getLogger(__name__).debug("categorical insights failed: %s", exc, exc_info=True)
+    return insights
+
+
+def _insights_scatter(fig, title: str, tl: str, col_desc: dict) -> list:
+    insights = []
+    try:
+        cols_match = re.search(r"Scatter:\s*(.+?)\s+vs\s+(.+?)(\s|$|·|—)", title)
+        x_col = cols_match.group(1).strip() if cols_match else "X"
+        y_col = cols_match.group(2).strip() if cols_match else "Y"
+
+        has_straight = False
+        has_smooth   = False
+        slope_val    = None
+        for _t in fig.data:
+            _mode = str(getattr(_t, "mode", ""))
+            _name = str(getattr(_t, "name", "")).lower()
+            if "lines" in _mode and "markers" not in _mode:
+                if "ols" in _name or "=" in _name or "trendline" in _name:
+                    has_straight = True
+                    _slope_m = re.search(r"y\s*=\s*([+-]?[\d.]+)x", _name)
+                    if _slope_m:
+                        try: slope_val = float(_slope_m.group(1))
+                        except Exception: pass
+                else:
+                    has_smooth = True
+
+        r_match = re.search(r"r\s*=\s*([+-]?\d+\.\d+)", title)
+        r_val   = float(r_match.group(1)) if r_match else None
+
+        scatter_trace = next(
+            (t for t in fig.data if "markers" in str(getattr(t, "mode", ""))), None)
+
+        if r_val is not None:
+            strength  = "strong" if abs(r_val) >= 0.7 else "moderate" if abs(r_val) >= 0.4 else "weak"
+            direction = "positive" if r_val > 0 else "negative"
+            insights.append(
+                f"{_named(x_col, col_desc)} and {_named(y_col, col_desc)} show a {strength} {direction} "
+                f"link (relationship score: {abs(r_val):+.2f})."
+            )
+            if abs(r_val) >= 0.7:
+                insights.append(
+                    "A strong link suggests a predictable pattern — when one moves, the other usually follows. "
+                    "Check whether this is a direct cause or influenced by a third factor."
+                )
+            elif abs(r_val) >= 0.4:
+                insights.append(
+                    "A moderate link exists. The two variables tend to move together, "
+                    "but other factors also play a role."
+                )
+            else:
+                insights.append(
+                    "The link is weak — these variables move largely on their own. "
+                    "A curved or more complex pattern may still be present."
+                )
+
+        if has_straight:
+            if slope_val is not None:
+                direction_word = "increases" if slope_val > 0 else "decreases"
+                insights.append(
+                    f"On average, each 1-unit increase in {_named(x_col, col_desc)} is associated with "
+                    f"{_named(y_col, col_desc)} {direction_word}ing by {abs(slope_val):.3g}."
+                )
+            else:
+                insights.append("A straight trendline is fitted, showing the overall direction.")
+            insights.append(
+                "Points far from this line are unusual cases — they may be exceptions worth checking."
+            )
+
+        if has_smooth:
+            insights.append(
+                "A smooth trendline is fitted, following the natural shape of the data. "
+                "Where it bends, the relationship between the variables changes."
+            )
+            insights.append(
+                f"Where the smooth line flattens, {_named(y_col, col_desc)} stops responding to {_named(x_col, col_desc)} — "
+                "a potential saturation or threshold effect."
+            )
+
+        if not has_straight and not has_smooth and r_val is None:
+            insights.append(
+                "No trendline fitted yet. Add a straight line to quantify the overall direction, "
+                "or a smooth line to reveal curved patterns."
+            )
+
+        if scatter_trace:
+            n_pts = len(getattr(scatter_trace, "x", []) or [])
+            if n_pts:
+                insights.append(f"Chart shows {n_pts:,} data points.")
+                if n_pts >= 7_000:
+                    insights.append(
+                        "Large sample — dense overplotting may hide structure. "
+                        "Try colouring by a category column to separate groups."
+                    )
+
+    except Exception as exc:
+        logging.getLogger(__name__).debug("scatter insights failed: %s", exc, exc_info=True)
+
+    if not insights:
+        insights.append(
+            "Scatter plot generated. Explore the relationship between the "
+            "X and Y axes — add a trendline to reveal the pattern."
+        )
+    return insights
+
+
+def _insights_map(fig, title: str, tl: str, col_desc: dict) -> list:
+    return []  # No auto-insights for map charts
+
+
+def _insights_matrix(fig, title: str, tl: str, col_desc: dict) -> list:
+    return []  # No auto-insights for matrix heatmaps/tables
+
+
+def _insights_statistical(fig, title: str, tl: str, col_desc: dict) -> list:
+    insights = []
+    try:
+        data   = fig.data[0]
+        vals   = _as_number_series(getattr(data, "y", []))
+        labels = _as_list(getattr(data, "x", None))
+        if not vals.empty:
+            top_i     = int(vals.reset_index(drop=True).idxmax())
+            bot_i     = int(vals.reset_index(drop=True).idxmin())
+            top_label = labels[top_i] if top_i < len(labels) else "The highest item"
+            bot_label = labels[bot_i] if bot_i < len(labels) else "The lowest item"
+            insights.append(
+                f"{_named(top_label, col_desc)} is the highest at {_fmt_num(vals.max())}; "
+                f"{_named(bot_label, col_desc)} is the lowest at {_fmt_num(vals.min())}."
+            )
+            val_range = vals.max() - vals.min()
+            if val_range > 0:
+                insights.append(
+                    f"The gap between top and bottom is {_fmt_num(val_range)} — "
+                    f"a {val_range / vals.min() * 100:.0f}% difference from the lowest."
+                    if vals.min() != 0 else
+                    f"The gap between top and bottom is {_fmt_num(val_range)}."
+                )
+    except Exception as exc:
+        logging.getLogger(__name__).debug("statistical insights failed: %s", exc, exc_info=True)
+    if not insights:
+        insights.append(
+            "Compare the largest and smallest values first — "
+            "they usually explain the main story."
+        )
+    return insights
+
+
+def _insights_data_quality(fig, title: str, tl: str, col_desc: dict) -> list:
+    insights = []
+    try:
+        data = fig.data[0]
+        if hasattr(data, "labels") and hasattr(data, "values"):
+            labels = list(data.labels)
+            vals   = [float(v) for v in data.values]
+            total  = sum(vals)
+            details = [
+                f"{label}: {_fmt_num(val)} ({val/total*100:.1f}%)"
+                for label, val in zip(labels, vals)
+            ]
+            if details:
+                insights.append("Data quality split — " + "; ".join(details) + ".")
+    except Exception as exc:
+        logging.getLogger(__name__).debug("data quality insights failed: %s", exc, exc_info=True)
+    insights.append(
+        "Resolve missing or duplicate rows before using these charts for decisions."
+    )
+    return insights
+
+
+# Ordered (predicate, handler) pairs — evaluated top to bottom, first match wins,
+# mirroring the original if/elif chain's priority order exactly.
+_INSIGHT_DISPATCH = [
+    (lambda ct, tl: ct == "distribution" or "dist:" in tl, _insights_distribution),
+    (lambda ct, tl: ct == "correlation" or "correlation" in tl, _insights_correlation),
+    (lambda ct, tl: ct == "outlier" or "outlier" in tl, _insights_outlier),
+    (lambda ct, tl: ct == "time_series" or "ts:" in tl or "trend" in tl, _insights_time_series),
+    (lambda ct, tl: ct in ("categorical", "pie_chart") or any(k in tl for k in ("count", "bar", "pie", "donut")), _insights_categorical),
+    (lambda ct, tl: ct in ("scatter", "scatter_plot") or "scatter:" in tl, _insights_scatter),
+    (lambda ct, tl: ct == "map_plot" or "map:" in tl, _insights_map),
+    (lambda ct, tl: ct in ("matrix_heatmap", "matrix_table") or "matrix" in tl, _insights_matrix),
+    (lambda ct, tl: ct == "statistical" or any(k in tl for k in ("mean", "std", "min", "max")), _insights_statistical),
+    (lambda ct, tl: ct == "data_quality" or any(k in tl for k in ("missing", "duplicate", "quality")), _insights_data_quality),
+]
+
+
 def generate_chart_insights(chart_type: str, title: str, fig,
                              col_descriptions: dict = None) -> list:
-    """Produce plain-English observations from a Plotly figure."""
-    insights = []
+    """Produce plain-English observations from a Plotly figure.
+
+    Dispatches to a per-chart-type generator (see _INSIGHT_DISPATCH above),
+    then appends any column-description context relevant to the title.
+    """
     tl = title.lower()
     col_desc = col_descriptions or {}
 
-    def _named(col: str) -> str:
-        desc = col_desc.get(col, "").strip()
-        if desc:
-            short = desc[:55] + "…" if len(desc) > 55 else desc
-            return f"{col} ({short})"
-        return col
-
-    def _primary_col_from_title() -> str:
-        for prefix in ("Dist: ", "TS: ", "Outliers: ", "Trend: ",
-                       "Counts: ", "Time Series: "):
-            if title.startswith(prefix):
-                return title[len(prefix):]
-        return ""
-
-    def _cols_in_title() -> list:
-        return [c for c in col_desc if c and c.lower() in tl and col_desc[c].strip()]
-
-    def _append_desc_context():
-        relevant = _cols_in_title()
-        for col in relevant:
-            desc = col_desc[col].strip()
-            if desc and col not in " ".join(insights):
-                insights.append(f"Column context — {col}: {desc}")
-
-    # ----- distribution -----
-    if chart_type == "distribution" or "dist:" in tl:
-        try:
-            arr = _as_number_series(fig.data[0].x)
-            if arr.empty:
-                return []
-            col = _primary_col_from_title() or "this column"
-            mean, median, std = arr.mean(), arr.median(), arr.std()
-            skew = float(arr.skew())
-
-            insights.append(
-                f"{_named(col)} centres around {_fmt_num(median)} "
-                f"(median). The average is {_fmt_num(mean)}, "
-                f"with a typical spread of ±{_fmt_num(std)}."
-            )
-
-            if abs(skew) > 1.5:
-                if skew > 0:
-                    insights.append(
-                        "A small number of unusually high values are pulling the average "
-                        "above the typical case — the median is the more reliable benchmark here."
-                    )
-                else:
-                    insights.append(
-                        "A few very low values are dragging the average down — "
-                        "the median gives a fairer picture of the typical record."
-                    )
-            elif abs(skew) > 0.5:
-                direction = "higher" if skew > 0 else "lower"
-                insights.append(
-                    f"The distribution leans slightly {direction}, "
-                    "so averages and medians tell a similar but not identical story."
-                )
-            else:
-                insights.append(
-                    "Values are symmetrically distributed — the average and median "
-                    "are close, making either a reliable summary."
-                )
-
-            q1, q3 = arr.quantile(0.25), arr.quantile(0.75)
-            iqr = q3 - q1
-            n_out = int(((arr < q1 - 1.5 * iqr) | (arr > q3 + 1.5 * iqr)).sum())
-            if n_out > 0:
-                pct_out = n_out / len(arr) * 100
-                insights.append(
-                    f"{n_out:,} {_plural(n_out, 'value')} ({pct_out:.1f}%) "
-                    f"{'sits' if n_out == 1 else 'sit'} outside the normal range — "
-                    "check these before using totals or averages in reports."
-                )
-
-            p10, p90 = arr.quantile(0.10), arr.quantile(0.90)
-            insights.append(
-                f"The middle 80% of records fall between "
-                f"{_fmt_num(p10)} and {_fmt_num(p90)}."
-            )
-        except Exception as exc:
-            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-            pass
-
-    # ----- correlation -----
-    elif chart_type == "correlation" or "correlation" in tl:
-        try:
-            z        = fig.data[0].z
-            x_labels = _as_list(getattr(fig.data[0], "x", None))
-            y_labels = _as_list(getattr(fig.data[0], "y", None)) or x_labels
-            if z is not None:
-                best = None
-                for r, row in enumerate(z):
-                    for c, val in enumerate(row):
-                        if r == c or val is None:
-                            continue
-                        try:
-                            fv = float(val)
-                        except Exception:
-                            continue
-                        if abs(fv) >= 1:
-                            continue
-                        if best is None or abs(fv) > abs(best[0]):
-                            left  = str(y_labels[r]) if r < len(y_labels) else f"Column {r+1}"
-                            right = str(x_labels[c]) if c < len(x_labels) else f"Column {c+1}"
-                            best  = (fv, left, right)
-                if best:
-                    strength  = ("strong" if abs(best[0]) >= 0.7
-                                 else "moderate" if abs(best[0]) >= 0.4 else "weak")
-                    direction = ("tend to rise together"   if best[0] > 0
-                                 else "move in opposite directions")
-                    insights.append(
-                        f"{_named(best[1])} and {_named(best[2])} show the "
-                        f"strongest link: {strength} ({best[0]:+.2f}) — they {direction}."
-                    )
-                    if abs(best[0]) >= 0.7:
-                        insights.append(
-                            "A correlation above 0.7 is worth investigating for a "
-                            "cause-and-effect relationship, though correlation alone "
-                            "does not prove causation."
-                        )
-                else:
-                    insights.append(
-                        "No clear relationship stands out. "
-                        "The selected columns appear largely independent of each other."
-                    )
-
-            try:
-                strong_pairs, total_pairs = 0, 0
-                for r, row in enumerate(z):
-                    for c_idx, val in enumerate(row):
-                        if r >= c_idx or val is None:
-                            continue
-                        try:
-                            fv = float(val)
-                            total_pairs += 1
-                            if abs(fv) >= 0.6:
-                                strong_pairs += 1
-                        except Exception as exc:
-                            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                            pass
-                if total_pairs > 1:
-                    insights.append(
-                        f"{strong_pairs} of {total_pairs} column pairs "
-                        f"{'has' if strong_pairs == 1 else 'have'} a correlation "
-                        "above 0.6 — scan the darkest cells for the most actionable links."
-                    )
-            except Exception as exc:
-                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                pass
-
-            insights.append(
-                "Correlation shows association, not causation — use it as a lead for deeper investigation."
-            )
-        except Exception as exc:
-            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-            pass
-
-    # ----- outlier -----
-    elif chart_type == "outlier" or "outlier" in tl:
-        try:
-            col = _primary_col_from_title() or "this column"
-            outlier_trace = next(
-                (t for t in fig.data
-                 if "outlier" in str(getattr(t, "name", "")).lower()), None)
-            normal_trace = next(
-                (t for t in fig.data
-                 if "normal" in str(getattr(t, "name", "")).lower()), None)
-
-            total_pts = sum(
-                len(getattr(t, "y", None) or []) for t in fig.data
-                if getattr(t, "y", None) is not None
-            )
-
-            if outlier_trace and len(getattr(outlier_trace, "y", []) or []) > 0:
-                n    = len(outlier_trace.y)
-                vals = _as_number_series(outlier_trace.y)
-                pct  = n / total_pts * 100 if total_pts > 0 else 0
-                if not vals.empty:
-                    insights.append(
-                        f"{_named(col)} has {n:,} {_plural(n, 'outlier')} "
-                        f"({pct:.1f}% of records), ranging from "
-                        f"{_fmt_num(vals.min())} to {_fmt_num(vals.max())}."
-                    )
-                else:
-                    insights.append(
-                        f"{_named(col)}: {n:,} {_plural(n, 'outlier')} detected "
-                        f"({pct:.1f}% of records)."
-                    )
-                if pct > 10:
-                    insights.append(
-                        "Over 10% of records are flagged — this may indicate a "
-                        "measurement scale issue, data-entry errors, or a genuine "
-                        "multi-modal distribution. Review before computing averages."
-                    )
-                elif n > 5:
-                    insights.append(
-                        "Check these rows individually — they could be data-entry "
-                        "mistakes or legitimately exceptional events worth noting."
-                    )
-                else:
-                    insights.append(
-                        "A small number of outliers. Inspect each one; a single "
-                        "extreme value can shift averages and totals significantly."
-                    )
-            else:
-                insights.append(
-                    f"No outliers detected in {_named(col)} — the data looks clean."
-                )
-        except Exception as exc:
-            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-            pass
-
-    # ----- time series -----
-    elif chart_type == "time_series" or "ts:" in tl or "trend" in tl:
-        try:
-            col = _primary_col_from_title() or "the metric"
-            y = _as_number_series(fig.data[0].y)
-            x_vals = _as_list(getattr(fig.data[0], "x", None))
-            if len(y) >= 2:
-                trend = ("increased" if y.iloc[-1] > y.iloc[0]
-                         else "decreased" if y.iloc[-1] < y.iloc[0] else "stayed flat")
-                pct = ((y.iloc[-1] - y.iloc[0]) / abs(y.iloc[0]) * 100
-                       if y.iloc[0] != 0 else 0)
-                insights.append(
-                    f"{_named(col)} {trend} overall — "
-                    f"from {_fmt_num(y.iloc[0])} to {_fmt_num(y.iloc[-1])} "
-                    f"({_fmt_pct(pct)} change from first to last period)."
-                )
-
-                peak_i = int(y.reset_index(drop=True).idxmax())
-                low_i  = int(y.reset_index(drop=True).idxmin())
-                peak_x = f" at {_fmt_label(x_vals[peak_i])}" if peak_i < len(x_vals) else ""
-                low_x  = f" at {_fmt_label(x_vals[low_i])}"  if low_i  < len(x_vals) else ""
-                insights.append(
-                    f"Peak: {_fmt_num(y.max())}{peak_x}. "
-                    f"Lowest: {_fmt_num(y.min())}{low_x}. "
-                    f"The range spans {_fmt_num(y.max() - y.min())}."
-                )
-
-                cv = y.std() / abs(y.mean()) if y.mean() != 0 else 0
-                if cv > 0.5:
-                    insights.append(
-                        "High variability across periods — look for recurring "
-                        "seasonal patterns or one-off spikes before using this trend "
-                        "for forecasting."
-                    )
-                elif cv < 0.1:
-                    insights.append(
-                        "Very consistent across periods — a reliable baseline for benchmarking or targets."
-                    )
-                else:
-                    insights.append(
-                        "Moderate variability — look for repeating peaks or dips that could signal seasonality."
-                    )
-        except Exception:
-            insights.append(
-                "Look for repeating peaks or dips; those often point to "
-                "seasonality or operating patterns."
-            )
-
-    # ----- categorical / pie -----
-    elif (chart_type in ("categorical", "pie_chart")
-          or any(k in tl for k in ("count", "bar", "pie", "donut"))):
-        try:
-            data = fig.data[0]
-            is_horiz = getattr(data, "orientation", "v") == "h"
-            if is_horiz:
-                vals = [v for v in _as_list(getattr(data, "x", None)) if v is not None]
-                xs   = _as_list(getattr(data, "y", None))
-            elif (hasattr(data, "y") and data.y is not None
-                  and not isinstance(data.y[0] if len(data.y) else 0, str)):
-                vals = [v for v in _as_list(data.y) if v is not None]
-                xs   = _as_list(getattr(data, "x", None))
-            elif hasattr(data, "values") and data.values is not None:
-                vals = _as_list(data.values)
-                xs   = _as_list(getattr(data, "labels", None))
-            else:
-                vals = [v for v in _as_list(getattr(data, "x", None))
-                        if isinstance(v, (int, float))]
-                xs   = _as_list(getattr(data, "y", None))
-
-            if vals:
-                vals    = [float(v) for v in vals]
-                total   = sum(v for v in vals if v)
-                top_i   = vals.index(max(vals))
-                bot_i   = vals.index(min(vals))
-                top_cat = xs[top_i] if xs and top_i < len(xs) else str(top_i)
-                bot_cat = xs[bot_i] if xs and bot_i < len(xs) else str(bot_i)
-                top_pct = (max(vals) / total * 100) if total else 0
-
-                cat_col = next((c for c in col_desc if c.lower() in tl), "")
-                cat_ctx = f" ({col_desc[cat_col].strip()[:50]})" if cat_col and col_desc.get(cat_col) else ""
-                insights.append(
-                    f"{top_cat}{cat_ctx} leads at {_fmt_num(max(vals))}, "
-                    f"representing {top_pct:.1f}% of the total."
-                )
-
-                n_cats = len(vals)
-                if n_cats > 1:
-                    sorted_vals = sorted(vals, reverse=True)
-                    if len(sorted_vals) > 1 and sorted_vals[1]:
-                        ratio = sorted_vals[0] / sorted_vals[1]
-                        if ratio >= 2:
-                            insights.append(
-                                f"The top category is {ratio:.1f}× the second — "
-                                "a clear leader with a significant gap."
-                            )
-                        elif ratio >= 1.1:
-                            insights.append(
-                                f"The leader is {ratio:.1f}× the next category — "
-                                "a meaningful but not extreme gap."
-                            )
-
-                    even_pct      = 100 / n_cats
-                    concentration = max(vals) / total * 100
-                    if concentration > 2.5 * even_pct:
-                        insights.append(
-                            f"Highly concentrated — a single category holds "
-                            f"{top_pct:.0f}% of the total across {n_cats} options. "
-                            "This creates dependency risk."
-                        )
-                    elif concentration < 1.5 * even_pct:
-                        insights.append(
-                            f"Values are evenly spread across {n_cats} categories "
-                            "— no single category dominates."
-                        )
-
-                    if total and min(vals) > 0:
-                        bot_pct = (min(vals) / total * 100)
-                        if max(vals) / max(min(vals), 1) >= 3:
-                            insights.append(
-                                f"Lowest: **{bot_cat}** at {_fmt_num(min(vals))} ({bot_pct:.1f}%) — "
-                                "a significant gap from the top; worth investigating if this is expected."
-                            )
-        except Exception as exc:
-            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-            pass
-
-    # ----- scatter -----
-    elif chart_type in ("scatter", "scatter_plot") or "scatter:" in tl:
-        try:
-            cols_match = re.search(r"Scatter:\s*(.+?)\s+vs\s+(.+?)(\s|$|·|—)", title)
-            x_col = cols_match.group(1).strip() if cols_match else "X"
-            y_col = cols_match.group(2).strip() if cols_match else "Y"
-
-            has_straight = False
-            has_smooth   = False
-            slope_val    = None
-            for _t in fig.data:
-                _mode = str(getattr(_t, "mode", ""))
-                _name = str(getattr(_t, "name", "")).lower()
-                if "lines" in _mode and "markers" not in _mode:
-                    if "ols" in _name or "=" in _name or "trendline" in _name:
-                        has_straight = True
-                        _slope_m = re.search(r"y\s*=\s*([+-]?[\d.]+)x", _name)
-                        if _slope_m:
-                            try: slope_val = float(_slope_m.group(1))
-                            except Exception: pass
-                    else:
-                        has_smooth = True
-
-            r_match = re.search(r"r\s*=\s*([+-]?\d+\.\d+)", title)
-            r_val   = float(r_match.group(1)) if r_match else None
-
-            scatter_trace = next(
-                (t for t in fig.data if "markers" in str(getattr(t, "mode", ""))), None)
-
-            if r_val is not None:
-                strength  = "strong" if abs(r_val) >= 0.7 else "moderate" if abs(r_val) >= 0.4 else "weak"
-                direction = "positive" if r_val > 0 else "negative"
-                insights.append(
-                    f"{_named(x_col)} and {_named(y_col)} show a {strength} {direction} "
-                    f"link (relationship score: {abs(r_val):+.2f})."
-                )
-                if abs(r_val) >= 0.7:
-                    insights.append(
-                        "A strong link suggests a predictable pattern — when one moves, the other usually follows. "
-                        "Check whether this is a direct cause or influenced by a third factor."
-                    )
-                elif abs(r_val) >= 0.4:
-                    insights.append(
-                        "A moderate link exists. The two variables tend to move together, "
-                        "but other factors also play a role."
-                    )
-                else:
-                    insights.append(
-                        "The link is weak — these variables move largely on their own. "
-                        "A curved or more complex pattern may still be present."
-                    )
-
-            if has_straight:
-                if slope_val is not None:
-                    direction_word = "increases" if slope_val > 0 else "decreases"
-                    insights.append(
-                        f"On average, each 1-unit increase in {_named(x_col)} is associated with "
-                        f"{_named(y_col)} {direction_word}ing by {abs(slope_val):.3g}."
-                    )
-                else:
-                    insights.append("A straight trendline is fitted, showing the overall direction.")
-                insights.append(
-                    "Points far from this line are unusual cases — they may be exceptions worth checking."
-                )
-
-            if has_smooth:
-                insights.append(
-                    "A smooth trendline is fitted, following the natural shape of the data. "
-                    "Where it bends, the relationship between the variables changes."
-                )
-                insights.append(
-                    f"Where the smooth line flattens, {_named(y_col)} stops responding to {_named(x_col)} — "
-                    "a potential saturation or threshold effect."
-                )
-
-            if not has_straight and not has_smooth and r_val is None:
-                insights.append(
-                    f"No trendline fitted yet. Add a straight line to quantify the overall direction, "
-                    "or a smooth line to reveal curved patterns."
-                )
-
-            if scatter_trace:
-                n_pts = len(getattr(scatter_trace, "x", []) or [])
-                if n_pts:
-                    insights.append(f"Chart shows {n_pts:,} data points.")
-                    if n_pts >= 7_000:
-                        insights.append(
-                            "Large sample — dense overplotting may hide structure. "
-                            "Try colouring by a category column to separate groups."
-                        )
-
-        except Exception as exc:
-            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-            pass
-
-        if not insights:
-            insights.append(
-                f"Scatter plot generated. Explore the relationship between the "
-                "X and Y axes — add a trendline to reveal the pattern."
-            )
-
-    # ----- map -----
-    elif chart_type == "map_plot" or "map:" in tl:
-        pass  # No auto-insights for map charts
-
-    # ----- matrix -----
-    elif chart_type in ("matrix_heatmap", "matrix_table") or "matrix" in tl:
-        pass  # No auto-insights for matrix heatmaps/tables
-
-    # ----- statistical -----
-    elif (chart_type == "statistical"
-          or any(k in tl for k in ("mean", "std", "min", "max"))):
-        try:
-            data   = fig.data[0]
-            vals   = _as_number_series(getattr(data, "y", []))
-            labels = _as_list(getattr(data, "x", None))
-            if not vals.empty:
-                top_i     = int(vals.reset_index(drop=True).idxmax())
-                bot_i     = int(vals.reset_index(drop=True).idxmin())
-                top_label = labels[top_i] if top_i < len(labels) else "The highest item"
-                bot_label = labels[bot_i] if bot_i < len(labels) else "The lowest item"
-                insights.append(
-                    f"{_named(top_label)} is the highest at {_fmt_num(vals.max())}; "
-                    f"{_named(bot_label)} is the lowest at {_fmt_num(vals.min())}."
-                )
-                val_range = vals.max() - vals.min()
-                if val_range > 0:
-                    insights.append(
-                        f"The gap between top and bottom is {_fmt_num(val_range)} — "
-                        f"a {val_range / vals.min() * 100:.0f}% difference from the lowest."
-                        if vals.min() != 0 else
-                        f"The gap between top and bottom is {_fmt_num(val_range)}."
-                    )
-        except Exception as exc:
-            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-            pass
-        if not insights:
-            insights.append(
-                "Compare the largest and smallest values first — "
-                "they usually explain the main story."
-            )
-
-    # ----- data quality -----
-    elif (chart_type == "data_quality"
-          or any(k in tl for k in ("missing", "duplicate", "quality"))):
-        try:
-            data = fig.data[0]
-            if hasattr(data, "labels") and hasattr(data, "values"):
-                labels = list(data.labels)
-                vals   = [float(v) for v in data.values]
-                total  = sum(vals)
-                details = [
-                    f"{label}: {_fmt_num(val)} ({val/total*100:.1f}%)"
-                    for label, val in zip(labels, vals)
-                ]
-                if details:
-                    insights.append("Data quality split — " + "; ".join(details) + ".")
-        except Exception as exc:
-            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-            pass
-        insights.append(
-            "Resolve missing or duplicate rows before using these charts for decisions."
-        )
+    insights = []
+    for predicate, handler in _INSIGHT_DISPATCH:
+        if predicate(chart_type, tl):
+            insights = handler(fig, title, tl, col_desc)
+            break
 
     if col_desc:
         mentioned = " ".join(insights).lower()
