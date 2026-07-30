@@ -26,6 +26,7 @@ from __future__ import annotations
 import logging
 
 import base64
+import os
 from functools import lru_cache
 from pathlib import Path
 

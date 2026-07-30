@@ -4,6 +4,7 @@ import logging
 
 import streamlit as st
 import pandas as pd
+from html import escape
 
 
 from modules.ui.column_manager import show_column_manager
@@ -12,7 +13,7 @@ from modules.ui.data_cleaner   import show_data_cleaner
 from modules.ui.excel_loader   import show_excel_loader
 from modules.ui.css            import inject_footer, render_logo
 from modules.utils.perf        import read_csv_fast, mem_mb
-from modules.utils.session_cache import set_df
+from modules.utils.session_cache import set_df, update_df
 from modules.analysis.data_quality import run_data_quality
 from modules.analysis.outlier import run_outlier_upload
 
@@ -409,6 +410,7 @@ def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
 
 
         if st.checkbox("⚙️ Prepare CSV Download File", key="_enable_csv_export"):
+            import io as _io, datetime as _dt
 
 
             _csv_col1, _csv_col2 = st.columns([2, 1])

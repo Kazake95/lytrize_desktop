@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import copy
 import html
+import re
+from typing import Any
 
 import streamlit as st
 
@@ -120,6 +122,8 @@ def _apply_legend_names(fig, legend_names: dict, legend_title: str = "",
 from modules.ui.chart_settings import (
     apply_chart_display_options,
     compute_meta_hash,
+    _apply_font_only,
+    _font_only_hash,
 )
 
 

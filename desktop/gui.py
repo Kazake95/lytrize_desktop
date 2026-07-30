@@ -48,6 +48,7 @@ import logging
 
 import json
 import os
+import pathlib
 import shutil
 import socket
 import subprocess
@@ -59,7 +60,7 @@ import signal  # process-group termination support
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QSystemTrayIcon, QMenu,
-    QFrame, QComboBox, QProgressBar,
+    QFrame, QComboBox, QProgressBar, QSizePolicy,
     QGraphicsDropShadowEffect,
 )
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QFont
@@ -931,6 +932,7 @@ class Launcher(QWidget):
         try:
             _log_fh = open(_log_path, "w", buffering=1)  # line-buffered
         except Exception:
+            import io
             _log_fh = open(os.devnull, "w")
 
         self._proc = subprocess.Popen(

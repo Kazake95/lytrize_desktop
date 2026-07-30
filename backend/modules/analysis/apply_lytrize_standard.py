@@ -4,6 +4,7 @@ import logging
 """modules/analysis/apply_lytrize_standard.py -- Universal chart standardiser."""
 
 
+import importlib.metadata
 
 
 from modules.charts import chart_layout

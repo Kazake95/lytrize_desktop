@@ -2,23 +2,30 @@
 import logging
 
 
-import json
+import uuid, json
 import streamlit as st
 import streamlit.components.v1 as _comp
 from modules.database import log_activity, save_draft, update_session_db, get_session_meta
 from modules.utils.session_cache import make_json_safe
 from modules.analysis import (
-    ANALYSIS_OPTIONS,
+    ANALYSIS_OPTIONS, _NEEDS_AXES, _NO_FORM,
     render_config_panel, _collect_kwargs, _run,
     _WIDGET_SPEC, _collect_widget_state,
 )
 from modules.analysis.descriptive import run_descriptive
+from modules.analysis.data_quality import run_data_quality
 from modules.charts import (
     charts_to_json,
+    clean_insight_text,
     generate_chart_insights,
+    apply_hover_format,
 )
 from modules.ui.css import inject_footer, render_logo
-
+from modules.ui.chart_settings import (
+    apply_chart_display_options,
+    compute_meta_hash,
+    render_chart_settings_controls,
+)
 
 
 
