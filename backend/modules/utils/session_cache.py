@@ -23,6 +23,20 @@ _CACHES_TO_CLEAR: List[str] = [
     "_dq_charts",
     "_dq_sig",
     "_df_snapshot_sig",
+    # New cache keys added during performance optimisation — these hold
+    # computed stats / previews that become stale when the DataFrame changes.
+    "_ul_df_stats",
+    "_ul_df_stats_ver",
+    "_cls_auto_cache",
+    "_cls_auto_cache_ver",
+    "_csv_export_cache_key",
+    "_csv_export_bytes",
+    "_csv_export_size",
+    "_preview_stats_cache",
+    "_preview_stats_cache_ver",
+    "_df_snapshot_version",
+    "_desc_stats_cache",
+    "_desc_stats_cache_ver",
 ]
 """Session-state keys that must be cleared whenever the DataFrame is replaced."""
 

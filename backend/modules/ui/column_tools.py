@@ -428,21 +428,38 @@ def show_dtype_transformer(df):
 
 
 
+@st.fragment(run_every=None)
 def show_column_classifier(df):
-    """Render the column-type classifier UI (numeric / categorical / datetime)."""
+    """Render the column-type classifier UI (numeric / categorical / datetime).
+
+    Wrapped in a @st.fragment so selecting/deselecting columns in the
+    multiselects only reruns this fragment — not the entire upload page.
+    The "Confirm & Proceed" button uses st.rerun(scope="app") to break out
+    of the fragment when navigating to the analysis page.
+    """
     all_cols = df.columns.tolist()
 
 
-    auto_dt = df.select_dtypes(include=['datetime','datetimetz','timedelta']).columns.tolist()
-    for col in df.select_dtypes(include=['object']):
-        if len(df) > 0 and isinstance(df[col].iloc[0], (datetime.date, datetime.time)):
-            if col not in auto_dt:
-                auto_dt.append(col)
+    # Cache the auto-classification by _df_version — avoids redundant
+    # select_dtypes + iloc[0] scans on every fragment rerun.
+    _df_ver = st.session_state.get("_df_version", 0)
+    _cls_cache_key = "_cls_auto_cache"
+    _cls_ver_key = "_cls_auto_cache_ver"
+    if st.session_state.get(_cls_ver_key) != _df_ver or _cls_cache_key not in st.session_state:
+        auto_dt = df.select_dtypes(include=['datetime','datetimetz','timedelta']).columns.tolist()
+        for col in df.select_dtypes(include=['object']):
+            if len(df) > 0 and isinstance(df[col].iloc[0], (datetime.date, datetime.time)):
+                if col not in auto_dt:
+                    auto_dt.append(col)
 
 
-    auto_num = df.select_dtypes(include=[np.number]).columns.tolist()
-    auto_num = [c for c in auto_num if c not in auto_dt]
-    auto_cat = [c for c in all_cols if c not in auto_num and c not in auto_dt]
+        auto_num = df.select_dtypes(include=[np.number]).columns.tolist()
+        auto_num = [c for c in auto_num if c not in auto_dt]
+        auto_cat = [c for c in all_cols if c not in auto_num and c not in auto_dt]
+        st.session_state[_cls_cache_key] = (auto_num, auto_cat, auto_dt)
+        st.session_state[_cls_ver_key] = _df_ver
+    else:
+        auto_num, auto_cat, auto_dt = st.session_state[_cls_cache_key]
 
 
     st.markdown("---")
@@ -458,7 +475,7 @@ def show_column_classifier(df):
     overlap = []
     if set(confirmed_num) & set(confirmed_cat): overlap.append("Numeric & Categorical")
     if set(confirmed_num) & set(confirmed_dt):  overlap.append("Numeric & Date/Time")
-    if set(confirmed_cat) & set(confirmed_dt):  overlap.append("Categorical & Date/Time")
+    if set(confirmed_cat) & set(confirmed_dt): overlap.append("Categorical & Date/Time")
     if overlap:
         st.warning(f"⚠️ Overlap detected between: {', '.join(overlap)}")
 
@@ -472,4 +489,4 @@ def show_column_classifier(df):
             if "editing_session_id" not in st.session_state:
                 st.session_state.charts   = []
                 st.session_state.selected_analyses = []
-            st.rerun()
+            st.rerun(scope="app")

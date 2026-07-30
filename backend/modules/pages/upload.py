@@ -213,16 +213,22 @@ def _save_upload_snapshot(df, file_name: str) -> None:
     uid = st.session_state.get("user_id")
     if not uid:
         return
+
+    # ── FAST-PATH: Skip entirely if the DataFrame version hasn't changed ──
+    # This is the single most important optimisation for large files:
+    # df.memory_usage(deep=True) is O(rows×cols) and must NEVER run on every
+    # rerun.  The _df_version counter is bumped by set_df()/update_df() and
+    # is the authoritative signal that the DataFrame content has changed.
+    _df_ver = st.session_state.get("_df_version", 0)
+    _last_ver = st.session_state.get("_df_snapshot_version", -1)
+    if _df_ver == _last_ver:
+        return  # DataFrame unchanged since last snapshot — nothing to do
+
     try:
-        # NOTE: id(df) is intentionally excluded from the signature -- it is
-        # only unique for an object's lifetime and gets reused after GC, so a
-        # fresh `.copy()` of unchanged data would otherwise look "changed"
-        # every rerun and trigger redundant snapshot writes. Shape + columns +
-        # a byte-size fingerprint is enough to catch real content changes.
         df_sig = (
             df.shape,
             tuple(df.columns),
-            int(df.memory_usage(deep=True).sum()) if hasattr(df, "memory_usage") else 0,
+            tuple(str(dt) for dt in df.dtypes),
         )
         sig_changed = st.session_state.get("_df_snapshot_sig") != df_sig
 
@@ -264,6 +270,7 @@ def _save_upload_snapshot(df, file_name: str) -> None:
                 ),
             )
             st.session_state["_last_draft_upload_cache"] = draft_cache_key
+
     except Exception as exc:
         # This failure means the user's draft/snapshot did NOT persist --
         # log loudly enough to actually show up in streamlit.log rather than
@@ -273,6 +280,10 @@ def _save_upload_snapshot(df, file_name: str) -> None:
             "Failed to save upload snapshot/draft for user %s: %s",
             uid, exc, exc_info=True,
         )
+    finally:
+        # Always record the version we checked against, even on error, so
+        # we don't retry the (expensive) signature computation every rerun.
+        st.session_state["_df_snapshot_version"] = _df_ver
 
 
 
@@ -285,185 +296,274 @@ def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
     st.success(f"✅ **{file_name}** — {_n_rows:,} rows × {_n_cols} columns")
 
 
-    with st.expander("📋 Data Preview", expanded=True):
-        _pb1, _pb2, _pb3, _pb4 = st.columns([1, 1, 1, 4])
-        with _pb1:
-            if st.button("⬆ Top 10",    key="ul_prev_top",  use_container_width=True):
-                st.session_state["_ul_preview_mode"] = "top"
-        with _pb2:
-            if st.button("⬇ Bottom 10", key="ul_prev_bot",  use_container_width=True):
-                st.session_state["_ul_preview_mode"] = "bottom"
-        with _pb3:
-            if st.button("🎲 Random",   key="ul_prev_rand", use_container_width=True):
-                st.session_state["_ul_preview_mode"] = "random"
-                st.session_state["_ul_random_seed"] = (
-                    st.session_state.get("_ul_random_seed", 0) + 1
-                )
-        with _pb4:
-            _num_c = len(df.select_dtypes("number").columns)
-            _cat_c = len(df.select_dtypes("object").columns)
-            _dt_c  = len(df.select_dtypes("datetime").columns)
-            _null  = round(df.isnull().sum().sum() / max(df.size, 1) * 100, 1)
-            st.caption(
-                f"🔢 {_num_c} numeric  ·  🔤 {_cat_c} text  ·  "
-                f"📅 {_dt_c} datetime  ·  ⚠️ {_null}% missing"
-            )
-
-
-        _ul_mode = st.session_state.get("_ul_preview_mode", "top")
-        _ul_rand_seed = st.session_state.get("_ul_random_seed", 0) if _ul_mode == "random" else 0
-        _df_version = st.session_state.get("_df_version", 0)
-        _cache_key = ("ul_preview", _n_rows, _n_cols, _ul_mode, _ul_rand_seed, _df_version, tuple(df.columns))
-        if st.session_state.get("_ul_preview_cache_key") != _cache_key:
-            try:
-                if _ul_mode == "bottom":
-                    _prev_df = df.tail(10)
-                    _lbl = "Bottom 10 rows"
-                elif _ul_mode == "random":
-                    _prev_df = df.sample(min(10, _n_rows), random_state=None)
-                    _lbl = "10 random rows"
+    # ── Data Preview (fragment-isolated so button clicks don't rerun the
+    # entire upload page) ──────────────────────────────────────────────────
+    @st.fragment(run_every=None)
+    def _render_upload_preview():
+        with st.expander("📋 Data Preview", expanded=True):
+            _pb1, _pb2, _pb3, _pb4 = st.columns([1, 1, 1, 4])
+            with _pb1:
+                if st.button("⬆ Top 10",    key="ul_prev_top",  use_container_width=True):
+                    st.session_state["_ul_preview_mode"] = "top"
+                    st.rerun()
+            with _pb2:
+                if st.button("⬇ Bottom 10", key="ul_prev_bot",  use_container_width=True):
+                    st.session_state["_ul_preview_mode"] = "bottom"
+                    st.rerun()
+            with _pb3:
+                if st.button("🎲 Random",   key="ul_prev_rand", use_container_width=True):
+                    st.session_state["_ul_preview_mode"] = "random"
+                    st.session_state["_ul_random_seed"] = (
+                        st.session_state.get("_ul_random_seed", 0) + 1
+                    )
+                    st.rerun()
+            with _pb4:
+                # Cache expensive DataFrame stats by _df_version — avoids
+                # O(rows×cols) isnull().sum().sum() on every rerun.
+                _df_ver = st.session_state.get("_df_version", 0)
+                _stats_key = "_ul_df_stats"
+                _stats_ver_key = "_ul_df_stats_ver"
+                if st.session_state.get(_stats_ver_key) != _df_ver or _stats_key not in st.session_state:
+                    _num_c = len(df.select_dtypes("number").columns)
+                    _cat_c = len(df.select_dtypes("object").columns)
+                    _dt_c  = len(df.select_dtypes("datetime").columns)
+                    # For large files, sample for null% to avoid O(rows×cols) scan
+                    if _n_rows > 100_000:
+                        _sample_df = df.sample(min(100_000, _n_rows), random_state=42)
+                        _null = round(_sample_df.isnull().sum().sum() / max(_sample_df.size, 1) * 100, 1)
+                    else:
+                        _null = round(df.isnull().sum().sum() / max(df.size, 1) * 100, 1)
+                    st.session_state[_stats_key] = (_num_c, _cat_c, _dt_c, _null)
+                    st.session_state[_stats_ver_key] = _df_ver
                 else:
+                    _num_c, _cat_c, _dt_c, _null = st.session_state[_stats_key]
+                st.caption(
+                    f"🔢 {_num_c} numeric  ·  🔤 {_cat_c} text  ·  "
+                    f"📅 {_dt_c} datetime  ·  ⚠️ {_null}% missing"
+                )
+
+
+            _ul_mode = st.session_state.get("_ul_preview_mode", "top")
+            _ul_rand_seed = st.session_state.get("_ul_random_seed", 0) if _ul_mode == "random" else 0
+            _df_version = st.session_state.get("_df_version", 0)
+            _cache_key = ("ul_preview", _n_rows, _n_cols, _ul_mode, _ul_rand_seed, _df_version, tuple(df.columns))
+            if st.session_state.get("_ul_preview_cache_key") != _cache_key:
+                try:
+                    if _ul_mode == "bottom":
+                        _prev_df = df.tail(10)
+                        _lbl = "Bottom 10 rows"
+                    elif _ul_mode == "random":
+                        _prev_df = df.sample(min(10, _n_rows), random_state=None)
+                        _lbl = "10 random rows"
+                    else:
+                        _prev_df = df.head(10)
+                        _lbl = "Top 10 rows"
+                except Exception:
                     _prev_df = df.head(10)
                     _lbl = "Top 10 rows"
-            except Exception:
-                _prev_df = df.head(10)
-                _lbl = "Top 10 rows"
-            st.session_state["_ul_preview_cache"] = (_prev_df.copy(), _lbl)
-            st.session_state["_ul_preview_cache_key"] = _cache_key
-        else:
-            _prev_df, _lbl = st.session_state.get("_ul_preview_cache", (df.head(10), "Top 10 rows"))
+                st.session_state["_ul_preview_cache"] = (_prev_df.copy(), _lbl)
+                st.session_state["_ul_preview_cache_key"] = _cache_key
+            else:
+                _prev_df, _lbl = st.session_state.get("_ul_preview_cache", (df.head(10), "Top 10 rows"))
 
 
-        st.caption(f"*{_lbl}*")
-        st.dataframe(_prev_df, use_container_width=True, height=min(380, 38 + len(_prev_df) * 35))
+            st.caption(f"*{_lbl}*")
+            st.dataframe(_prev_df, use_container_width=True, height=min(380, 38 + len(_prev_df) * 35))
+
+    _render_upload_preview()
 
 
-    with st.expander("📖 Describe Your Columns (optional)", expanded=False):
-        st.markdown("Describe what each column means for better auto-insights.")
-        col_descs = st.session_state.get("col_descriptions", {})
-        for col in df.columns:
-            col_descs[col] = st.text_input(
-                f"`{col}`",
-                value=col_descs.get(col, ""),
-                key=f"coldesc_{col}",
-                placeholder="e.g. 'Total revenue in USD'",
-            )
-        if st.button("💾 Save Column Descriptions", key="save_col_descs"):
-            st.session_state.col_descriptions = col_descs
-            st.success("✅ Saved.")
-
-
-    with st.expander("🧹 Data Quality Summary", expanded=False):
-        st.info("Check the box below to run a data quality analysis.")
-        if st.checkbox("🔍 Enable Data Quality Diagnostics", key="_enable_dq_run"):
-            with st.spinner("Analyzing data quality metrics..."):
-                if len(df) > 100_000:
-                    st.warning("⚠️ Large dataset detected. Analyzing a representative 100,000-row sample for speed.")
-                    dq_df = df.sample(n=100_000, random_state=42)
-                else:
-                    dq_df = df
-                dq_charts = run_data_quality(dq_df)
-
-
-                if dq_charts:
-                    st.markdown("#### Data Quality Summaries")
-                    for title, fig in dq_charts:
-                        if title == "Duplicate Rows Summary":
-                            unique_rows = int(dq_df.drop_duplicates().shape[0])
-                            duplicate_rows = len(dq_df) - unique_rows
-                            st.markdown(
-                                f"**Duplicate rows:** {duplicate_rows:,} duplicate row(s) / "
-                                f"{unique_rows:,} unique row(s)."
-                            )
-                        else:
-                            st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.info("No data quality issues were detected.")
-
-
-    with st.expander("🔍 Outlier Detection", expanded=False):
-        st.info("Check the box below to run outlier analysis across numeric columns.")
-        if st.checkbox("📊 Enable Outlier Scanners", key="_enable_outlier_run"):
-            with st.spinner("Calculating outlier boundaries..."):
-                if len(df) > 100_000:
-                    st.warning("⚠️ Large dataset detected. Scanning a representative 100,000-row sample for speed.")
-                    outlier_df = df.sample(n=100_000, random_state=42)
-                else:
-                    outlier_df = df
-                run_outlier_upload(outlier_df)
-
-
-    with st.expander("🧩 Column Manager", expanded=False):
-        show_column_manager(df)
-
-
-    with st.expander("🔢 Data-type Transformer", expanded=False):
-        show_dtype_transformer(df)
-
-
-    with st.expander("🧼 Data Cleaner", expanded=False):
-        show_data_cleaner(df)
-
-
-    with st.expander("💾 Save Cleaned Data as CSV", expanded=False):
-        st.caption("Download the current (cleaned) dataset as a CSV file.")
-
-
-        if st.checkbox("⚙️ Prepare CSV Download File", key="_enable_csv_export"):
-            import io as _io, datetime as _dt
-
-
-            _csv_col1, _csv_col2 = st.columns([2, 1])
-            with _csv_col1:
-                _default_name = (
-                    st.session_state.get("file_name", "cleaned_data")
-                    .replace(".csv", "")
-                    .replace(".xlsx", "")
-                    .replace(".xls", "")
-                )
-                _csv_filename = st.text_input(
-                    "File name",
-                    value=f"{_default_name}_cleaned",
-                    placeholder="e.g. my_dataset_cleaned",
-                    key="csv_export_filename",
-                )
-            with _csv_col2:
-                all_cols_for_idx = ["None (default integer index)"] + list(df.columns)
-                _csv_index_choice = st.selectbox(
-                    "Index column (optional)",
-                    options=all_cols_for_idx,
-                    index=0,
-                    key="csv_export_index",
-                )
-
-
-            _fname = (_csv_filename.strip() or "cleaned_data").rstrip(".csv") + ".csv"
-            _use_col_as_idx = (
-                _csv_index_choice
-                if _csv_index_choice != "None (default integer index)"
-                else None
-            )
-
-
-            with st.spinner("Generating export file (this can take a moment for large datasets)..."):
-                _export_df = df.set_index(_use_col_as_idx) if _use_col_as_idx else df
-                _csv_bytes = _export_df.to_csv(index=bool(_use_col_as_idx)).encode("utf-8")
-
-
-            st.download_button(
-                label="⬇️ Download",
-                data=_csv_bytes,
-                file_name=_fname,
-                mime="text/csv",
-                key="csv_export_download_btn",
+    # ── Column Descriptions (fragment-isolated so typing doesn't rerun the
+    # entire page; also uses data_editor instead of N text_inputs) ────────
+    @st.fragment(run_every=None)
+    def _render_col_descriptions():
+        with st.expander("📖 Describe Your Columns (optional)", expanded=False):
+            st.markdown("Describe what each column means for better auto-insights.")
+            col_descs = st.session_state.get("col_descriptions", {})
+            # Build a small editable table — one row per column, far fewer
+            # widgets than N separate st.text_input calls.
+            _desc_rows = [{"Column": c, "Description": col_descs.get(c, "")} for c in df.columns]
+            _edited = st.data_editor(
+                _desc_rows,
                 use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Column": st.column_config.TextColumn(disabled=True),
+                    "Description": st.column_config.TextColumn(
+                        width="large",
+                        help="e.g. 'Total revenue in USD'",
+                    ),
+                },
+                key="_col_desc_editor",
             )
-            st.caption(
-                f"📊 {len(df):,} rows × {len(df.columns)} columns — "
-                f"{len(_csv_bytes)/1024/1024:.1f} MB"
-            )
-        else:
-            st.info("Check the box above to generate the download link for your dataset.")
+            if st.button("💾 Save Column Descriptions", key="save_col_descs"):
+                st.session_state.col_descriptions = {
+                    row["Column"]: row["Description"] for row in _edited
+                }
+                st.success("✅ Saved.")
+
+    _render_col_descriptions()
+
+
+    # ── Data Quality (fragment-isolated) ──────────────────────────────────
+    @st.fragment(run_every=None)
+    def _render_data_quality():
+        with st.expander("🧹 Data Quality Summary", expanded=False):
+            st.info("Check the box below to run a data quality analysis.")
+            if st.checkbox("🔍 Enable Data Quality Diagnostics", key="_enable_dq_run"):
+                with st.spinner("Analyzing data quality metrics..."):
+                    if len(df) > 100_000:
+                        st.warning("⚠️ Large dataset detected. Analyzing a representative 100,000-row sample for speed.")
+                        dq_df = df.sample(n=100_000, random_state=42)
+                    else:
+                        dq_df = df
+                    dq_charts = run_data_quality(dq_df)
+
+
+                    if dq_charts:
+                        st.markdown("#### Data Quality Summaries")
+                        for title, fig in dq_charts:
+                            if title == "Duplicate Rows Summary":
+                                unique_rows = int(dq_df.drop_duplicates().shape[0])
+                                duplicate_rows = len(dq_df) - unique_rows
+                                st.markdown(
+                                    f"**Duplicate rows:** {duplicate_rows:,} duplicate row(s) / "
+                                    f"{unique_rows:,} unique row(s)."
+                                )
+                            else:
+                                st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No data quality issues were detected.")
+
+    _render_data_quality()
+
+
+    # ── Outlier Detection (fragment-isolated) ─────────────────────────────
+    @st.fragment(run_every=None)
+    def _render_outlier_detection():
+        with st.expander("🔍 Outlier Detection", expanded=False):
+            st.info("Check the box below to run outlier analysis across numeric columns.")
+            if st.checkbox("📊 Enable Outlier Scanners", key="_enable_outlier_run"):
+                with st.spinner("Calculating outlier boundaries..."):
+                    if len(df) > 100_000:
+                        st.warning("⚠️ Large dataset detected. Scanning a representative 100,000-row sample for speed.")
+                        outlier_df = df.sample(n=100_000, random_state=42)
+                    else:
+                        outlier_df = df
+                    run_outlier_upload(outlier_df)
+
+    _render_outlier_detection()
+
+
+    # ── Column Manager (fragment-isolated) ────────────────────────────────
+    @st.fragment(run_every=None)
+    def _render_column_manager():
+        with st.expander("🧩 Column Manager", expanded=False):
+            show_column_manager(df)
+
+    _render_column_manager()
+
+
+    # ── Dtype Transformer (fragment-isolated) ─────────────────────────────
+    @st.fragment(run_every=None)
+    def _render_dtype_transformer():
+        with st.expander("🔢 Data-type Transformer", expanded=False):
+            show_dtype_transformer(df)
+
+    _render_dtype_transformer()
+
+
+    # ── Data Cleaner (fragment-isolated) ─────────────────────────────────
+    @st.fragment(run_every=None)
+    def _render_data_cleaner():
+        with st.expander("🧼 Data Cleaner", expanded=False):
+            show_data_cleaner(df)
+
+    _render_data_cleaner()
+
+
+    # ── CSV Export (fragment-isolated + button-triggered so df.to_csv()
+    # only runs when the user explicitly clicks "Generate", not on every
+    # rerun) ──────────────────────────────────────────────────────────────
+    @st.fragment(run_every=None)
+    def _render_csv_export():
+        with st.expander("💾 Save Cleaned Data as CSV", expanded=False):
+            st.caption("Download the current (cleaned) dataset as a CSV file.")
+
+
+            if st.checkbox("⚙️ Prepare CSV Download File", key="_enable_csv_export"):
+                _csv_col1, _csv_col2 = st.columns([2, 1])
+                with _csv_col1:
+                    _default_name = (
+                        st.session_state.get("file_name", "cleaned_data")
+                        .replace(".csv", "")
+                        .replace(".xlsx", "")
+                        .replace(".xls", "")
+                    )
+                    _csv_filename = st.text_input(
+                        "File name",
+                        value=f"{_default_name}_cleaned",
+                        placeholder="e.g. my_dataset_cleaned",
+                        key="csv_export_filename",
+                    )
+                with _csv_col2:
+                    all_cols_for_idx = ["None (default integer index)"] + list(df.columns)
+                    _csv_index_choice = st.selectbox(
+                        "Index column (optional)",
+                        options=all_cols_for_idx,
+                        index=0,
+                        key="csv_export_index",
+                    )
+
+
+                _fname = (_csv_filename.strip() or "cleaned_data").rstrip(".csv") + ".csv"
+                _use_col_as_idx = (
+                    _csv_index_choice
+                    if _csv_index_choice != "None (default integer index)"
+                    else None
+                )
+
+
+                # Cache key based on filename, index choice, and df version
+                _df_ver = st.session_state.get("_df_version", 0)
+                _csv_cache_key = ("csv_export", _fname, _use_col_as_idx, _df_ver)
+                _csv_cached = st.session_state.get("_csv_export_cache_key") == _csv_cache_key
+
+
+                _gc1, _gc2 = st.columns([1, 2])
+                with _gc1:
+                    if st.button("🔄 Generate CSV", key="csv_gen_btn",
+                                 type="primary", use_container_width=True):
+                        with st.spinner("Generating export file (this can take a moment for large datasets)..."):
+                            _export_df = df.set_index(_use_col_as_idx) if _use_col_as_idx else df
+                            _csv_bytes = _export_df.to_csv(index=bool(_use_col_as_idx)).encode("utf-8")
+                            st.session_state["_csv_export_bytes"] = _csv_bytes
+                            st.session_state["_csv_export_cache_key"] = _csv_cache_key
+                            st.session_state["_csv_export_size"] = len(_csv_bytes)
+                        st.rerun()
+
+
+                if _csv_cached and "_csv_export_bytes" in st.session_state:
+                    _csv_bytes = st.session_state["_csv_export_bytes"]
+                    _csv_size = st.session_state.get("_csv_export_size", len(_csv_bytes))
+                    st.download_button(
+                        label="⬇️ Download",
+                        data=_csv_bytes,
+                        file_name=_fname,
+                        mime="text/csv",
+                        key="csv_export_download_btn",
+                        use_container_width=True,
+                    )
+                    st.caption(
+                        f"📊 {len(df):,} rows × {len(df.columns)} columns — "
+                        f"{_csv_size/1024/1024:.1f} MB"
+                    )
+                else:
+                    st.info("Click **Generate CSV** above to create the download link.")
+            else:
+                st.info("Check the box above to generate the download link for your dataset.")
+
+    _render_csv_export()
 
 
     with st.expander("🧠 Classify Columns & Proceed to Analysis", expanded=False):

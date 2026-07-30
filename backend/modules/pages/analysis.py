@@ -2,7 +2,7 @@
 import logging
 
 
-import uuid, json
+import uuid, json, time
 import streamlit as st
 import streamlit.components.v1 as _comp
 from modules.database import log_activity, save_draft, update_session_db, get_session_meta
@@ -152,7 +152,7 @@ def _persist_draft(page="analysis"):
     uid = st.session_state.get("user_id")
     if not uid:
         return
-    
+
     # Debounced autosave: skip if a recent save is still in progress
     # This prevents expensive serialization on every widget interaction
     _last_save = st.session_state.get("_last_draft_save_time", 0)
@@ -164,15 +164,27 @@ def _persist_draft(page="analysis"):
     df = st.session_state.get("df")
     if df is not None:
         try:
+            # O(cols) signature — shape + columns + dtypes is enough to detect
+            # real content changes and costs microseconds even for 300 MB files.
+            # The old code used df.memory_usage(deep=True).sum() which is
+            # O(rows×cols) and took 5-8 seconds for a 150 MB CSV on every call.
+            # Also removed id(df) — it changes on every rerun if the df is
+            # copied (which set_df/update_df do), causing redundant snapshots.
             df_sig = (
-                id(df),
                 df.shape,
                 tuple(df.columns),
-                int(df.memory_usage(deep=True).sum()) if hasattr(df, "memory_usage") else 0,
+                tuple(str(dt) for dt in df.dtypes),
             )
             if st.session_state.get("_df_snapshot_sig") != df_sig:
+                # Background-thread the parquet write so it never blocks the UI
+                import threading
                 from modules.utils.session_cache import save_df_snapshot
-                save_df_snapshot(uid)
+                df_ref = df  # capture on main thread
+                threading.Thread(
+                    target=save_df_snapshot,
+                    args=(uid, df_ref),
+                    daemon=True,
+                ).start()
                 st.session_state["_df_snapshot_sig"] = df_sig
         except Exception as exc:
             logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
@@ -582,7 +594,12 @@ def page_analysis():
                 _num_count = len(df.select_dtypes("number").columns)
                 _cat_count = len(df.select_dtypes("object").columns)
                 _dt_count  = len(df.select_dtypes("datetime").columns)
-                _null_pct  = round(df.isnull().sum().sum() / max(df.size, 1) * 100, 1)
+                # For large files, sample for null% to avoid O(rows×cols) scan
+                if _n_rows > 100_000:
+                    _sample_df = df.sample(min(100_000, _n_rows), random_state=42)
+                    _null_pct  = round(_sample_df.isnull().sum().sum() / max(_sample_df.size, 1) * 100, 1)
+                else:
+                    _null_pct  = round(df.isnull().sum().sum() / max(df.size, 1) * 100, 1)
                 st.session_state[_preview_stats_key] = (_num_count, _cat_count, _dt_count, _null_pct)
                 st.session_state[_preview_stats_ver_key] = _df_ver
             else:
