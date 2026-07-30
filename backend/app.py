@@ -85,6 +85,10 @@ def _restore_draft(user_id: int) -> None:
 
     try:
         charts_raw = json.loads(draft.get("charts_json", "[]"))
+        # Store raw chart data for lazy deserialization — figures are only
+        # parsed from JSON when first accessed, avoiding the cost of
+        # deserializing every chart on every startup.
+        st.session_state["_draft_charts_raw"] = charts_raw
         charts = []
         for item in charts_raw:
             uid      = item.get("uid", "")

@@ -60,7 +60,7 @@ def _charts_json_cached(chart_uids_tuple, notes_hash):
                 "title":         title,
                 "fig_json":      pio.to_json(fig),
                 "desc":          desc,
-                "auto_insights": __import__("modules.charts", fromlist=["clean_insights"]).clean_insights(auto),
+                "auto_insights": clean_insights(auto),
                 "chart_type":    ctype,
                 "meta":          meta,
             })
@@ -264,19 +264,39 @@ def apply_hover_format(fig) -> None:
             )
 
 
+def _cached_col_types():
+    """Return (num_cols, cat_cols, dt_cols) with a session-state cache keyed on _df_version.
+    
+    Avoids three separate st.session_state.get() calls on every analysis config render.
+    """
+    _cache_key = "_cached_col_types"
+    _ver_key   = "_cached_col_types_ver"
+    _df_ver    = st.session_state.get("_df_version", 0)
+    if st.session_state.get(_ver_key) == _df_ver and _cache_key in st.session_state:
+        return st.session_state[_cache_key]
+    result = (
+        st.session_state.get("num_cols", []),
+        st.session_state.get("cat_cols", []),
+        st.session_state.get("dt_cols", []),
+    )
+    st.session_state[_cache_key] = result
+    st.session_state[_ver_key]   = _df_ver
+    return result
+
+
 def num_cols() -> list:
     """Return the list of confirmed numeric column names."""
-    return st.session_state.get("num_cols", [])
+    return _cached_col_types()[0]
 
 
 def cat_cols() -> list:
     """Return the list of confirmed categorical column names."""
-    return st.session_state.get("cat_cols", [])
+    return _cached_col_types()[1]
 
 
 def dt_cols() -> list:
     """Return the list of confirmed datetime column names."""
-    return st.session_state.get("dt_cols", [])
+    return _cached_col_types()[2]
 
 
 def clean_insight_text(text) -> str:

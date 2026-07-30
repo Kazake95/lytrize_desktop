@@ -404,22 +404,13 @@ def get_or_create_guest_user() -> dict:
         try:
             uid = _guest_row_id(conn)
         except sqlite3.OperationalError:
-            try:
-                conn.close()
-            except Exception as exc:
-                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                pass
-            try:
-                init_db()
-            except Exception as exc:
-                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                pass
+            conn.close()
+            init_db()
             conn = _connect()
             try:
                 uid = _guest_row_id(conn)
             except sqlite3.OperationalError:
                 uid = None
-
 
         if uid:
             c = conn.cursor()
@@ -427,7 +418,6 @@ def get_or_create_guest_user() -> dict:
             row = c.fetchone()
             if row:
                 return {"id": row[0], "username": row[1], "is_guest": True}
-
 
         c    = conn.cursor()
         cols = {"username": _GUEST_USERNAME, "email": _GUEST_EMAIL,
@@ -437,7 +427,6 @@ def get_or_create_guest_user() -> dict:
         if _column_exists(conn, "users", "uuid"):
             cols["uuid"] = uuid.uuid4().hex
 
-
         keys = ", ".join(cols.keys())
         phs  = ", ".join(["?"] * len(cols))
         try:
@@ -445,7 +434,6 @@ def get_or_create_guest_user() -> dict:
             conn.commit()
         except Exception:
             conn.rollback()
-
 
         uid = _guest_row_id(conn)
         if uid:
@@ -456,13 +444,12 @@ def get_or_create_guest_user() -> dict:
     finally:
         conn.close()
 
-
+    # Final fallback: try a fresh connection
     try:
-        conn2 = _connect()
-        uid2  = _guest_row_id(conn2)
-        conn2.close()
-        if uid2:
-            return {"id": uid2, "username": _GUEST_USERNAME, "is_guest": True}
+        with _db() as conn:
+            uid2 = _guest_row_id(conn)
+            if uid2:
+                return {"id": uid2, "username": _GUEST_USERNAME, "is_guest": True}
     except Exception as exc:
         logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
         pass
@@ -551,25 +538,17 @@ def save_draft(
 
 def get_draft(user_id: int) -> Optional[dict]:
     """Retrieve the stored draft for a user."""
-    conn = None
     try:
-        conn = _connect()
-        c    = conn.cursor()
-        c.execute(_ph("SELECT * FROM draft_sessions WHERE user_id=?"), (user_id,))
-        row  = c.fetchone()
-        desc = c.description
-        if row and desc:
-            return {col[0]: val for col, val in zip(desc, row)}
+        with _db() as conn:
+            c = conn.cursor()
+            c.execute(_ph("SELECT * FROM draft_sessions WHERE user_id=?"), (user_id,))
+            row  = c.fetchone()
+            desc = c.description
+            if row and desc:
+                return {col[0]: val for col, val in zip(desc, row)}
     except Exception as exc:
         logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
         pass
-    finally:
-        if conn is not None:
-            try:
-                conn.close()
-            except Exception as exc:
-                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                pass
     return None
 
 
@@ -631,28 +610,20 @@ def save_session_db(
 
 def get_session_uuid(session_id: int, user_id=None) -> Optional[str]:
     """Return the logical UUID for a session row."""
-    conn = None
     try:
-        conn = _connect()
-        c    = conn.cursor()
-        if user_id is None:
-            c.execute(_ph("SELECT session_uuid FROM sessions WHERE id=?"), (session_id,))
-        else:
-            c.execute(
-                _ph("SELECT session_uuid FROM sessions WHERE id=? AND user_id=?"),
-                (session_id, user_id),
-            )
-        row = c.fetchone()
-        return row[0] if row and row[0] else None
+        with _db() as conn:
+            c = conn.cursor()
+            if user_id is None:
+                c.execute(_ph("SELECT session_uuid FROM sessions WHERE id=?"), (session_id,))
+            else:
+                c.execute(
+                    _ph("SELECT session_uuid FROM sessions WHERE id=? AND user_id=?"),
+                    (session_id, user_id),
+                )
+            row = c.fetchone()
+            return row[0] if row and row[0] else None
     except Exception:
         return None
-    finally:
-        if conn is not None:
-            try:
-                conn.close()
-            except Exception as exc:
-                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                pass
 
 
 
@@ -856,42 +827,34 @@ def get_user_sessions(user_id: int) -> list:
 
 def get_session_meta(session_id: int, user_id=None) -> Optional[dict]:
     """Fetch dashboard metadata (title, KPIs, layout) for a session."""
-    conn = None
     try:
-        conn = _connect()
-        c    = conn.cursor()
-        if user_id is None:
-            c.execute(
-                _ph("SELECT dashboard_title, kpis_json, layout_mode, grid_order_json, grid_fullwidth_json, export_text_json, export_colours_json FROM sessions WHERE id=?"),
-                (session_id,),
-            )
-        else:
-            c.execute(
-                _ph("SELECT dashboard_title, kpis_json, layout_mode, grid_order_json, grid_fullwidth_json, export_text_json, export_colours_json "
-                    "FROM sessions WHERE id=? AND user_id=?"),
-                (session_id, user_id),
-            )
-        row = c.fetchone()
-        if row:
-            return {
-                "dashboard_title":    row[0] or "",
-                "kpis_json":          row[1] or "[]",
-                "layout_mode":        row[2] or "portrait",
-                "grid_order_json":    row[3] or "[]",
-                "grid_fullwidth_json": row[4] or "{}",
-                "export_text_json":   row[5] or "{}",
-                "export_colours_json": row[6] or "{}",
-            }
+        with _db() as conn:
+            c = conn.cursor()
+            if user_id is None:
+                c.execute(
+                    _ph("SELECT dashboard_title, kpis_json, layout_mode, grid_order_json, grid_fullwidth_json, export_text_json, export_colours_json FROM sessions WHERE id=?"),
+                    (session_id,),
+                )
+            else:
+                c.execute(
+                    _ph("SELECT dashboard_title, kpis_json, layout_mode, grid_order_json, grid_fullwidth_json, export_text_json, export_colours_json "
+                        "FROM sessions WHERE id=? AND user_id=?"),
+                    (session_id, user_id),
+                )
+            row = c.fetchone()
+            if row:
+                return {
+                    "dashboard_title":    row[0] or "",
+                    "kpis_json":          row[1] or "[]",
+                    "layout_mode":        row[2] or "portrait",
+                    "grid_order_json":    row[3] or "[]",
+                    "grid_fullwidth_json": row[4] or "{}",
+                    "export_text_json":   row[5] or "{}",
+                    "export_colours_json": row[6] or "{}",
+                }
     except Exception as exc:
         logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
         pass
-    finally:
-        if conn is not None:
-            try:
-                conn.close()
-            except Exception as exc:
-                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                pass
     return None
 
 
