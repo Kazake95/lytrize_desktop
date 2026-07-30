@@ -38,7 +38,7 @@ Upload a CSV or Excel file and get interactive charts, dashboards, and insights 
 
 1. **Install** — grab the `.deb` or `.rpm` from the [releases page](https://github.com/Kazake95/lytrize_desktop/releases) and install with `dpkg -i` or `dnf install`.
 2. **Open** — launch `lytrize` from your application menu or terminal. The launcher window appears while the backend starts, then your browser opens automatically.
-3. **Upload** — click **Start New Analysis** on the home screen and choose a CSV or Excel file (up to 400 MB).
+3. **Upload** — click **Start New Analysis** on the home screen and choose a CSV or Excel file (up to 300 MB).
 4. **Analyze** — on the Analysis page, click any chart-type card (bar, time series, scatter, correlation, etc.), choose your columns, and click **Generate**. Charts appear instantly with auto-generated insights.
 5. **Build & Export** — click **Proceed to Dashboard**, arrange your charts in a grid, add KPI cards, then **Download HTML** to get a standalone file you can open in any browser or save as PNG via DevTools.
 
@@ -55,7 +55,7 @@ Upload a CSV or Excel file and get interactive charts, dashboards, and insights 
 | **🧹 Data tools** | Rename columns, change data types, flag outliers, and handle missing values before analysis |
 | **💾 Session backup & restore** | Save local session backups and restore any compatible JSON backup, including ones shared by other users |
 | **🔒 Fully offline** | No telemetry, no analytics, no outbound network requests |
-| **🚀 Fast** | Chunked CSV reader, dtype optimization, and smart sampling handle files up to 400 MB |
+| **🚀 Fast** | Chunked CSV reader, dtype optimization, and smart sampling handle files up to 300 MB |
 
 ---
 
@@ -91,7 +91,7 @@ Lytrize includes a native desktop launcher (PySide6) that manages the backend an
 
 ## Install
 
-### Option 1 — Debian / Ubuntu (.deb) *(recommended)*
+### Option 1 — Debian / Ubuntu (.deb) 
 
 ```bash
 sudo dpkg -i lytrize_1.0_amd64.deb

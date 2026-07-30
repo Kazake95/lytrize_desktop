@@ -150,18 +150,27 @@ def get_display_fig(uid: str, base_fig, meta: dict, chart_type: str, *,
                     force: bool = False):
     """Return the *display-ready* figure, recomputed only when meta or base_fig changes.
 
-    Single-level cache keyed on ``compute_meta_hash(meta)`` plus a signature of
-    ``base_fig``.  Because ``compute_meta_hash`` now hashes the full meta dict,
-    any change to display options, typography, labels, or future keys
-    automatically invalidates the cache.  Regeneration swaps ``base_fig`` and
-    the signature changes, so the cache is also invalidated automatically.
+    Cache key combines ``compute_meta_hash(meta)`` with a figure signature.
+    Figure signature is cached by object identity to avoid expensive repeated
+    ``fig.to_json()`` calls on every fragment rerun.
 
     Cache keys live in ``st.session_state`` so they survive fragment reruns.
     """
     cache_key   = f"_display_fig_{uid}"
     hash_key    = f"_display_fig_hash_{uid}"
+    sig_key     = f"_display_fig_sig_{uid}"
+    obj_id_key  = f"_display_fig_objid_{uid}"
 
-    fig_sig     = _fig_signature(base_fig)
+    # Cache figure signature by object identity to avoid repeated to_json()
+    current_obj_id = id(base_fig)
+    cached_obj_id  = st.session_state.get(obj_id_key)
+    if cached_obj_id == current_obj_id:
+        fig_sig = st.session_state.get(sig_key, "")
+    else:
+        fig_sig = _fig_signature(base_fig)
+        st.session_state[sig_key]    = fig_sig
+        st.session_state[obj_id_key] = current_obj_id
+
     cache_hash  = compute_meta_hash(meta) + "|" + fig_sig
 
     if not force and st.session_state.get(hash_key) == cache_hash:

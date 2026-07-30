@@ -101,6 +101,8 @@ CHART_TYPE_SETTINGS: dict[str, dict[str, Any]] = {
         "has_axes": False, "has_legend": False,
         "controls": ["title",
                     "heatmap_colorscale", "colorbar_title",
+                    "colorbar_tick_size", "colorbar_tick_color",
+                    "colorbar_title_size", "colorbar_title_color",
                     "heatmap_show_text", "heatmap_annotation_precision",
                     "heatmap_annotation_size", "heatmap_annotation_color"],
         "typography": ["family", "font_style", "header",
@@ -136,7 +138,9 @@ CHART_TYPE_SETTINGS: dict[str, dict[str, Any]] = {
     "matrix_heatmap": {
         "has_axes": False, "has_legend": False,
         "controls": ["title",
-                    "heatmap_colorscale",
+                    "heatmap_colorscale", "colorbar_title",
+                    "colorbar_tick_size", "colorbar_tick_color",
+                    "colorbar_title_size", "colorbar_title_color",
                     "heatmap_show_text", "heatmap_annotation_precision",
                     "heatmap_annotation_size", "heatmap_annotation_color"],
         "typography": ["family", "font_style", "header",
@@ -146,10 +150,11 @@ CHART_TYPE_SETTINGS: dict[str, dict[str, Any]] = {
         "has_axes": False, "has_legend": False,
         "controls": ["title",
                     "show_colorbar", "colorbar_title",
+                    "colorbar_tick_size", "colorbar_tick_color",
+                    "colorbar_title_size", "colorbar_title_color",
                     "heatmap_colorscale",
                     "marker_opacity", "marker_size"],
-        "typography": ["family", "font_style", "header",
-                      "axis_title", "axis_tick"],
+        "typography": ["family", "font_style", "header"],
     },
     "pie_chart": {
         "has_axes": False, "has_legend": True,
@@ -173,14 +178,20 @@ CONTROLS_ADVANCED: dict[str, list[str]] = {
     "categorical":    ["bar_gap"],
     "statistical":    ["bar_gap"],
     "distribution":   ["histogram_opacity"],
-    "correlation":    ["heatmap_annotation_precision", "heatmap_annotation_color"],
+    "correlation":    ["heatmap_annotation_precision", "heatmap_annotation_color",
+                       "colorbar_tick_size", "colorbar_tick_color",
+                       "colorbar_title_size", "colorbar_title_color"],
     "time_series":    ["line_shape", "line_fill"],
     "scatter_plot":   ["line_width", "show_markers", "line_fill"],
     "matrix_table":   ["table_index_align", "table_data_align",
                        "table_stripe_even_color", "table_stripe_odd_color",
                        "table_number_format", "table_header_height"],
-    "matrix_heatmap": ["heatmap_annotation_precision", "heatmap_annotation_color"],
-    "map_plot":       ["marker_opacity", "marker_size"],
+    "matrix_heatmap": ["heatmap_annotation_precision", "heatmap_annotation_color",
+                       "colorbar_tick_size", "colorbar_tick_color",
+                       "colorbar_title_size", "colorbar_title_color"],
+    "map_plot":       ["marker_opacity", "marker_size",
+                       "colorbar_tick_size", "colorbar_tick_color",
+                       "colorbar_title_size", "colorbar_title_color"],
     "pie_chart":      ["pie_rotation", "pie_direction", "pull_slices",
                        "pie_value_size", "pie_value_color"],
 }
@@ -205,6 +216,12 @@ _CONTROL_META: dict[str, dict] = {
     "table_data_align":    {"t": "select", "l": "Data align", "k": "tda", "o": ["left", "center", "right"], "d": "right"},
     "table_number_format": {"t": "select", "l": "Num format", "k": "tnf", "o": [",.2f", ",.1f", ",.0f", ".2f", ".1f", ".0f"], "d": ",.2f"},
     "heatmap_colorscale":  {"t": "select", "l": "Colorscale", "k": "cs", "o": "COLORSCALES_ALL", "d": "RdBu"},
+    # Colorbar controls
+    "colorbar_title":           {"t": "text", "l": "CB title", "k": "cbt", "d": ""},
+    "colorbar_tick_size":       {"t": "slider", "l": "CB tick sz", "k": "cbts", "lo": 6, "hi": 18, "d": 10, "s": 1},
+    "colorbar_tick_color":      {"t": "color", "l": "CB tick clr", "k": "cbtc", "d": "#94a3b8"},
+    "colorbar_title_size":      {"t": "slider", "l": "CB title sz", "k": "cbtsz", "lo": 8, "hi": 24, "d": 11, "s": 1},
+    "colorbar_title_color":     {"t": "color", "l": "CB title clr", "k": "cbtclr", "d": "#cbd5e1"},
     # Sliders
     "bar_gap":                      {"t": "slider", "l": "Bar gap", "k": "bgap", "lo": 0.0, "hi": 1.0, "d": 0.28, "s": 0.01},
     "histogram_bins":               {"t": "slider", "l": "Bins", "k": "hbins", "lo": 5, "hi": 200, "d": 30, "s": 1},
@@ -559,7 +576,7 @@ def apply_chart_display_options(
     chart_type : str
         The chart type key (e.g. "categorical", "pie_chart").
     _inplace : bool
-        If True, mutate fig in-place instead of deepcopying.
+        If True, mutate fig in-place instead of copying.
     matrix_view : str
         "heatmap" when matrix_table should render as heatmap.
     """
