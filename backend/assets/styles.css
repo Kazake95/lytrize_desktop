@@ -515,6 +515,20 @@ button[kind="primary"],
     margin-bottom: 0 !important;
 }
 
+/* Bordered containers (st.container(border=True)) -- used for the compact
+   Dashboard Title / Session name settings cards. Match the same card look
+   already used for expanders instead of Streamlit's default border colour. */
+[data-testid="stVerticalBlockBorderWrapper"] {
+    background:    var(--surface-1) !important;
+    border:        1px solid var(--border-subtle) !important;
+    border-radius: 10px !important;
+    padding:       0.2rem 0.4rem !important;
+}
+[data-testid="stVerticalBlockBorderWrapper"] [data-testid="stTextInput"] input,
+[data-testid="stVerticalBlockBorderWrapper"] [data-testid="column"] .stTextInput input {
+    min-height: 2.2rem !important;
+}
+
 
 /* Metrics */
 [data-testid="stMetric"] {

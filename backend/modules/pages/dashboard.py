@@ -360,107 +360,117 @@ def _kpi_card_html(kpi):
 
 
 
-def _render_kpi_section(df, readonly):
-    """Render the KPI management section (list, add, remove)."""
+def _render_kpi_value_cards(readonly: bool) -> None:
+    """Render the KPI value-card grid (the actual dashboard content).
+
+    Kept full-width and always visible -- unlike the add/manage controls in
+    _render_kpi_manage_panel(), these are computed metrics the user is
+    meant to see at a glance, not a settings panel to tuck away.
+    """
     if "kpis" not in st.session_state:
         st.session_state.kpis = []
 
+    kpis = st.session_state.kpis
+    if not kpis:
+        return
 
     st.markdown("### 📌 KPI Cards")
-
-    kpis = st.session_state.kpis
-    if kpis:
-        cols_per_row = 4
-        rows = [kpis[i:i+cols_per_row] for i in range(0, len(kpis), cols_per_row)]
-        for row in rows:
-            rcols = st.columns(len(row))
-            for ci, (kpi, rc) in enumerate(zip(row, rcols)):
-                with rc:
-                    st.markdown(_kpi_card_html(kpi), unsafe_allow_html=True)
-                    if not readonly:
-                        gi = kpis.index(kpi)
-                        if st.button("✕", key=f"kpi_rm_{gi}", help="Remove KPI",
-                                     use_container_width=True):
-                            kpis.pop(gi)
-                            _dash_sync_notes()
-                            _persist()
-                            st.rerun()
-        st.write("")
+    cols_per_row = 4
+    rows = [kpis[i:i+cols_per_row] for i in range(0, len(kpis), cols_per_row)]
+    for row in rows:
+        rcols = st.columns(len(row))
+        for ci, (kpi, rc) in enumerate(zip(row, rcols)):
+            with rc:
+                st.markdown(_kpi_card_html(kpi), unsafe_allow_html=True)
+                if not readonly:
+                    gi = kpis.index(kpi)
+                    if st.button("✕", key=f"kpi_rm_{gi}", help="Remove KPI",
+                                 use_container_width=True):
+                        kpis.pop(gi)
+                        _dash_sync_notes()
+                        _persist()
+                        st.rerun()
+    st.write("")
 
 
+def _render_kpi_manage_panel(df, readonly: bool) -> None:
+    """Render the "add a KPI" controls only -- no outer expander here; the
+    caller (the compact settings row in page_dashboard) supplies that, so
+    this can sit alongside Customise Export Colours / Arrange Dashboard
+    Layout as one of three matching cards."""
     if not readonly and df is not None:
-        with st.expander("➕ Add KPI from Dataset", expanded=len(kpis) == 0):
-            num_c = df.select_dtypes(include="number").columns.tolist()
-            cat_c = df.select_dtypes(include=["object","category"]).columns.tolist()
-            all_c = df.columns.tolist()
+        num_c = df.select_dtypes(include="number").columns.tolist()
+        cat_c = df.select_dtypes(include=["object","category"]).columns.tolist()
+        all_c = df.columns.tolist()
 
 
-            ka, kb = st.columns(2)
-            with ka:
-                ktype  = st.selectbox("KPI Type", _KPI_TYPES, key="kpi_type")
-            with kb:
-                klabel = st.text_input("Custom Label (leave blank for auto)",
-                                       key="kpi_label",
-                                       placeholder="e.g. Total Revenue")
+        ka, kb = st.columns(2)
+        with ka:
+            ktype  = st.selectbox("KPI Type", _KPI_TYPES, key="kpi_type")
+        with kb:
+            klabel = st.text_input("Custom Label (leave blank for auto)",
+                                   key="kpi_label",
+                                   placeholder="e.g. Total Revenue")
 
 
-            col = grp = met = fcol = fval = None
+        col = grp = met = fcol = fval = None
 
 
-            simple_num = {"Total (Sum)","Average (Mean)","Median",
-                          "Minimum Value","Maximum Value"}
-            if ktype in simple_num:
-                col = st.selectbox("Numeric column", num_c, key="kpi_col")
-            elif ktype == "Unique Values Count":
-                col = st.selectbox("Column", all_c, key="kpi_col2")
-            elif ktype == "Date Range":
-                dt_c = [c for c in all_c if any(x in c.lower() for x in
-                        ("date","time","dt","year","month"))] or all_c
-                col  = st.selectbox("Date column", dt_c, key="kpi_dt")
-            elif ktype == "% of Total (category share)":
-                p1, p2, p3 = st.columns(3)
-                with p1: col  = st.selectbox("Numeric col", num_c, key="kpi_pc")
-                with p2: fcol = st.selectbox("Filter col",  cat_c, key="kpi_fc") if cat_c else None
-                if fcol:
-                    uniq = df[fcol].dropna().unique().tolist()
-                    with p3: fval = st.selectbox("Filter value", uniq, key="kpi_fv")
-            elif ktype in ("Top Category → Value","Bottom Category → Value"):
-                g1, g2 = st.columns(2)
-                with g1: grp = st.selectbox("Category col", cat_c, key="kpi_grp") if cat_c else None
-                with g2: met = st.selectbox("Metric col", num_c,   key="kpi_met") if num_c else None
-            elif ktype in ("% Change (Latest Month vs Prev Month)",
-                           "% Change (Latest Year vs Prev Year)"):
-                dt_c = [c for c in all_c if any(x in c.lower() for x in
-                        ("date","time","dt","year","month"))] or all_c
-                p1, p2 = st.columns(2)
-                with p1: fcol = st.selectbox("Date column",   dt_c,  key="kpi_chg_dt")
-                with p2: col  = st.selectbox("Metric column", num_c, key="kpi_chg_met") if num_c else None
+        simple_num = {"Total (Sum)","Average (Mean)","Median",
+                      "Minimum Value","Maximum Value"}
+        if ktype in simple_num:
+            col = st.selectbox("Numeric column", num_c, key="kpi_col")
+        elif ktype == "Unique Values Count":
+            col = st.selectbox("Column", all_c, key="kpi_col2")
+        elif ktype == "Date Range":
+            dt_c = [c for c in all_c if any(x in c.lower() for x in
+                    ("date","time","dt","year","month"))] or all_c
+            col  = st.selectbox("Date column", dt_c, key="kpi_dt")
+        elif ktype == "% of Total (category share)":
+            p1, p2, p3 = st.columns(3)
+            with p1: col  = st.selectbox("Numeric col", num_c, key="kpi_pc")
+            with p2: fcol = st.selectbox("Filter col",  cat_c, key="kpi_fc") if cat_c else None
+            if fcol:
+                uniq = df[fcol].dropna().unique().tolist()
+                with p3: fval = st.selectbox("Filter value", uniq, key="kpi_fv")
+        elif ktype in ("Top Category → Value","Bottom Category → Value"):
+            g1, g2 = st.columns(2)
+            with g1: grp = st.selectbox("Category col", cat_c, key="kpi_grp") if cat_c else None
+            with g2: met = st.selectbox("Metric col", num_c,   key="kpi_met") if num_c else None
+        elif ktype in ("% Change (Latest Month vs Prev Month)",
+                       "% Change (Latest Year vs Prev Year)"):
+            dt_c = [c for c in all_c if any(x in c.lower() for x in
+                    ("date","time","dt","year","month"))] or all_c
+            p1, p2 = st.columns(2)
+            with p1: fcol = st.selectbox("Date column",   dt_c,  key="kpi_chg_dt")
+            with p2: col  = st.selectbox("Metric column", num_c, key="kpi_chg_met") if num_c else None
 
 
-            if st.button("➕ Calculate & Add KPI", type="primary", key="kpi_add_btn"):
-                kpi = _calc_kpi(df, ktype, col, grp, met, fcol, fval, klabel or None)
-                st.session_state.kpis.append(kpi)
-                _dash_sync_notes()
-                _persist()
-                eid = st.session_state.get("editing_session_id")
-                if eid:
-                    try:
-                        from modules.database import update_session_db
-                        update_session_db(
-                            eid,
-                            st.session_state.get("editing_session_name", "Session"),
-                            charts_to_json(st.session_state.get("charts", [])),
-                            st.session_state.get("selected_analyses", []),
-                            st.session_state.get("user_id"),
-                            dashboard_title = st.session_state.get("dashboard_title", ""),
-                            kpis_json       = json.dumps(st.session_state.kpis),
-                            layout_mode     = st.session_state.get("layout_mode", "portrait"),
-                        )
-                    except Exception as exc:
-                        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                        pass
-                st.success(f"✅ {kpi['label']}: {kpi['value']}{kpi['suffix']}")
-                st.rerun()
+        if st.button("➕ Calculate & Add KPI", type="primary", key="kpi_add_btn",
+                     use_container_width=True):
+            kpi = _calc_kpi(df, ktype, col, grp, met, fcol, fval, klabel or None)
+            st.session_state.kpis.append(kpi)
+            _dash_sync_notes()
+            _persist()
+            eid = st.session_state.get("editing_session_id")
+            if eid:
+                try:
+                    from modules.database import update_session_db
+                    update_session_db(
+                        eid,
+                        st.session_state.get("editing_session_name", "Session"),
+                        charts_to_json(st.session_state.get("charts", [])),
+                        st.session_state.get("selected_analyses", []),
+                        st.session_state.get("user_id"),
+                        dashboard_title = st.session_state.get("dashboard_title", ""),
+                        kpis_json       = json.dumps(st.session_state.kpis),
+                        layout_mode     = st.session_state.get("layout_mode", "portrait"),
+                    )
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+                    pass
+            st.success(f"✅ {kpi['label']}: {kpi['value']}{kpi['suffix']}")
+            st.rerun()
     elif not readonly:
         st.caption("Upload a dataset and go to Analysis first to enable KPI calculation.")
 
@@ -920,39 +930,64 @@ def page_dashboard():
         st.rerun()
 
     if not viewing_saved:
-        ti = st.text_input("📋 Dashboard Title",
-                           value=st.session_state.get("dashboard_title",""),
-                           placeholder="e.g. Q1 2025 Sales Dashboard",
-                           key="dbtitle")
-        if ti != st.session_state.get("dashboard_title",""):
-            st.session_state.dashboard_title = ti
-            _persist()
+        # ---- Row 1: Dashboard Title | Session name + Export Layout + Save ----
+        row1_a, row1_b = st.columns([1, 1])
+        with row1_a:
+            with st.container(border=True):
+                ti = st.text_input("📋 Dashboard Title",
+                                   value=st.session_state.get("dashboard_title",""),
+                                   placeholder="e.g. Q1 2025 Sales Dashboard",
+                                   key="dbtitle")
+                if ti != st.session_state.get("dashboard_title",""):
+                    st.session_state.dashboard_title = ti
+                    _persist()
+        with row1_b:
+            with st.container(border=True):
+                sn_col, lo_col, sv_col = st.columns([2, 2, 1])
+                with sn_col:
+                    def_name = st.session_state.get("editing_session_name", sname) if is_editing else sname
+                    st.text_input("Session name", value=def_name, key="sname_in")
+                with lo_col:
+                    lo = st.radio("📐 Layout", ["Portrait","Landscape"],
+                                  index=1 if st.session_state.get("layout_mode")=="landscape" else 0,
+                                  horizontal=True)
+                    st.session_state.layout_mode = lo.lower()
+                with sv_col:
+                    st.write("")
+                    if st.button("💾 Save", use_container_width=True):
+                        sname_in = st.session_state.get("sname_in", sname)
+                        _do_save(sname_in, charts, df)
+                    if is_editing and st.button("🔄 Update", use_container_width=True):
+                        sname_in = st.session_state.get("sname_in", sname)
+                        _do_update(sname_in, charts, clear_editing=False)
 
-    st.markdown("---")
+
+    _render_kpi_value_cards(readonly=viewing_saved)
+
 
     if not viewing_saved:
-        col1, col2, col3 = st.columns([2, 2, 1])
-        with col1:
-            def_name = st.session_state.get("editing_session_name", sname) if is_editing else sname
-            st.text_input("Session name", value=def_name, key="sname_in")
-        with col2:
-            lo = st.radio("📐 Export Layout", ["Portrait","Landscape"],
-                          index=1 if st.session_state.get("layout_mode")=="landscape" else 0,
-                          horizontal=True)
-            st.session_state.layout_mode = lo.lower()
-        with col3:
-            st.write("")
-            if st.button("💾 Save", use_container_width=True):
-                sname_in = st.session_state.get("sname_in", sname)
-                _do_save(sname_in, charts, df)
-            if is_editing and st.button("🔄 Update", use_container_width=True):
-                sname_in = st.session_state.get("sname_in", sname)
-                _do_update(sname_in, charts, clear_editing=False)
-
-    st.markdown("---")
-
-
-    _render_kpi_section(df, readonly=viewing_saved)
+        # ---- Row 2: KPI Cards | Customise Export Colours | Arrange Dashboard Layout ----
+        row2_a, row2_b, row2_c = st.columns(3)
+        with row2_a:
+            with st.expander("📌 KPI Cards", expanded=False):
+                _render_kpi_manage_panel(df, readonly=viewing_saved)
+        with row2_b:
+            with st.expander("🎨 Customise Export Colours", expanded=False):
+                _render_export_colour_customiser()
+        with row2_c:
+            with st.expander("🗂️ Arrange Dashboard Layout", expanded=False):
+                if charts:
+                    _render_layout_builder(charts)
+                else:
+                    st.caption("Generate some charts first to arrange the layout.")
+    elif charts:
+        # Read-only (viewing a saved session): KPI-add and layout-arrange
+        # don't apply here, but colour customisation still does -- you can
+        # re-theme your own downloaded copy of someone else's saved
+        # dashboard. This matches the original (pre-redesign) behaviour,
+        # which showed the customiser regardless of viewing_saved.
+        with st.expander("🎨 Customise Export Colours", expanded=False):
+            _render_export_colour_customiser()
 
 
     if not charts:
@@ -977,12 +1012,6 @@ def page_dashboard():
 
     if ordered:
         _export_row(ordered, sname, viewing_saved)
-        st.markdown("---")
-
-
-    if charts and not viewing_saved:
-        with st.expander("🗂️ Arrange Dashboard Layout", expanded=False):
-            _render_layout_builder(charts)
         st.markdown("---")
 
 
@@ -1098,12 +1127,10 @@ def _generate_export_html(
     return html, safe_file
 
 
-def _export_row(charts, sname, viewing_saved):
-    """Render the full export controls row: presets, customiser, preview, download."""
-    dash_title = st.session_state.get("dashboard_title","") or sname
-    safe_file  = re.sub(r"[^A-Za-z0-9_.-]+", "_", dash_title).strip("._") or "lytrize_report"
-
-
+def _render_export_colour_customiser() -> None:
+    """Body of the export-colour customiser (presets, colours/text/layout
+    tabs). Self-contained -- no outer expander here; the caller (the
+    compact settings row in page_dashboard) supplies that."""
     _EX_DEFAULTS = {
         "ex_bg": "#121a2e", "ex_card": "#1b2245", "ex_kpi": "#1b2245",
         "ex_accent": "#6163df", "ex_border": "#2c3564", "ex_text": "#f5f7ff",
@@ -1314,127 +1341,142 @@ def _export_row(charts, sname, viewing_saved):
         del st.session_state["_ex_pending"]
 
 
-    with st.expander("🎨 Customise Export Colours", expanded=False):
-        st.caption(
-            "Set colours for the downloaded HTML dashboard. "
-            "Changes are preview-only — they apply to the downloaded file."
-        )
-        st.markdown("**Quick presets:**")
-        pr_cols = st.columns(len(_PRESETS))
-        for i, (col, (label, vals)) in enumerate(zip(pr_cols, _PRESETS.items())):
-            if col.button(label, key=f"preset_{i}", use_container_width=True):
+    st.caption(
+        "Set colours for the downloaded HTML dashboard. "
+        "Changes are preview-only — they apply to the downloaded file."
+    )
+    st.markdown("**Quick presets:**")
+    # Render presets in 3 rows of up to 4 columns for better readability
+    preset_items = list(_PRESETS.items())
+    for row_start in range(0, len(preset_items), 4):
+        row_items = preset_items[row_start:row_start + 4]
+        pr_cols = st.columns(len(row_items))
+        for i, (col, (label, vals)) in enumerate(zip(pr_cols, row_items)):
+            btn_idx = row_start + i
+            if col.button(label, key=f"preset_{btn_idx}", use_container_width=True):
                 st.session_state["_ex_pending"] = vals
                 st.rerun()
 
 
-        tab_colours, tab_text, tab_layout = st.tabs(["Colours", "Text", "Layout"])
-        with tab_colours:
-            ec1, ec2, ec3 = st.columns(3)
-            with ec1:
-                ex_bg     = st.color_picker("Page background",     st.session_state.get("ex_bg",     _EX_DEFAULTS["ex_bg"]),     key="ex_bg")
-                ex_card   = st.color_picker("Chart card fill",     st.session_state.get("ex_card",   _EX_DEFAULTS["ex_card"]),   key="ex_card")
-                ex_kpi    = st.color_picker("KPI card fill",       st.session_state.get("ex_kpi",    _EX_DEFAULTS["ex_kpi"]),    key="ex_kpi")
-                ex_kpi_text_color = st.color_picker("KPI text colour",
-                    st.session_state.get("ex_kpi_text_color", _EX_DEFAULTS["ex_kpi_text_color"]),
-                    key="ex_kpi_text_color",
-                    help="Colour of the KPI value number and label text in the export.")
-                ex_kpi_val_size   = st.slider("KPI value font size", 10, 28,
-                    int(st.session_state.get("ex_kpi_val_size", _EX_DEFAULTS["ex_kpi_val_size"])),
-                    key="ex_kpi_val_size",
-                    help="Font size of the KPI value number in the export.")
-            with ec2:
-                ex_accent = st.color_picker("Accent / headings",   st.session_state.get("ex_accent", _EX_DEFAULTS["ex_accent"]), key="ex_accent")
-                ex_border = st.color_picker("Card border",         st.session_state.get("ex_border", _EX_DEFAULTS["ex_border"]), key="ex_border")
-                ex_text   = st.color_picker("Body text",           st.session_state.get("ex_text",   _EX_DEFAULTS["ex_text"]),   key="ex_text")
-            with ec3:
-                ex_ins_bg = st.color_picker("Insights background", st.session_state.get("ex_ins_bg", _EX_DEFAULTS["ex_ins_bg"]), key="ex_ins_bg")
-                ex_ins_bd = st.color_picker("Insights border",     st.session_state.get("ex_ins_bd", _EX_DEFAULTS["ex_ins_bd"]), key="ex_ins_bd")
-                ex_not_bg = st.color_picker("Notes background",    st.session_state.get("ex_not_bg", _EX_DEFAULTS["ex_not_bg"]), key="ex_not_bg")
-                ex_not_bd = st.color_picker("Notes border",        st.session_state.get("ex_not_bd", _EX_DEFAULTS["ex_not_bd"]), key="ex_not_bd")
-        with tab_text:
-            inject_font_preview_css()
-            font_styles_list = [
-                "Normal", "Bold", "Italic", "Underline",
-                "Bold Italic", "Bold Underline", "Italic Underline",
-                "Bold Italic Underline",
-            ]
-            st.markdown("**Dashboard Title**")
-            ex_title_font = font_select("Font", default=st.session_state.get("ex_title_font", "Inter"), key="ex_title_font")
-            ex_title_style = st.selectbox("Style", font_styles_list, index=0, key="ex_title_style")
-            ex_title_size = st.slider("Size", 10, 50, int(st.session_state.get("ex_title_size", 28)), key="ex_title_size")
-            ex_title_color = st.color_picker("Colour", st.session_state.get("ex_title_color", "#6163df"), key="ex_title_color")
-            _render_section_preview(
-                "📊 Dashboard Preview – The quick brown fox jumps over the lazy dog",
-                ex_title_font,
-                ex_title_style,
-                ex_title_size,
-                ex_title_color,
+    tab_colours, tab_text, tab_layout = st.tabs(["Colours", "Text", "Layout"])
+    with tab_colours:
+        ec1, ec2, ec3 = st.columns(3)
+        with ec1:
+            ex_bg     = st.color_picker("Page background",     st.session_state.get("ex_bg",     _EX_DEFAULTS["ex_bg"]),     key="ex_bg")
+            ex_card   = st.color_picker("Chart card fill",     st.session_state.get("ex_card",   _EX_DEFAULTS["ex_card"]),   key="ex_card")
+            ex_kpi    = st.color_picker("KPI card fill",       st.session_state.get("ex_kpi",    _EX_DEFAULTS["ex_kpi"]),    key="ex_kpi")
+            ex_kpi_text_color = st.color_picker("KPI text colour",
+                st.session_state.get("ex_kpi_text_color", _EX_DEFAULTS["ex_kpi_text_color"]),
+                key="ex_kpi_text_color",
+                help="Colour of the KPI value number and label text in the export.")
+            ex_kpi_val_size   = st.slider("KPI value font size", 10, 28,
+                int(st.session_state.get("ex_kpi_val_size", _EX_DEFAULTS["ex_kpi_val_size"])),
+                key="ex_kpi_val_size",
+                help="Font size of the KPI value number in the export.")
+        with ec2:
+            ex_accent = st.color_picker("Accent / headings",   st.session_state.get("ex_accent", _EX_DEFAULTS["ex_accent"]), key="ex_accent")
+            ex_border = st.color_picker("Card border",         st.session_state.get("ex_border", _EX_DEFAULTS["ex_border"]), key="ex_border")
+            ex_text   = st.color_picker("Body text",           st.session_state.get("ex_text",   _EX_DEFAULTS["ex_text"]),   key="ex_text")
+        with ec3:
+            ex_ins_bg = st.color_picker("Insights background", st.session_state.get("ex_ins_bg", _EX_DEFAULTS["ex_ins_bg"]), key="ex_ins_bg")
+            ex_ins_bd = st.color_picker("Insights border",     st.session_state.get("ex_ins_bd", _EX_DEFAULTS["ex_ins_bd"]), key="ex_ins_bd")
+            ex_not_bg = st.color_picker("Notes background",    st.session_state.get("ex_not_bg", _EX_DEFAULTS["ex_not_bg"]), key="ex_not_bg")
+            ex_not_bd = st.color_picker("Notes border",        st.session_state.get("ex_not_bd", _EX_DEFAULTS["ex_not_bd"]), key="ex_not_bd")
+    with tab_text:
+        inject_font_preview_css()
+        font_styles_list = [
+            "Normal", "Bold", "Italic", "Underline",
+            "Bold Italic", "Bold Underline", "Italic Underline",
+            "Bold Italic Underline",
+        ]
+        st.markdown("**Dashboard Title**")
+        ex_title_font = font_select("Font", default=st.session_state.get("ex_title_font", "Inter"), key="ex_title_font")
+        ex_title_style = st.selectbox("Style", font_styles_list, index=0, key="ex_title_style")
+        ex_title_size = st.slider("Size", 10, 50, int(st.session_state.get("ex_title_size", 28)), key="ex_title_size")
+        ex_title_color = st.color_picker("Colour", st.session_state.get("ex_title_color", "#6163df"), key="ex_title_color")
+        _render_section_preview(
+            "📊 Dashboard Preview – The quick brown fox jumps over the lazy dog",
+            ex_title_font,
+            ex_title_style,
+            ex_title_size,
+            ex_title_color,
+        )
+        st.markdown("**Insights**")
+        ex_insights_font = font_select("Font", default=st.session_state.get("ex_insights_font", "Inter"), key="ex_insights_font")
+        ex_insights_style = st.selectbox("Style", font_styles_list, key="ex_insights_style")
+        ex_insights_size = st.slider("Size", 10, 50, int(st.session_state.get("ex_insights_size", 14)), key="ex_insights_size")
+        ex_insights_color = st.color_picker("Colour", st.session_state.get("ex_insights_color", "#f5f7ff"), key="ex_insights_color")
+        _render_section_preview(
+            "💡 Insights Preview – Sample insight showing current text styling",
+            ex_insights_font,
+            ex_insights_style,
+            ex_insights_size,
+            ex_insights_color,
+        )
+        st.markdown("**Notes**")
+        ex_notes_font = font_select("Font", default=st.session_state.get("ex_notes_font", "Inter"), key="ex_notes_font")
+        ex_notes = st.selectbox("Style", font_styles_list, key="ex_notes_style")
+        ex_notes_size = st.slider("Size", 10, 50, int(st.session_state.get("ex_notes_size", 14)), key="ex_notes_size")
+        ex_notes_color = st.color_picker("Colour", st.session_state.get("ex_notes_color", "#f5f7ff"), key="ex_notes_color")
+        _render_section_preview(
+            "📝 Notes Preview – Sample notes text with your chosen formatting",
+            ex_notes_font,
+            ex_notes,
+            ex_notes_size,
+            ex_notes_color,
+        )
+    with tab_layout:
+        density_options = ["Compact", "Comfortable", "Spacious"]
+        _density_value = st.session_state.get("ex_density", _EX_DEFAULTS["ex_density"])
+        if _density_value not in density_options:
+            _density_value = _EX_DEFAULTS["ex_density"]
+        ex_density = st.selectbox(
+            "Spacing density",
+            density_options,
+            index=density_options.index(_density_value),
+            key="ex_density",
+        )
+        l1, l2, l3 = st.columns(3)
+        with l1:
+            ex_radius = st.slider("Card radius", 0, 24, int(st.session_state.get("ex_radius", _EX_DEFAULTS["ex_radius"])), key="ex_radius")
+            ex_chart_h = st.slider("Chart height", 280, 720, int(st.session_state.get("ex_chart_h", _EX_DEFAULTS["ex_chart_h"])), 20, key="ex_chart_h")
+        with l2:
+            width_options = ["Auto", "Narrow", "Wide", "Full"]
+            _width_value = st.session_state.get("ex_width", _EX_DEFAULTS["ex_width"])
+            if _width_value not in width_options:
+                _width_value = _EX_DEFAULTS["ex_width"]
+            ex_width = st.selectbox(
+                "Page width",
+                width_options,
+                index=width_options.index(_width_value),
+                key="ex_width",
             )
-            st.markdown("**Insights**")
-            ex_insights_font = font_select("Font", default=st.session_state.get("ex_insights_font", "Inter"), key="ex_insights_font")
-            ex_insights_style = st.selectbox("Style", font_styles_list, key="ex_insights_style")
-            ex_insights_size = st.slider("Size", 10, 50, int(st.session_state.get("ex_insights_size", 14)), key="ex_insights_size")
-            ex_insights_color = st.color_picker("Colour", st.session_state.get("ex_insights_color", "#f5f7ff"), key="ex_insights_color")
-            _render_section_preview(
-                "💡 Insights Preview – Sample insight showing current text styling",
-                ex_insights_font,
-                ex_insights_style,
-                ex_insights_size,
-                ex_insights_color,
-            )
-            st.markdown("**Notes**")
-            ex_notes_font = font_select("Font", default=st.session_state.get("ex_notes_font", "Inter"), key="ex_notes_font")
-            ex_notes = st.selectbox("Style", font_styles_list, key="ex_notes_style")
-            ex_notes_size = st.slider("Size", 10, 50, int(st.session_state.get("ex_notes_size", 14)), key="ex_notes_size")
-            ex_notes_color = st.color_picker("Colour", st.session_state.get("ex_notes_color", "#f5f7ff"), key="ex_notes_color")
-            _render_section_preview(
-                "📝 Notes Preview – Sample notes text with your chosen formatting",
-                ex_notes_font,
-                ex_notes,
-                ex_notes_size,
-                ex_notes_color,
-            )
-        with tab_layout:
-            density_options = ["Compact", "Comfortable", "Spacious"]
-            _density_value = st.session_state.get("ex_density", _EX_DEFAULTS["ex_density"])
-            if _density_value not in density_options:
-                _density_value = _EX_DEFAULTS["ex_density"]
-            ex_density = st.selectbox(
-                "Spacing density",
-                density_options,
-                index=density_options.index(_density_value),
-                key="ex_density",
-            )
-            l1, l2, l3 = st.columns(3)
-            with l1:
-                ex_radius = st.slider("Card radius", 0, 24, int(st.session_state.get("ex_radius", _EX_DEFAULTS["ex_radius"])), key="ex_radius")
-                ex_chart_h = st.slider("Chart height", 280, 720, int(st.session_state.get("ex_chart_h", _EX_DEFAULTS["ex_chart_h"])), 20, key="ex_chart_h")
-            with l2:
-                width_options = ["Auto", "Narrow", "Wide", "Full"]
-                _width_value = st.session_state.get("ex_width", _EX_DEFAULTS["ex_width"])
-                if _width_value not in width_options:
-                    _width_value = _EX_DEFAULTS["ex_width"]
-                ex_width = st.selectbox(
-                    "Page width",
-                    width_options,
-                    index=width_options.index(_width_value),
-                    key="ex_width",
-                )
-            with l3:
-                ex_meta = st.checkbox("Show generated timestamp", value=bool(st.session_state.get("ex_meta", _EX_DEFAULTS["ex_meta"])), key="ex_meta")
+        with l3:
+            ex_meta = st.checkbox("Show generated timestamp", value=bool(st.session_state.get("ex_meta", _EX_DEFAULTS["ex_meta"])), key="ex_meta")
 
+
+def _export_row(charts, sname, viewing_saved):
+    """Render the export preview + download row.
+
+    Colour/text/layout customisation happens earlier, via
+    _render_export_colour_customiser() in the compact settings row -- this
+    only generates the export HTML from whatever is already in
+    session_state and shows the preview + download controls.
+    """
+    dash_title = st.session_state.get("dashboard_title","") or sname
+    safe_file  = re.sub(r"[^A-Za-z0-9_.-]+", "_", dash_title).strip("._") or "lytrize_report"
 
     _density = {
         "Compact": {"gap": 14, "padding": 20},
         "Comfortable": {"gap": 24, "padding": 32},
         "Spacious": {"gap": 34, "padding": 44},
-    }.get(st.session_state.get("ex_density", _EX_DEFAULTS["ex_density"]), {"gap": 24, "padding": 32})
+    }.get(st.session_state.get("ex_density", "Comfortable"), {"gap": 24, "padding": 32})
     _width = {
         "Auto": "",
         "Narrow": "960px",
         "Wide": "1440px",
         "Full": "100%",
-    }.get(st.session_state.get("ex_width", _EX_DEFAULTS["ex_width"]), "")
+    }.get(st.session_state.get("ex_width", "Auto"), "")
 
 
     # ----- Generate the export HTML using the shared function -----

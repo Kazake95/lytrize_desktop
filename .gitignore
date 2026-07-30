@@ -13,8 +13,7 @@ venv/
 .venv/
 env/
 my_venv/
-# ── Streamlit ─────────────────────────────────────────────────────────────
-.streamlit/secrets.toml
+
 
 # ── IDE ────────────────────────────────────────────────────────────────────
 .vscode/
@@ -42,5 +41,7 @@ streamlit.log
 *.deb
 *.rpm
 
+
 # ── Temporary / scratch files ─────────────────────────────────────────────
 extra
+lytrize_codebase_documentation.md

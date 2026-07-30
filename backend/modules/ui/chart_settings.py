@@ -848,9 +848,15 @@ def apply_chart_display_options(
         f2.update_xaxes(title=dict(font=_font_style_dict))
         
     if _y_label:
-        f2.update_yaxes(title=dict(text=_y_label, font=_font_style_dict), secondary_y=False)
+        if is_dual_axis_chart(f2):
+            f2.update_yaxes(title=dict(text=_y_label, font=_font_style_dict), secondary_y=False)
+        else:
+            f2.update_yaxes(title=dict(text=_y_label, font=_font_style_dict))
     else:
-        f2.update_yaxes(title=dict(font=_font_style_dict), secondary_y=False)
+        if is_dual_axis_chart(f2):
+            f2.update_yaxes(title=dict(font=_font_style_dict), secondary_y=False)
+        else:
+            f2.update_yaxes(title=dict(font=_font_style_dict))
         
     if _y2_label:
         f2.update_yaxes(title=dict(text=_y2_label, font=_font_style_dict), secondary_y=True)
