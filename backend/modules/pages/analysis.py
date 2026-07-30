@@ -95,6 +95,12 @@ def _autosave() -> None:
             except Exception as exc:
                 logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                 pass
+            
+            st.session_state["_last_draft_save_time"] = time.time()
+            # Process pending save if any
+            if st.session_state.get("_pending_draft_save"):
+                st.session_state.pop("_pending_draft_save", None)
+                st.session_state["_last_draft_save_time"] = 0  # Force immediate re-save on next rerun
         except Exception as exc:
             logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
@@ -146,7 +152,14 @@ def _persist_draft(page="analysis"):
     uid = st.session_state.get("user_id")
     if not uid:
         return
-
+    
+    # Debounced autosave: skip if a recent save is still in progress
+    # This prevents expensive serialization on every widget interaction
+    _last_save = st.session_state.get("_last_draft_save_time", 0)
+    import time
+    if time.time() - _last_save < 1.0:  # 1 second debounce
+        st.session_state["_pending_draft_save"] = True
+        return
 
     df = st.session_state.get("df")
     if df is not None:
@@ -506,63 +519,80 @@ def page_analysis():
     _n_cols  = len(df.columns)
 
 
-    with st.expander(
-        f"📋 Data Preview — {_fname}  ({_n_rows:,} rows × {_n_cols} columns)",
-        expanded=st.session_state.get("_preview_expanded", True),
-    ):
-        _pb1, _pb2, _pb3, _pb4 = st.columns([1, 1, 1, 4])
-        with _pb1:
-            if st.button("⬆ Top 10",    key="prev_top",    use_container_width=True):
-                st.session_state["_analysis_preview_mode"] = "top"
-        with _pb2:
-            if st.button("⬇ Bottom 10", key="prev_bot",    use_container_width=True):
-                st.session_state["_analysis_preview_mode"] = "bottom"
-        with _pb3:
-            if st.button("🎲 Random",   key="prev_rand",   use_container_width=True):
-                st.session_state["_analysis_preview_mode"] = "random"
-                st.session_state["_analysis_random_seed"] = (
-                    st.session_state.get("_analysis_random_seed", 0) + 1
+    # Wrap data preview in fragment so button clicks don't trigger full page reruns
+    @st.fragment(run_every=None)
+    def _render_data_preview():
+        with st.expander(
+            f"📋 Data Preview — {_fname}  ({_n_rows:,} rows × {_n_cols} columns)",
+            expanded=st.session_state.get("_preview_expanded", True),
+        ):
+            _pb1, _pb2, _pb3, _pb4 = st.columns([1, 1, 1, 4])
+            with _pb1:
+                if st.button("⬆ Top 10",    key="prev_top",    use_container_width=True):
+                    st.session_state["_analysis_preview_mode"] = "top"
+                    st.rerun()
+            with _pb2:
+                if st.button("⬇ Bottom 10", key="prev_bot",    use_container_width=True):
+                    st.session_state["_analysis_preview_mode"] = "bottom"
+                    st.rerun()
+            with _pb3:
+                if st.button("🎲 Random",   key="prev_rand",   use_container_width=True):
+                    st.session_state["_analysis_preview_mode"] = "random"
+                    st.session_state["_analysis_random_seed"] = (
+                        st.session_state.get("_analysis_random_seed", 0) + 1
+                    )
+                    st.rerun()
+            with _pb4:
+                st.caption(
+                    f"Showing a sample of your loaded dataset. "
+                    f"Columns: **{', '.join(str(c) for c in df.columns[:8])}"
+                    f"{'…' if _n_cols > 8 else ''}**"
                 )
-        with _pb4:
-            st.caption(
-                f"Showing a sample of your loaded dataset. "
-                f"Columns: **{', '.join(str(c) for c in df.columns[:8])}"
-                f"{'…' if _n_cols > 8 else ''}**"
+
+
+            _mode = st.session_state.get("_analysis_preview_mode", "top")
+            try:
+                if _mode == "bottom":
+                    _prev_df = df.tail(10)
+                    _label   = "Bottom 10 rows"
+                elif _mode == "random":
+                    _prev_df = df.sample(min(10, _n_rows), random_state=None)
+                    _label   = "10 random rows"
+                else:
+                    _prev_df = df.head(10)
+                    _label   = "Top 10 rows"
+            except Exception:
+                _prev_df = df.head(10)
+                _label   = "Top 10 rows"
+
+
+            st.caption(f"*{_label}*")
+            st.dataframe(
+                _prev_df,
+                use_container_width=True,
+                height=min(380, 38 + len(_prev_df) * 35),
             )
 
 
-        _mode = st.session_state.get("_analysis_preview_mode", "top")
-        try:
-            if _mode == "bottom":
-                _prev_df = df.tail(10)
-                _label   = "Bottom 10 rows"
-            elif _mode == "random":
-                _prev_df = df.sample(min(10, _n_rows), random_state=None)
-                _label   = "10 random rows"
+            # Cache expensive DataFrame stats by version
+            _df_ver = st.session_state.get("_df_version", 0)
+            _preview_stats_key = "_preview_stats_cache"
+            _preview_stats_ver_key = "_preview_stats_cache_ver"
+            if st.session_state.get(_preview_stats_ver_key) != _df_ver or _preview_stats_key not in st.session_state:
+                _num_count = len(df.select_dtypes("number").columns)
+                _cat_count = len(df.select_dtypes("object").columns)
+                _dt_count  = len(df.select_dtypes("datetime").columns)
+                _null_pct  = round(df.isnull().sum().sum() / max(df.size, 1) * 100, 1)
+                st.session_state[_preview_stats_key] = (_num_count, _cat_count, _dt_count, _null_pct)
+                st.session_state[_preview_stats_ver_key] = _df_ver
             else:
-                _prev_df = df.head(10)
-                _label   = "Top 10 rows"
-        except Exception:
-            _prev_df = df.head(10)
-            _label   = "Top 10 rows"
-
-
-        st.caption(f"*{_label}*")
-        st.dataframe(
-            _prev_df,
-            use_container_width=True,
-            height=min(380, 38 + len(_prev_df) * 35),
-        )
-
-
-        _num_count = len(df.select_dtypes("number").columns)
-        _cat_count = len(df.select_dtypes("object").columns)
-        _dt_count  = len(df.select_dtypes("datetime").columns)
-        _null_pct  = round(df.isnull().sum().sum() / max(df.size, 1) * 100, 1)
-        st.caption(
-            f"🔢 {_num_count} numeric  ·  🔤 {_cat_count} text  ·  "
-            f"📅 {_dt_count} datetime  ·  ⚠️ {_null_pct}% missing values"
-        )
+                _num_count, _cat_count, _dt_count, _null_pct = st.session_state[_preview_stats_key]
+            st.caption(
+                f"🔢 {_num_count} numeric  ·  🔤 {_cat_count} text  ·  "
+                f"📅 {_dt_count} datetime  ·  ⚠️ {_null_pct}% missing values"
+            )
+    
+    _render_data_preview()
 
 
     st.markdown("## 🔬 Select Analysis Type")

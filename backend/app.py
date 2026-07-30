@@ -85,6 +85,10 @@ def _restore_draft(user_id: int) -> None:
 
     try:
         charts_raw = json.loads(draft.get("charts_json", "[]"))
+        # Store raw chart data for lazy deserialization — figures are only
+        # parsed from JSON when first accessed, avoiding the cost of
+        # deserializing every chart on every startup.
+        st.session_state["_draft_charts_raw"] = charts_raw
         charts = []
         for item in charts_raw:
             uid      = item.get("uid", "")
@@ -139,16 +143,11 @@ def _restore_draft(user_id: int) -> None:
             pass
 
 
-    saved_page   = draft.get("page", "")
-    df_available = st.session_state.get("df") is not None
-    has_charts   = bool(st.session_state.get("charts"))
-    if df_available:
-        if has_charts and saved_page in ("analysis", "dashboard"):
-            st.session_state._restore_to_page = saved_page
-        elif has_charts:
-            st.session_state._restore_to_page = "analysis"
-
-
+    # Always start at the home page on restart — the user navigates to
+    # analysis/dashboard manually.  The draft is cleared after restore so
+    # the next restart starts fresh instead of re-entering the last session.
+    from modules.database import clear_draft
+    clear_draft(user_id)
 
 
 def main() -> None:

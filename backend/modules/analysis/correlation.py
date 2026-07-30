@@ -35,6 +35,13 @@ def run_correlation(df, x_cols=None, y_cols=None, palette=None, **kwargs):
     fig.update_layout(**chart_layout())
     apply_lytrize_standard(fig, title="Correlation Heatmap",
                            analysis_type="correlation")
+    fig._lytrize_meta = {
+        "analysis_type": "correlation",
+        "x_axis": None, "y_axis": None,
+        "legend": None,
+        "supports_auto_insights": True, "supports_notes": True,
+        "supports_axis_editing": False, "supports_legend_editing": True,
+    }
     charts.append(("Correlation", fig))
 
 

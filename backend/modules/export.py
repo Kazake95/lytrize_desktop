@@ -272,6 +272,7 @@ def generate_html_report(
         text_style    = _merge_text_style(meta.get("text_style", {}))
 
 
+        # Single deepcopy per chart — apply all modifications to the same copy
         fig_r = copy.deepcopy(fig)
         fig_r.update_layout(title_text="")
         fig_r = _apply_axes(fig_r, meta.get("x_label", ""), meta.get("y_label", ""), text_style)

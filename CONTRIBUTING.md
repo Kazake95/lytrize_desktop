@@ -381,7 +381,7 @@ Each runner module implements a `run_<type>(df, **kwargs)` function that returns
 - "Start New Analysis" button clears all session state and navigates to the upload page.
 
 #### `upload.py` — Upload & Data Preparation
-- File uploader for CSV and Excel (up to 400 MB).
+- File uploader for CSV and Excel (up to 300 MB).
 - Data preview (top/bottom/random 10 rows).
 - Column descriptions (optional, improves auto-insights).
 - Data quality summary (missing values, duplicates).
@@ -952,7 +952,7 @@ Currently, the project does not include an automated test suite. When adding new
 2. **Some CSS color values in the HTML export lack fallback values** when a theme key is missing. The `_merge_theme()` function provides defaults, but edge cases may still produce unstyled elements.
 3. **Streamlit reruns trigger full-page refreshes**, which can be slow for larger datasets. Fragment isolation (`chart_card.py`) mitigates this for per-chart interactions, but page-level changes still trigger a full rerun.
 4. **No automated test suite** — Testing is currently manual. Contributions adding tests are highly welcome.
-5. **Excel files larger than 400 MB are not supported** — The Streamlit file uploader has a default size limit.
+5. **Excel files larger than 300 MB are not supported** — The Streamlit file uploader has a default size limit.
 6. **Map plots require `pycountry`** — Geographic scatter and choropleth maps depend on the `pycountry` package for country/region name resolution.
 7. **Light mode is partially implemented** — Dark mode is the primary theme. Light mode overrides exist in `css.py` but may have visual inconsistencies on some components.
 8. **Session restore after reboot** — If the parquet snapshot is stored on tmpfs (`$XDG_RUNTIME_DIR`), it is lost across reboots. The user will be asked to re-upload the file.

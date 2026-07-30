@@ -482,7 +482,8 @@ def _collect_kwargs(aid: str, df, uid: Optional[str] = None) -> dict:
 
     elif aid == "categorical":
         x        = g("x", cat[:2]) or cat[:2]
-        y        = g("y", []) or None
+        y_raw    = g("y", [])
+        y        = y_raw if y_raw else None
         agg      = _AGG_FUNCS.get(g("agg", "Avg"), "mean")
         raw_sort = g("sort", "Value ↓")
         sort_by  = _sort_map.get(raw_sort, "Value (Desc)")
@@ -499,7 +500,8 @@ def _collect_kwargs(aid: str, df, uid: Optional[str] = None) -> dict:
 
     elif aid == "pie_chart":
         x        = g("x", cat[:2]) or cat[:2]
-        y        = g("y", []) or None
+        y_raw    = g("y", [])
+        y        = y_raw if y_raw else None
         agg      = _AGG_FUNCS.get(g("agg", "Avg"), "mean")
         raw_sort = g("sort", "Value ↓")
         sort_by  = _sort_map.get(raw_sort, "Value (Desc)")

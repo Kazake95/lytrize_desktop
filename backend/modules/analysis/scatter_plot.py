@@ -3,8 +3,113 @@ import logging
 import numpy as np
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 from modules.charts import chart_layout, COLORS, num_cols as _num_cols
 from modules.utils.perf import sample_for_plot
+
+
+# ---------------------------------------------------------------------------
+# Trendline computation — prefer scipy when available, fall back to pure
+# numpy for OLS (ordinary least squares).  LOWESS requires scipy and will
+# be silently downgraded to OLS when scipy is absent.
+# ---------------------------------------------------------------------------
+_HAS_SCIPY = False
+try:
+    import scipy
+    _HAS_SCIPY = True
+except ImportError:
+    pass
+
+
+def _ols_trendline(x: np.ndarray, y: np.ndarray) -> tuple[float, float, float]:
+    """Return (slope, intercept, r_value) for a simple linear regression.
+    
+    Pure numpy implementation — no scipy required.
+    """
+    n = len(x)
+    sx = x.sum()
+    sy = y.sum()
+    sxx = (x * x).sum()
+    sxy = (x * y).sum()
+    slope = (n * sxy - sx * sy) / (n * sxx - sx * sx)
+    intercept = (sy - slope * sx) / n
+    # Pearson r
+    r_num = n * sxy - sx * sy
+    r_den = np.sqrt((n * sxx - sx * sx) * (n * (y * y).sum() - sy * sy))
+    r_val = r_num / r_den if r_den != 0 else 0.0
+    return slope, intercept, r_val
+
+
+def _add_trendline(fig, plot_df, x: str, y: str, tl_type: str) -> None:
+    """Add a trendline trace to the figure.
+    
+    Uses scipy when available (supports both 'ols' and 'lowess').
+    Falls back to pure numpy OLS when scipy is absent.
+    
+    The computed trendline metadata (slope, intercept, r_value, r_squared,
+    n_points, type) is stored on fig._lytrize_trendline for the auto-insight
+    engine to consume, so insights always reflect the actual rendered trend.
+    """
+    x_vals = pd.to_numeric(plot_df[x], errors="coerce").dropna().values
+    y_vals = pd.to_numeric(plot_df[y], errors="coerce").dropna().values
+    # Align lengths
+    min_len = min(len(x_vals), len(y_vals))
+    x_vals = x_vals[:min_len]
+    y_vals = y_vals[:min_len]
+    if min_len < 3:
+        fig._lytrize_trendline = {"type": tl_type, "n_points": 0, "active": False}
+        return
+
+    trend_meta: dict = {"type": tl_type, "n_points": min_len, "active": True}
+
+    if tl_type == "lowess" and _HAS_SCIPY:
+        from scipy.interpolate import interp1d
+        from scipy.ndimage import gaussian_filter1d
+        # Simple LOWESS approximation using gaussian filter
+        order = np.argsort(x_vals)
+        xs = x_vals[order]
+        ys = y_vals[order]
+        ys_smooth = gaussian_filter1d(ys, sigma=len(xs) * 0.05, mode="nearest")
+        fig.add_trace(go.Scatter(
+            x=xs, y=ys_smooth,
+            mode="lines",
+            name="lowess trend",
+            line=dict(width=2, dash="dot", color="#ef4444"),
+            hovertemplate=f"<b>{y} (trend):</b> %{{y:,.3f}}<extra></extra>",
+        ))
+        # Approximate linear-equivalent r for LOWESS by comparing smoothed
+        # values vs actual — this gives a rough goodness-of-fit indication.
+        y_actual_interp = np.interp(xs, x_vals, y_vals)
+        residuals = y_actual_interp - ys_smooth
+        ss_res = np.sum(residuals ** 2)
+        ss_tot = np.sum((y_actual_interp - np.mean(y_actual_interp)) ** 2)
+        trend_meta["r_squared_raw"] = 1.0 - (ss_res / ss_tot) if ss_tot != 0 else 0.0
+    else:
+        # OLS — works with or without scipy
+        slope, intercept, r_val = _ols_trendline(x_vals, y_vals)
+        r_sq = r_val ** 2
+        trend_y = slope * x_vals + intercept
+        # Residual analysis: count points within 1 standard error of the line
+        residuals = y_vals - trend_y
+        std_err = np.std(residuals)
+        within_one_sigma = int(np.sum(np.abs(residuals) <= std_err))
+        trend_meta.update({
+            "slope": slope,
+            "intercept": intercept,
+            "r_value": r_val,
+            "r_squared": r_sq,
+            "std_err": std_err,
+            "within_one_sigma": within_one_sigma,
+        })
+        fig.add_trace(go.Scatter(
+            x=x_vals, y=trend_y,
+            mode="lines",
+            name=f"y={slope:.3g}x+{intercept:.3g}",
+            line=dict(width=2, dash="dot", color="#ef4444"),
+            hovertemplate=f"<b>{y} (trend):</b> %{{y:,.3f}}<extra></extra>",
+        ))
+
+    fig._lytrize_trendline = trend_meta
 
 
 
@@ -103,7 +208,11 @@ def run_scatter_plot(df, x_col=None, y_col=None, color_col=None, size_col=None,
         title=title,
         color_discrete_sequence=pal,
         opacity=opacity,
-        trendline=tl,
+        # trendline is NOT passed to px.scatter here — Plotly Express
+        # silently requires scipy for trendline computation, and without it
+        # the parameter is simply ignored with no error or warning.
+        # Instead, we add the trendline manually below via _add_trendline()
+        # which uses a pure-numpy OLS fallback when scipy is absent.
         custom_data=extra_cols if extra_cols else None,
         # WebGL rendering only pays off once there are enough points that
         # SVG pan/zoom starts to feel sluggish; below that, SVG gives
@@ -112,6 +221,9 @@ def run_scatter_plot(df, x_col=None, y_col=None, color_col=None, size_col=None,
         # upper end of that range.
         render_mode="webgl" if n_pts > 2_000 else "svg",
     )
+    # Manually add trendline trace — works with or without scipy
+    if tl:
+        _add_trendline(fig, plot_df, x, y, tl)
 
 
     if size_arr is not None:
