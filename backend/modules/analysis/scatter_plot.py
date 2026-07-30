@@ -5,8 +5,6 @@ import pandas as pd
 import plotly.express as px
 from modules.charts import chart_layout, COLORS, num_cols as _num_cols
 from modules.utils.perf import sample_for_plot
-from statsmodels.nonparametric.smoothers_lowess import lowess
-import statsmodels.api as sm
 
 
 
@@ -107,6 +105,12 @@ def run_scatter_plot(df, x_col=None, y_col=None, color_col=None, size_col=None,
         opacity=opacity,
         trendline=tl,
         custom_data=extra_cols if extra_cols else None,
+        # WebGL rendering only pays off once there are enough points that
+        # SVG pan/zoom starts to feel sluggish; below that, SVG gives
+        # crisper marker edges with no downside. sample_for_plot() above
+        # already caps n_pts at 8,000, so this only flips on for the
+        # upper end of that range.
+        render_mode="webgl" if n_pts > 2_000 else "svg",
     )
 
 

@@ -834,8 +834,11 @@ def page_dashboard():
     if viewing_saved:
         sid   = st.session_state.view_session_id
         sname = st.session_state.get("view_session_name","Saved Session")
-        if "_view_charts" not in st.session_state or \
-                st.session_state.get("_vsid") != sid:
+        _session_just_loaded = (
+            "_view_charts" not in st.session_state or
+            st.session_state.get("_vsid") != sid
+        )
+        if _session_just_loaded:
             loaded = get_session_charts(sid, st.session_state.get("user_id"))
             for uid, title, fig, desc, auto, ctype, meta in loaded:
                 st.session_state[f"desc_{uid}"]          = desc
@@ -844,10 +847,21 @@ def page_dashboard():
                 st.session_state[f"chart_meta_{uid}"]    = meta
             st.session_state._view_charts = loaded
             st.session_state._vsid        = sid
-        sm = get_session_meta(sid, st.session_state.get("user_id"))
+        # get_session_meta() hits SQLite -- only fetch it on the same occasions
+        # we already fetch the charts above (first view of this session, or
+        # switching to a different saved session). Every consumer below only
+        # applies its result via setdefault()/"key not in session_state", so
+        # after the first load it would otherwise be a wasted DB round-trip
+        # on every single rerun of this page (KPI edits, layout toggles,
+        # export-text edits, etc.) for data that's never actually re-applied.
+        if _session_just_loaded:
+            sm = get_session_meta(sid, st.session_state.get("user_id"))
+            st.session_state["_view_session_meta"] = sm
+        else:
+            sm = st.session_state.get("_view_session_meta")
         if sm is None:
             st.error("That saved session was not found for this account.")
-            for k in ["view_session_id","_view_charts","_vsid",
+            for k in ["view_session_id","_view_charts","_vsid","_view_session_meta",
                       "dashboard_title","kpis","layout_mode"]:
                 st.session_state.pop(k, None)
             st.session_state.page = "home"
@@ -897,7 +911,7 @@ def page_dashboard():
         for _k in ("_regen_uid", "_regen_type", "_regen_restore"):
             st.session_state.pop(_k, None)
         if viewing_saved:
-            for k in ["view_session_id","_view_charts","_vsid",
+            for k in ["view_session_id","_view_charts","_vsid","_view_session_meta",
                       "dashboard_title","kpis","layout_mode"]:
                 st.session_state.pop(k, None)
             st.session_state.page = "home"

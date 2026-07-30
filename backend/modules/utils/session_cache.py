@@ -139,7 +139,7 @@ def save_df_snapshot(user_id: int, df=None) -> None:
 
     path = df_cache_path(user_id)
     try:
-        df.to_parquet(str(path), index=False, engine="pyarrow", compression="snappy")
+        df.to_parquet(str(path), index=False, engine="pyarrow", compression="zstd")
         try:
             path.chmod(0o600)
         except Exception as exc:

@@ -74,7 +74,18 @@ PREFS      = DATA_DIR / "launcher_prefs.json"
 DB_PATH    = DATA_DIR / "lytrize.db"
 VENV_PY    = BASE / "venv" / "bin" / "python"
 APP_PY     = BASE / "backend" / "app.py"
-APP_URL    = "http://127.0.0.1:8501"
+
+# backend/config.py is the single source of truth for host/port -- import it
+# rather than duplicating "127.0.0.1" / "8501" literals here. If it can't be
+# imported for any reason (e.g. a broken install), fall back to the same
+# defaults config.py itself defines so the app can still start.
+sys.path.insert(0, str(BASE / "backend"))
+try:
+    from config import APP_HOST, APP_PORT
+except Exception:
+    APP_HOST, APP_PORT = "127.0.0.1", 8501
+
+APP_URL    = f"http://{APP_HOST}:{APP_PORT}"
 
 _PROFILE_ROOT = DATA_DIR / "browser-profiles"
 _CHROMIUM_PROFILE = _PROFILE_ROOT / "chromium"
@@ -212,7 +223,8 @@ def _make_icon() -> QIcon:
 
 class _WaitThread(QThread):
     """
-    Poll localhost:8501 until Streamlit accepts TCP connections.
+    Poll APP_HOST:APP_PORT (from backend/config.py) until Streamlit accepts
+    TCP connections.
 
     Emits:
         ready()   — Streamlit is up and accepting connections.
@@ -227,7 +239,7 @@ class _WaitThread(QThread):
     def run(self) -> None:
         for _ in range(_POLL_MAX_TRIES):
             try:
-                with socket.create_connection(("127.0.0.1", 8501), _POLL_INTERVAL_S):
+                with socket.create_connection((APP_HOST, APP_PORT), _POLL_INTERVAL_S):
                     pass
                 self.ready.emit()
                 return
@@ -854,7 +866,7 @@ class Launcher(QWidget):
         modifying the system environment.
 
         After launching, two threads are started:
-            _WaitThread  — polls TCP 8501 until Streamlit accepts connections.
+            _WaitThread  — polls TCP APP_HOST:APP_PORT until Streamlit accepts connections.
             _WatchThread — blocks on proc.wait() to detect unexpected exits.
         """
         if self._is_running():
@@ -926,15 +938,15 @@ class Launcher(QWidget):
         self._proc = subprocess.Popen(
             [
                 python, "-m", "streamlit", "run", str(APP_PY),
-                "--server.port",                 "8501",
-                "--server.address",              "127.0.0.1",
+                "--server.port",                 str(APP_PORT),
+                "--server.address",              APP_HOST,
                 "--server.headless",             "true",
                 "--server.fileWatcherType",      "none",
                 "--server.runOnSave",            "false",
                 "--server.enableCORS",           "false",
                 "--server.enableXsrfProtection", "false",
                 "--browser.gatherUsageStats",    "false",
-                "--browser.serverAddress",       "127.0.0.1",
+                "--browser.serverAddress",       APP_HOST,
                 "--client.toolbarMode",          "minimal",
                 "--runner.fastReruns",           "true",
                 "--runner.magicEnabled",         "false",

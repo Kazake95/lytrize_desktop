@@ -253,45 +253,54 @@ def init_db() -> None:
         )""")
 
 
-        for ddl in [
-            "ALTER TABLE users    ADD COLUMN is_guest     INTEGER DEFAULT 0",
-            "ALTER TABLE users    ADD COLUMN uuid         TEXT",
-            "ALTER TABLE sessions ADD COLUMN session_name    TEXT NOT NULL DEFAULT ''",
-            "ALTER TABLE sessions ADD COLUMN file_name       TEXT",
-            "ALTER TABLE sessions ADD COLUMN rows_count      INTEGER",
-            "ALTER TABLE sessions ADD COLUMN cols_count      INTEGER",
-            "ALTER TABLE sessions ADD COLUMN analysis_types  TEXT",
-            "ALTER TABLE sessions ADD COLUMN charts_json     TEXT",
-            "ALTER TABLE sessions ADD COLUMN session_uuid    TEXT",
-            "ALTER TABLE sessions ADD COLUMN source          TEXT DEFAULT 'local'",
-            "ALTER TABLE sessions ADD COLUMN dashboard_title TEXT DEFAULT ''",
-            "ALTER TABLE sessions ADD COLUMN kpis_json       TEXT DEFAULT '[]'",
-            "ALTER TABLE sessions ADD COLUMN layout_mode     TEXT DEFAULT 'portrait'",
-            "ALTER TABLE sessions ADD COLUMN grid_order_json TEXT DEFAULT '[]'",
-            "ALTER TABLE sessions ADD COLUMN grid_fullwidth_json TEXT DEFAULT '{}'",
-            "ALTER TABLE sessions ADD COLUMN updated_at      TIMESTAMP",
-            "ALTER TABLE sessions ADD COLUMN export_text_json TEXT DEFAULT '{}'",
-            "ALTER TABLE sessions ADD COLUMN export_colours_json TEXT DEFAULT '{}'",
-            "ALTER TABLE draft_sessions ADD COLUMN col_descriptions_json TEXT DEFAULT '{}'",
-        ]:
-            try:
-                c.execute(ddl)
-            except Exception as exc:
-                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                pass
-
-
-        try:
-            existing = {row[1] for row in c.execute("PRAGMA table_info(sessions)")}
-            for col, typedef in [
+        # Legacy columns that may be missing on older installs. Each entry is
+        # only ALTERed in when it's actually absent (checked once via PRAGMA
+        # table_info per table), instead of speculatively firing every ALTER
+        # every startup and swallowing the resulting OperationalError when a
+        # column already exists -- that pattern deliberately raised and
+        # caught up to 17 exceptions on every single app launch.
+        _legacy_columns = {
+            "users": [
+                ("is_guest", "INTEGER DEFAULT 0"),
+                ("uuid",     "TEXT"),
+            ],
+            "sessions": [
+                ("session_name",        "TEXT NOT NULL DEFAULT ''"),
+                ("file_name",           "TEXT"),
+                ("rows_count",          "INTEGER"),
+                ("cols_count",          "INTEGER"),
+                ("analysis_types",      "TEXT"),
+                ("charts_json",         "TEXT"),
+                ("session_uuid",        "TEXT"),
+                ("source",              "TEXT DEFAULT 'local'"),
+                ("dashboard_title",     "TEXT DEFAULT ''"),
+                ("kpis_json",           "TEXT DEFAULT '[]'"),
+                ("layout_mode",         "TEXT DEFAULT 'portrait'"),
                 ("grid_order_json",     "TEXT DEFAULT '[]'"),
                 ("grid_fullwidth_json", "TEXT DEFAULT '{}'"),
-            ]:
+                ("updated_at",          "TIMESTAMP"),
+                ("export_text_json",    "TEXT DEFAULT '{}'"),
+                ("export_colours_json", "TEXT DEFAULT '{}'"),
+            ],
+            "draft_sessions": [
+                ("col_descriptions_json", "TEXT DEFAULT '{}'"),
+            ],
+        }
+
+        for table, columns in _legacy_columns.items():
+            try:
+                existing = {row[1] for row in c.execute(f"PRAGMA table_info({table})")}
+            except Exception:
+                log.exception("init_db: failed reading schema for table %s", table)
+                continue
+            for col, typedef in columns:
                 if col not in existing:
-                    c.execute(f"ALTER TABLE sessions ADD COLUMN {col} {typedef}")
-        except Exception as exc:
-            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-            pass
+                    try:
+                        c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typedef}")
+                    except Exception:
+                        log.exception(
+                            "init_db: failed to add missing column %s.%s", table, col
+                        )
 
 
         try:

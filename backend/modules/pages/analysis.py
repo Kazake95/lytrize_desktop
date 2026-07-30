@@ -10,8 +10,7 @@ from modules.utils.session_cache import make_json_safe
 from modules.analysis import (
     ANALYSIS_OPTIONS, _NEEDS_AXES, _NO_FORM,
     render_config_panel, _collect_kwargs, _run,
-    render_config_panel_scoped, _collect_kwargs_scoped,
-    _WIDGET_SPEC, _collect_widget_state, _collect_widget_state_scoped,
+    _WIDGET_SPEC, _collect_widget_state,
 )
 from modules.analysis.descriptive import run_descriptive
 from modules.analysis.data_quality import run_data_quality
@@ -255,6 +254,51 @@ def _add_charts(new_charts, active):
 
 
 
+@st.fragment
+def _render_config_and_actions(active: str, df, analysis_name: str) -> None:
+    """Live config-panel + Generate/Close controls, isolated in a fragment.
+
+    Adjusting a widget in the config panel (palette, columns, aggregation,
+    etc.) only reruns this fragment instead of the whole analysis page --
+    the panel explicitly says selections are live with no submit needed, so
+    there's nothing outside this fragment that needs to see those in-between
+    states. Generate/Close DO need to affect the rest of the page (the chart
+    grid, the "which analysis is open" state), so they use
+    st.rerun(scope="app") rather than a plain st.rerun() -- same convention
+    used by the Edit-Chart button in modules/ui/chart_card.py.
+    """
+    st.markdown(f"### ⚙️ Configure -- {analysis_name}")
+    st.caption("Adjust options below. All selections are live -- no submit needed until Generate.")
+
+    render_config_panel(active, df)
+
+    st.write("")
+    g1, g2, _ = st.columns([1, 1, 5])
+    with g1:
+        generate_clicked = st.button(
+            "▶ Generate Charts", key=f"gen_{active}",
+            type="primary", use_container_width=True)
+    with g2:
+        close_clicked = st.button(
+            "✕ Close", key=f"close_{active}",
+            use_container_width=True)
+
+    if close_clicked:
+        st.session_state["_active_analysis"] = None
+        _shadow_notes_sync()
+        st.rerun(scope="app")
+
+    if generate_clicked:
+        kwargs = _collect_kwargs(active, df)
+        new_charts = _run(active, df, **kwargs)
+        if new_charts is not None:
+            if new_charts:
+                _add_charts(new_charts, active)
+            st.session_state["_active_analysis"] = None
+            _autosave()
+            st.rerun(scope="app")
+
+
 def page_analysis():
     """Main analysis page: chart generation grid and configuration."""
     if "user_id" not in st.session_state:
@@ -397,14 +441,14 @@ def page_analysis():
                     if key in ws and ws[key] is not None:
                         st.session_state[f"_edit_{regen_uid}_{regen_type}_{key}"] = ws[key]
                 st.session_state.pop("_regen_restore", None)
-            render_config_panel_scoped(regen_uid, regen_type, df)
+            render_config_panel(regen_type, df, uid=regen_uid)
 
 
             ra, rb, _ = st.columns([1, 1, 5])
             with ra:
                 if st.button("✅ Apply Changes", key="regen_apply", type="primary",
                              use_container_width=True):
-                    kwargs = _collect_kwargs_scoped(regen_uid, regen_type, df)
+                    kwargs = _collect_kwargs(regen_type, df, uid=regen_uid)
                     new_charts = _run(regen_type, df, **kwargs)
                     if new_charts:
                         # Invalidate the display-figure cache so the fragment
@@ -427,12 +471,12 @@ def page_analysis():
                         # Persist the latest scoped widget state so the next
                         # edit opens with these exact selections.
                         try:
-                            _new_ws = _collect_widget_state_scoped(regen_uid, regen_type)
+                            _new_ws = _collect_widget_state(regen_type, uid=regen_uid)
                             _widget_spec_keys = [key for key, _kwarg, _kind in _WIDGET_SPEC.get(regen_type, [])]
                             _set_chart_meta(
                                 regen_uid,
-                                _generation_kwargs=_collect_kwargs_scoped(
-                                    regen_uid, regen_type, st.session_state.get("df")
+                                _generation_kwargs=_collect_kwargs(
+                                    regen_type, st.session_state.get("df"), uid=regen_uid
                                 ),
                                 widget_state={
                                     k: _new_ws.get(k)
@@ -572,40 +616,7 @@ def page_analysis():
 
 
         else:
-            st.markdown(f"### ⚙️ Configure -- {analysis_name}")
-            st.caption("Adjust options below. All selections are live -- no submit needed until Generate.")
-
-
-            render_config_panel(active, df)
-
-
-            st.write("")
-            g1, g2, _ = st.columns([1, 1, 5])
-            with g1:
-                generate_clicked = st.button(
-                    "▶ Generate Charts", key=f"gen_{active}",
-                    type="primary", use_container_width=True)
-            with g2:
-                close_clicked = st.button(
-                    "✕ Close", key=f"close_{active}",
-                    use_container_width=True)
-
-
-            if close_clicked:
-                st.session_state["_active_analysis"] = None
-                _shadow_notes_sync()
-                st.rerun()
-
-
-            if generate_clicked:
-                kwargs = _collect_kwargs(active, df)
-                new_charts = _run(active, df, **kwargs)
-                if new_charts is not None:
-                    if new_charts:
-                        _add_charts(new_charts, active)
-                    st.session_state["_active_analysis"] = None
-                    _autosave()
-                    st.rerun()
+            _render_config_and_actions(active, df, analysis_name)
 
 
     if st.session_state.charts:

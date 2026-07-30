@@ -2,6 +2,8 @@
 
 
 import uuid
+from typing import Optional
+
 import streamlit as st
 
 
@@ -150,21 +152,17 @@ _WIDGET_SPEC = {
 }
 
 
-def _collect_widget_state(aid: str) -> dict:
-    """Capture current widget values for an analysis type."""
-    state = {}
-    for key, _kwarg, kind in _WIDGET_SPEC.get(aid, []):
-        wkey = _sk(aid, key)
-        if wkey in st.session_state:
-            state[key] = st.session_state[wkey]
-    return state
+def _collect_widget_state(aid: str, uid: Optional[str] = None) -> dict:
+    """Capture current widget values for an analysis type.
 
-
-def _collect_widget_state_scoped(uid: str, aid: str) -> dict:
-    """Capture current scoped widget values for an analysis type."""
+    Pass `uid` to read from the uid-scoped keys used by the "regenerate
+    chart" panel; omit it to read from the plain per-analysis-type keys used
+    when first configuring a new chart.
+    """
     state = {}
+    key_fn = (lambda key: _sk_uid(uid, aid, key)) if uid is not None else (lambda key: _sk(aid, key))
     for key, _kwarg, kind in _WIDGET_SPEC.get(aid, []):
-        wkey = _sk_uid(uid, aid, key)
+        wkey = key_fn(key)
         if wkey in st.session_state:
             state[key] = st.session_state[wkey]
     return state
@@ -242,14 +240,18 @@ def _single_choice_value(value, default=None):
 
 
 
-def render_config_panel_scoped(uid: str, aid: str, df) -> None:
-    """Render configuration panel with uid-scoped widget keys for regenerate."""
+def _render_config_panel_body(aid: str, df, sk) -> None:
+    """Shared widget-rendering body for render_config_panel, parametrized by
+    a `sk(key)` function that builds the right session_state key -- plain
+    per-analysis-type keys for a new chart, or uid-scoped keys when
+    reconfiguring an existing chart via the "regenerate" panel."""
     num, cat, dt, all_cols = _num_cols(), _cat_cols(), _dt_cols(), df.columns.tolist()
     NONE = "None"
-    sk = lambda key: _sk_uid(uid, aid, key)
 
+    if aid == "descriptive":
+        st.info("No configuration needed -- outputs a full stats table.")
 
-    if aid == "statistical":
+    elif aid == "statistical":
         c1, c2, c3 = st.columns(3)
         with c1:
             _ensure_single_choice_state(sk("x"), [NONE] + cat, NONE)
@@ -430,81 +432,95 @@ def render_config_panel_scoped(uid: str, aid: str, df) -> None:
             st.checkbox("Borders", value=True, key=sk("choropleth_show_borders"))
 
 
+def render_config_panel(aid: str, df, uid: Optional[str] = None) -> None:
+    """Render configuration widgets for the analysis identified by `aid`.
+
+    Pass `uid` to render into the uid-scoped keys used by the "regenerate
+    chart" panel; omit it (the default) to render into the plain
+    per-analysis-type keys used when configuring a brand-new chart.
+    """
+    sk = (lambda key: _sk_uid(uid, aid, key)) if uid is not None else (lambda key: _sk(aid, key))
+    _render_config_panel_body(aid, df, sk)
 
 
-def _collect_kwargs_scoped(uid: str, aid: str, df) -> dict:
-    """Collect widget kwargs from uid-scoped keys for regenerate."""
+
+
+
+
+def _collect_kwargs(aid: str, df, uid: Optional[str] = None) -> dict:
+    """Read widget values from session_state and return a kwargs dict for the runner.
+
+    Pass `uid` to read from the uid-scoped keys used by the "regenerate
+    chart" panel; omit it (the default) to read from the plain
+    per-analysis-type keys used when configuring a brand-new chart.
+    """
     num, cat, dt, all_cols = _num_cols(), _cat_cols(), _dt_cols(), df.columns.tolist()
     NONE = "None"
-    g = lambda key, default=None: _g_uid(uid, aid, key, default)
+    g = (lambda key, default=None: _g_uid(uid, aid, key, default)) if uid is not None \
+        else (lambda key, default=None: _g(aid, key, default))
+
     _sort_map = {
-        "Value ↓": "Value (Desc)", "Value ↑": "Value (Asc)",
-        "Category A→Z": "Category (A-Z)", "Category Z→A": "Category (Z-A)",
+        "Value ↓":       "Value (Desc)",
+        "Value ↑":       "Value (Asc)",
+        "Category A→Z":  "Category (A-Z)",
+        "Category Z→A":  "Category (Z-A)",
     }
 
-
     pal_label = g("palette", list(PALETTES.keys())[0])
-    kwargs = {"palette": PALETTES.get(pal_label, list(PALETTES.values())[0])}
-
+    kwargs    = {"palette": PALETTES.get(pal_label, list(PALETTES.values())[0])}
 
     if aid == "statistical":
-        kwargs.update(x_cols=_single_choice_value(g("x", NONE), NONE), y_cols=g("y", num[:4]) or num)
+        x = _single_choice_value(g("x", NONE), NONE)
+        kwargs.update(x_cols=None if x is None else [x], y_cols=g("y", num[:4]) or num)
+
     elif aid == "distribution":
         color = _single_choice_value(g("color", NONE), NONE)
         kwargs.update(x_cols=g("x", num[:4]) or num[:4], y_cols=None if color is None else [color])
+
     elif aid == "correlation":
         kwargs.update(x_cols=g("x", num) or num)
+
     elif aid == "categorical":
-        x = g("x",cat[:2]) or cat[:2]
-        y = g("y",[]) or None
-        agg = _AGG_FUNCS.get(g("agg","Avg"), "mean")
-        top_n_v = int(g("top_n",0) or 0)
-        top_n = top_n_v if top_n_v > 0 else None
-        sort_by = _sort_map.get(g("sort","Value ↓"), "Value (Desc)")
+        x        = g("x", cat[:2]) or cat[:2]
+        y        = g("y", []) or None
+        agg      = _AGG_FUNCS.get(g("agg", "Avg"), "mean")
+        raw_sort = g("sort", "Value ↓")
+        sort_by  = _sort_map.get(raw_sort, "Value (Desc)")
+        top_n_v  = int(g("top_n", 0) or 0)
+        top_n    = top_n_v if top_n_v > 0 else None
         kwargs.update(x_cols=x, y_cols=y, agg=agg, sort_by=sort_by, top_n=top_n)
-        direction = g("direction","Vertical (Column chart)")
-        raw_dual = g("dual_y", NONE)
-        dual_y = None if (not raw_dual or raw_dual == NONE) else raw_dual
-        if dual_y and y and dual_y in (y if isinstance(y,list) else [y]):
+        direction = g("direction", "Vertical (Column chart)")
+        raw_dual  = g("dual_y", NONE)
+        dual_y    = None if (not raw_dual or raw_dual == NONE) else raw_dual
+        if dual_y and y and dual_y in (y if isinstance(y, list) else [y]):
             dual_y = None
         dual_y_agg = _AGG_FUNCS.get(g("dual_y_agg", "Avg"), "mean") if dual_y else None
         kwargs.update(direction=direction, dual_y_col=dual_y, dual_y_agg=dual_y_agg)
 
     elif aid == "pie_chart":
-        x = g("x",cat[:2]) or cat[:2]
-        y = g("y",[]) or None
-        agg = _AGG_FUNCS.get(g("agg","Avg"), "mean")
-        top_n_v = int(g("top_n",0) or 0)
-        top_n = top_n_v if top_n_v > 0 else None
-        sort_by = _sort_map.get(g("sort","Value ↓"), "Value (Desc)")
+        x        = g("x", cat[:2]) or cat[:2]
+        y        = g("y", []) or None
+        agg      = _AGG_FUNCS.get(g("agg", "Avg"), "mean")
+        raw_sort = g("sort", "Value ↓")
+        sort_by  = _sort_map.get(raw_sort, "Value (Desc)")
+        top_n_v  = int(g("top_n", 0) or 0)
+        top_n    = top_n_v if top_n_v > 0 else None
         kwargs.update(x_cols=x, y_cols=y, agg=agg, sort_by=sort_by, top_n=top_n)
-    elif aid == "time_series":
-        x = _single_choice_value(g("x", NONE), NONE)
-        y = _single_choice_value(g("y", num[0] if num else NONE), num[0] if num else NONE)
-        agg = _AGG_FUNCS.get(g("agg", "Avg"), "mean")
-        date_part = _DATE_PARTS.get(g("date_part", "None"))
-        raw_dual = g("dual_y_ts", NONE)
-        dual_y = None if (not raw_dual or raw_dual == NONE) else raw_dual
-        if dual_y and dual_y in ([y] if y else []):
-            dual_y = None
-        dual_y_agg = _AGG_FUNCS.get(g("dual_y_agg", "Avg"), "mean") if dual_y else None
-        kwargs.update(x_cols=None if x in (NONE, None, "") else [x], y_cols=[y] if y else [], agg=agg,
-                      date_part=date_part, dual_y_col=dual_y, dual_y_agg=dual_y_agg)
-
 
     elif aid == "scatter_plot":
-        def _sp_r(key):
+        def _sp_resolve(key):
             v = g(key, NONE)
             return None if v in (NONE, None, "") else v
         kwargs.update(
-            x_col=_sp_r("x_col"), y_col=_sp_r("y_col"),
-            color_col=_sp_r("color_col"), size_col=_sp_r("size_col"),
+            x_col=_sp_resolve("x_col"),
+            y_col=_sp_resolve("y_col"),
+            color_col=_sp_resolve("color_col"),
+            size_col=_sp_resolve("size_col"),
             trendline=g("trendline", "None"),
         )
 
-
     elif aid == "matrix_heatmap":
-        def _mh_r(key):
+        def _mh_resolve(key):
             v = g(key, NONE)
             return None if v in (NONE, None, "") else v
         _mh_sort_map = {
@@ -513,15 +529,16 @@ def _collect_kwargs_scoped(uid: str, aid: str, df) -> dict:
         }
         _mh_top_n_v = int(g("top_n_rows", 0) or 0)
         kwargs.update(
-            index_col=_mh_r("index_col"), columns_col=_mh_r("columns_col"),
-            values_col=_mh_r("values_col"),
+            index_col=_mh_resolve("index_col"),
+            columns_col=_mh_resolve("columns_col"),
+            values_col=_mh_resolve("values_col"),
             agg=_AGG_FUNCS.get(g("agg", "Avg"), "mean"),
             sort_rows=_mh_sort_map.get(g("sort_rows", "Value ↓"), "value_desc"),
             top_n_rows=_mh_top_n_v if _mh_top_n_v > 0 else None,
         )
 
     elif aid == "matrix_table":
-        def _mt_r(key):
+        def _mt_resolve(key):
             v = g(key, NONE)
             return None if v in (NONE, None, "") else v
         _mt_sort_map = {
@@ -530,22 +547,23 @@ def _collect_kwargs_scoped(uid: str, aid: str, df) -> dict:
         }
         _mt_top_n_v = int(g("top_n_rows", 0) or 0)
         kwargs.update(
-            index_col=_mt_r("index_col"), columns_col=_mt_r("columns_col"),
-            values_col=_mt_r("values_col"),
+            index_col=_mt_resolve("index_col"),
+            columns_col=_mt_resolve("columns_col"),
+            values_col=_mt_resolve("values_col"),
             agg=_AGG_FUNCS.get(g("agg", "Avg"), "mean"),
             sort_rows=_mt_sort_map.get(g("sort_rows", "Value ↓"), "value_desc"),
             top_n_rows=_mt_top_n_v if _mt_top_n_v > 0 else None,
         )
 
     elif aid == "map_plot":
-        def _mp_r(key):
+        def _mp_resolve(key):
             v = g(key, NONE)
             return None if v in (NONE, None, "") else v
-        _mp_mode_s = g("map_mode", "Scatter (Lat/Lon)")
-        if _mp_mode_s == "Choropleth (Location Names)":
+        _mp_mode = g("map_mode", "Scatter (Lat/Lon)")
+        if _mp_mode == "Choropleth (Location Names)":
             kwargs.update(
-                geo_col=_mp_r("geo_col"),
-                value_col=_mp_r("value_col"),
+                geo_col=_mp_resolve("geo_col"),
+                value_col=_mp_resolve("value_col"),
                 agg_func=_AGG_FUNCS.get(g("agg_func", "Sum"), "sum"),
                 invert_colorscale=bool(g("invert_colorscale", False)),
                 choropleth_colorscale=g("choropleth_colorscale", "Blues"),
@@ -555,380 +573,32 @@ def _collect_kwargs_scoped(uid: str, aid: str, df) -> dict:
             )
         else:
             kwargs.update(
-                lat_col=_mp_r("lat_col"), lon_col=_mp_r("lon_col"),
-                location_col=_mp_r("location_col"), color_col=_mp_r("color_col"),
-                value_col=_mp_r("value_col"),
-                agg_func=_AGG_FUNCS.get(g("agg_func", "Avg"), "mean"),
-                invert_colorscale=bool(g("invert_colorscale", False)),
-                map_style=g("map_style", "carto-positron"),
-                marker_opacity=float(g("marker_opacity", 0.82)),
-            )
-
-
-    return kwargs
-
-
-
-
-def render_config_panel(aid: str, df) -> None:
-    """Render configuration widgets for the analysis identified by `aid`."""
-    num, cat, dt, all_cols = _num_cols(), _cat_cols(), _dt_cols(), df.columns.tolist()
-    NONE = "None"
-
-
-    if aid == "descriptive":
-        st.info("No configuration needed -- outputs a full stats table.")
-
-
-    elif aid == "statistical":
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            _ensure_single_choice_state(_sk(aid, "x"), [NONE] + cat, NONE)
-            st.selectbox("Group by (optional)", [NONE] + cat, key=_sk(aid, "x"))
-        with c2: st.multiselect("Metrics", num, default=num[:4], key=_sk(aid, "y"))
-        with c3:
-            if aid not in ("matrix_heatmap", "matrix_table", "map_plot"):
-                st.selectbox("🎨 Palette", list(PALETTES.keys()), key=_sk(aid, "palette"))
-
-
-    elif aid == "distribution":
-        c1, c2, c3 = st.columns(3)
-        with c1: st.multiselect("Numeric columns", num, default=num[:4], key=_sk(aid, "x"))
-        with c2:
-            _ensure_single_choice_state(_sk(aid, "color"), [NONE] + cat, NONE)
-            st.selectbox("Colour by (optional)", [NONE] + cat, key=_sk(aid, "color"))
-        with c3:
-            if aid not in ("matrix_heatmap", "matrix_table", "map_plot"):
-                st.selectbox("🎨 Palette", list(PALETTES.keys()), key=_sk(aid, "palette"))
-
-
-    elif aid == "correlation":
-        st.multiselect("Columns", num, default=num, key=_sk(aid, "x"))
-
-
-    elif aid == "pie_chart":
-        c1, c2, c3, c4, c5, c6 = st.columns(6)
-        with c1:
-            st.multiselect("Dimensions", cat, default=cat[:2], key=_sk(aid, "x"),
-                           help="Columns to split the data by")
-        with c2:
-            st.multiselect("Metrics", num, key=_sk(aid, "y"),
-                           help="Values to aggregate (optional)")
-        with c3:
-            st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=_sk(aid, "agg"),
-                         help="How to combine multiple metric values")
-        with c4:
-            st.selectbox(
-                "Sort", ["Value ↓", "Value ↑", "Category A→Z", "Category Z→A"],
-                key=_sk(aid, "sort"),
-                help="Order of wedge display")
-        with c5:
-            st.selectbox("Palette", list(PALETTES.keys()), key=_sk(aid, "palette"),
-                         help="Color scheme for the chart")
-        with c6:
-            st.number_input(
-                "Top N", min_value=0, max_value=200, step=1, value=0,
-                key=_sk(aid, "top_n"),
-                help="Max slices to show (0 = all categories)")
-
-    elif aid == "categorical":
-        c1, c2, c3, c4, c5, c6, c7, c8 = st.columns(8)
-        with c1:
-            st.multiselect("Dimensions", cat, default=cat[:2], key=_sk(aid, "x"),
-                           help="Columns to split the data by")
-        with c2:
-            st.multiselect("Metrics", num, key=_sk(aid, "y"),
-                           help="Values to aggregate (optional)")
-        with c3:
-            st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=_sk(aid, "agg"),
-                         help="How to combine multiple metric values")
-        with c4:
-            st.selectbox(
-                "📊 Direction",
-                ["Vertical (Column chart)", "Horizontal (Bar chart)"],
-                key=_sk(aid, "direction"),
-                help="Vertical = column chart. Horizontal = bar chart.")
-        with c5:
-            st.number_input("Top N", min_value=0, max_value=200, step=1, value=0,
-                            key=_sk(aid, "top_n"), help="Max bars to show (0 = show all)")
-        with c6:
-            dual_opts = [NONE] + list(num)
-            st.selectbox("Secondary Y-Axis", dual_opts, key=_sk(aid, "dual_y"),
-                         help="None = disabled.")
-        with c7:
-            st.selectbox("Secondary Agg", list(_AGG_FUNCS.keys()),
-                         key=_sk(aid, "dual_y_agg"),
-                         help="Aggregation for secondary Y-axis metric")
-        with c8:
-            st.selectbox("Palette", list(PALETTES.keys()), key=_sk(aid, "palette"),
-                         help="Color scheme for the chart")
-
-
-
-
-    elif aid == "scatter_plot":
-        sp1, sp2, sp3, sp4, sp5, sp6 = st.columns(6)
-        with sp1: st.selectbox("X Axis", [NONE] + num, key=_sk(aid, "x_col"))
-        with sp2: st.selectbox("Y Axis", [NONE] + num, key=_sk(aid, "y_col"))
-        with sp3: st.selectbox("Colour", [NONE] + cat, key=_sk(aid, "color_col"))
-        with sp4: st.selectbox("Size", [NONE] + num, key=_sk(aid, "size_col"))
-        with sp5: st.selectbox("Trendline", ["None", "ols", "lowess"], key=_sk(aid, "trendline"))
-        with sp6:
-            if aid not in ("matrix_heatmap", "matrix_table", "map_plot"):
-                st.selectbox("🎨 Palette", list(PALETTES.keys()), key=_sk(aid, "palette"))
-
-
-    elif aid == "matrix_heatmap":
-        mt1, mt2, mt3, mt4, mt5, mt6 = st.columns(6)
-        with mt1: st.selectbox("Row (Index column)", [NONE] + cat, key=_sk(aid, "index_col"))
-        with mt2: st.selectbox("Column dimension", [NONE] + cat, key=_sk(aid, "columns_col"))
-        with mt3: st.selectbox("Value column", [NONE] + num, key=_sk(aid, "values_col"))
-        with mt4: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=_sk(aid, "agg"))
-        with mt5: st.selectbox("Sort rows by", ["Value ↓", "Value ↑", "Category A→Z", "Category Z→A"],
-                               key=_sk(aid, "sort_rows"),
-                               help="Sort index rows by their aggregated value or alphabetically")
-        with mt6: st.number_input("Top N rows (0 = all)", min_value=0, max_value=500,
-                                  step=5, value=0, key=_sk(aid, "top_n_rows"),
-                                  help="Limit to the top N rows after sorting. 0 shows all rows.")
-
-    elif aid == "matrix_table":
-        mt1, mt2, mt3, mt4, mt5, mt6 = st.columns(6)
-        with mt1: st.selectbox("Row (Index column)", [NONE] + cat, key=_sk(aid, "index_col"))
-        with mt2: st.selectbox("Column dimension", [NONE] + cat, key=_sk(aid, "columns_col"))
-        with mt3: st.selectbox("Value column", [NONE] + num, key=_sk(aid, "values_col"))
-        with mt4: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=_sk(aid, "agg"))
-        with mt5: st.selectbox("Sort rows by", ["Value ↓", "Value ↑", "Category A→Z", "Category Z→A"],
-                               key=_sk(aid, "sort_rows"),
-                               help="Sort index rows by their aggregated value or alphabetically")
-        with mt6: st.number_input("Top N rows (0 = all)", min_value=0, max_value=500,
-                                  step=5, value=0, key=_sk(aid, "top_n_rows"),
-                                  help="Limit to the top N rows after sorting. 0 shows all rows.")
-
-
-    elif aid == "map_plot":
-        from modules.analysis.map_plot import _CHOROPLETH_SCALES, _PROJECTIONS, _SCOPES, detect_geo_column
-        _map_mode_opts = ["Scatter (Lat/Lon)", "Choropleth (Location Names)"]
-        _df_sig_s = f"{df.shape}_{list(df.columns)}"
-        if st.session_state.get("_detected_geo_sig") != _df_sig_s or "_detected_geo_col" not in st.session_state:
-            st.session_state["_detected_geo_col"] = detect_geo_column(df)
-            st.session_state["_detected_geo_sig"] = _df_sig_s
-        _detected_geo  = st.session_state["_detected_geo_col"]
-        _default_mode  = 1 if _detected_geo else 0
-        _mode = st.session_state.get(_sk(aid, "map_mode"), _map_mode_opts[_default_mode])
-        if _mode == "Scatter (Lat/Lon)":
-            mp1, mp2, mp3, mp4, mp5, mp6, mp7, mp8, mp9, mp10, mp11 = st.columns(11)
-            with mp1: st.selectbox("Mode", _map_mode_opts, index=_default_mode, key=_sk(aid, "map_mode"))
-            with mp2: st.selectbox("Latitude", [NONE] + num, key=_sk(aid, "lat_col"))
-            with mp3: st.selectbox("Longitude", [NONE] + num, key=_sk(aid, "lon_col"))
-            with mp4: st.selectbox("Location", [NONE] + cat, key=_sk(aid, "location_col"))
-            with mp5: st.selectbox("Colour", [NONE] + cat + num, key=_sk(aid, "color_col"))
-            with mp6: st.selectbox("Value", [NONE] + num, key=_sk(aid, "value_col"))
-            with mp7: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=_sk(aid, "agg_func"))
-            with mp8: st.selectbox("Style", ["carto-positron", "open-street-map", "carto-darkmatter"],
-                                   key=_sk(aid, "map_style"))
-            with mp9: st.slider("Opacity", 0.3, 1.0, 0.82, 0.05, key=_sk(aid, "marker_opacity"))
-            with mp10: st.checkbox("Invert", key=_sk(aid, "invert_colorscale"))
-            with mp11: st.checkbox("Borders", value=True, key=_sk(aid, "show_borders"))
-        else:
-            _all_cols_str = [c for c in df.columns if df[c].dtype == object]
-            _geo_default_idx = (_all_cols_str.index(_detected_geo)
-                                if _detected_geo and _detected_geo in _all_cols_str else 0)
-            cg0, cg1, cg2, cg3, cg4, cg5, cg6 = st.columns(7)
-            with cg0: st.selectbox("Mode", _map_mode_opts, index=_default_mode, key=_sk(aid, "map_mode"))
-            with cg1: st.selectbox("Location", _all_cols_str if _all_cols_str else df.columns.tolist(),
-                                   index=_geo_default_idx, key=_sk(aid, "geo_col"))
-            with cg2: st.selectbox("Value", [NONE] + num, key=_sk(aid, "value_col"))
-            with cg3: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=_sk(aid, "agg_func"))
-            with cg4: st.selectbox("Scale", _CHOROPLETH_SCALES, key=_sk(aid, "choropleth_colorscale"))
-            with cg5: st.selectbox("Projection", _PROJECTIONS, key=_sk(aid, "choropleth_projection"))
-            with cg6: st.selectbox("Scope", _SCOPES, key=_sk(aid, "choropleth_scope"))
-            st.checkbox("Borders", value=True, key=_sk(aid, "choropleth_show_borders"))
-
-
-    elif aid == "time_series":
-        dt_candidates = dt if dt else all_cols
-        c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
-        with c1:
-            default_dt = dt_candidates[0] if dt_candidates else NONE
-            _ensure_single_choice_state(_sk(aid, "x"), [NONE] + dt_candidates, default_dt)
-            st.selectbox("Date / Time", [NONE] + dt_candidates, key=_sk(aid, "x"))
-        with c2: st.selectbox("Primary metric", num, index=0, key=_sk(aid, "y"))
-        with c3: st.selectbox("Date grouping", list(_DATE_PARTS.keys()), key=_sk(aid, "date_part"))
-        with c4: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=_sk(aid, "agg"))
-        with c5:
-            dual_opts_ts = [NONE] + list(num)
-            st.selectbox("Secondary Y-Axis", dual_opts_ts, key=_sk(aid, "dual_y_ts"))
-        with c6:
-            st.selectbox("Secondary Agg", list(_AGG_FUNCS.keys()), key=_sk(aid, "dual_y_agg"))
-        with c7:
-            st.selectbox("Palette", list(PALETTES.keys()), key=_sk(aid, "palette"))
-
-
-
-
-def _collect_kwargs(aid: str, df) -> dict:
-    """Read widget values from session_state and return a kwargs dict for the runner."""
-    num, cat, dt, all_cols = _num_cols(), _cat_cols(), _dt_cols(), df.columns.tolist()
-    NONE = "None"
-
-
-    pal_label = _g(aid, "palette", list(PALETTES.keys())[0])
-    palette   = PALETTES.get(pal_label, list(PALETTES.values())[0])
-    kwargs    = {"palette": palette}
-
-
-    _sort_map = {
-        "Value ↓":       "Value (Desc)",
-        "Value ↑":       "Value (Asc)",
-        "Category A→Z":  "Category (A-Z)",
-        "Category Z→A":  "Category (Z-A)",
-    }
-
-
-    if aid == "statistical":
-        x   = _single_choice_value(_g(aid, "x", NONE), NONE)
-        y   = _g(aid, "y", num[:4]) or num
-        kwargs.update(x_cols=None if x is None else [x], y_cols=y)
-
-
-    elif aid == "distribution":
-        x     = _g(aid, "x", num[:4]) or num[:4]
-        color = _single_choice_value(_g(aid, "color", NONE), NONE)
-        kwargs.update(x_cols=x, y_cols=None if color is None else [color])
-
-
-    elif aid == "correlation":
-        x = _g(aid, "x", num) or num
-        kwargs.update(x_cols=x)
-
-
-    elif aid == "categorical":
-        x        = _g(aid, "x", cat[:2]) or cat[:2]
-        y        = _g(aid, "y", []) or None
-        agg      = _AGG_FUNCS.get(_g(aid, "agg", "Avg"), "mean")
-        raw_sort = _g(aid, "sort", "Value ↓")
-        sort_by  = _sort_map.get(raw_sort, "Value (Desc)")
-        top_n_v  = int(_g(aid, "top_n", 0) or 0)
-        top_n    = top_n_v if top_n_v > 0 else None
-        kwargs.update(x_cols=x, y_cols=y, agg=agg, sort_by=sort_by, top_n=top_n)
-        direction = _g(aid, "direction", "Vertical (Column chart)")
-        raw_dual  = _g(aid, "dual_y", NONE)
-        dual_y    = None if (not raw_dual or raw_dual == NONE) else raw_dual
-        if dual_y and y and dual_y in (y if isinstance(y, list) else [y]):
-            dual_y = None
-        dual_y_agg = _AGG_FUNCS.get(_g(aid, "dual_y_agg", "Avg"), "mean") if dual_y else None
-        kwargs.update(direction=direction, dual_y_col=dual_y, dual_y_agg=dual_y_agg)
-
-    elif aid == "pie_chart":
-        x        = _g(aid, "x", cat[:2]) or cat[:2]
-        y        = _g(aid, "y", []) or None
-        agg      = _AGG_FUNCS.get(_g(aid, "agg", "Avg"), "mean")
-        raw_sort = _g(aid, "sort", "Value ↓")
-        sort_by  = _sort_map.get(raw_sort, "Value (Desc)")
-        top_n_v  = int(_g(aid, "top_n", 0) or 0)
-        top_n    = top_n_v if top_n_v > 0 else None
-        kwargs.update(x_cols=x, y_cols=y, agg=agg, sort_by=sort_by, top_n=top_n)
-
-
-    elif aid == "scatter_plot":
-        def _sp_resolve(key):
-            v = _g(aid, key, NONE)
-            return None if v in (NONE, None, "") else v
-        kwargs.update(
-            x_col=_sp_resolve("x_col"),
-            y_col=_sp_resolve("y_col"),
-            color_col=_sp_resolve("color_col"),
-            size_col=_sp_resolve("size_col"),
-            trendline=_g(aid, "trendline", "None"),
-        )
-
-
-    elif aid == "matrix_heatmap":
-        def _mh_resolve(key):
-            v = _g(aid, key, NONE)
-            return None if v in (NONE, None, "") else v
-        _mh_sort_map = {
-            "Value ↓": "value_desc", "Value ↑": "value_asc",
-            "Category A→Z": "cat_asc", "Category Z→A": "cat_desc",
-        }
-        _mh_top_n_v = int(_g(aid, "top_n_rows", 0) or 0)
-        kwargs.update(
-            index_col=_mh_resolve("index_col"),
-            columns_col=_mh_resolve("columns_col"),
-            values_col=_mh_resolve("values_col"),
-            agg=_AGG_FUNCS.get(_g(aid, "agg", "Avg"), "mean"),
-            sort_rows=_mh_sort_map.get(_g(aid, "sort_rows", "Value ↓"), "value_desc"),
-            top_n_rows=_mh_top_n_v if _mh_top_n_v > 0 else None,
-        )
-
-    elif aid == "matrix_table":
-        def _mt_resolve(key):
-            v = _g(aid, key, NONE)
-            return None if v in (NONE, None, "") else v
-        _mt_sort_map2 = {
-            "Value ↓": "value_desc", "Value ↑": "value_asc",
-            "Category A→Z": "cat_asc", "Category Z→A": "cat_desc",
-        }
-        _mt_top_n_v2 = int(_g(aid, "top_n_rows", 0) or 0)
-        kwargs.update(
-            index_col=_mt_resolve("index_col"),
-            columns_col=_mt_resolve("columns_col"),
-            values_col=_mt_resolve("values_col"),
-            agg=_AGG_FUNCS.get(_g(aid, "agg", "Avg"), "mean"),
-            sort_rows=_mt_sort_map2.get(_g(aid, "sort_rows", "Value ↓"), "value_desc"),
-            top_n_rows=_mt_top_n_v2 if _mt_top_n_v2 > 0 else None,
-        )
-
-
-    elif aid == "map_plot":
-        def _mp_resolve(key):
-            v = _g(aid, key, NONE)
-            return None if v in (NONE, None, "") else v
-        _mp_mode = _g(aid, "map_mode", "Scatter (Lat/Lon)")
-        if _mp_mode == "Choropleth (Location Names)":
-            kwargs.update(
-                geo_col=_mp_resolve("geo_col"),
-                value_col=_mp_resolve("value_col"),
-                agg_func=_AGG_FUNCS.get(_g(aid, "agg_func", "Sum"), "sum"),
-                invert_colorscale=bool(_g(aid, "invert_colorscale", False)),
-                choropleth_colorscale=_g(aid, "choropleth_colorscale", "Blues"),
-                choropleth_projection=_g(aid, "choropleth_projection", "natural earth"),
-                choropleth_scope=_g(aid, "choropleth_scope", "world"),
-                choropleth_show_borders=bool(_g(aid, "choropleth_show_borders", True)),
-            )
-        else:
-            kwargs.update(
                 lat_col=_mp_resolve("lat_col"),
                 lon_col=_mp_resolve("lon_col"),
                 location_col=_mp_resolve("location_col"),
                 value_col=_mp_resolve("value_col"),
                 size_col=_mp_resolve("size_col"),
                 color_col=_mp_resolve("color_col"),
-                agg_func=_AGG_FUNCS.get(_g(aid, "agg_func", "Avg"), "mean"),
-                invert_colorscale=bool(_g(aid, "invert_colorscale", False)),
-                map_style=_g(aid, "map_style", "carto-positron"),
-                marker_opacity=float(_g(aid, "marker_opacity", 0.82)),
+                agg_func=_AGG_FUNCS.get(g("agg_func", "Avg"), "mean"),
+                invert_colorscale=bool(g("invert_colorscale", False)),
+                map_style=g("map_style", "carto-positron"),
+                marker_opacity=float(g("marker_opacity", 0.82)),
             )
 
-
     elif aid == "time_series":
-        x         = _g(aid, "x", NONE)
-        y         = _single_choice_value(_g(aid, "y", num[0] if num else NONE), num[0] if num else NONE)
-        agg       = _AGG_FUNCS.get(_g(aid, "agg", "Avg"), "mean")
-        date_part = _DATE_PARTS.get(_g(aid, "date_part", "None"))
-        x_cols    = None if x in (NONE, None, "") else [x]
-        raw_dual  = _g(aid, "dual_y_ts", NONE)
+        x         = _single_choice_value(g("x", NONE), NONE)
+        y         = _single_choice_value(g("y", num[0] if num else NONE), num[0] if num else NONE)
+        agg       = _AGG_FUNCS.get(g("agg", "Avg"), "mean")
+        date_part = _DATE_PARTS.get(g("date_part", "None"))
+        raw_dual  = g("dual_y_ts", NONE)
         dual_y    = None if (not raw_dual or raw_dual == NONE) else raw_dual
         if dual_y and dual_y in ([y] if y else []):
             dual_y = None
-        dual_y_agg = _AGG_FUNCS.get(_g(aid, "dual_y_agg", "Avg"), "mean") if dual_y else None
+        dual_y_agg = _AGG_FUNCS.get(g("dual_y_agg", "Avg"), "mean") if dual_y else None
         kwargs.update(x_cols=None if x in (NONE, None, "") else [x], y_cols=[y] if y else [], agg=agg,
                       date_part=date_part, dual_y_col=dual_y, dual_y_agg=dual_y_agg)
 
-
     return kwargs
-
-
 
 
 def _run(aid: str, df, **kwargs):

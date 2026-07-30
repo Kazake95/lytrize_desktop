@@ -181,7 +181,7 @@ def main() -> None:
 
     if "user_id" in st.session_state and url_nav == "home":
         for k in [
-            "view_session_id", "_view_charts", "_vsid",
+            "view_session_id", "_view_charts", "_vsid", "_view_session_meta",
             "_view_session_id_loaded", "dashboard_title", "kpis", "layout_mode",
         ]:
             st.session_state.pop(k, None)

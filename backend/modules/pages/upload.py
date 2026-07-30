@@ -202,19 +202,29 @@ def page_upload():
 
 
 def _save_upload_snapshot(df, file_name: str) -> None:
-    """Persist df parquet + minimal draft immediately after upload if modified."""
+    """Persist df parquet + minimal draft immediately after upload if modified.
+
+    Runs on the main Streamlit script-run thread. The parquet write itself is
+    handed off to a background thread (disk I/O), but the DataFrame reference
+    and every `st.session_state` read/write happens here first --
+    `st.session_state` is bound to this thread's ScriptRunContext and must
+    never be touched from the spawned thread.
+    """
     uid = st.session_state.get("user_id")
     if not uid:
         return
     try:
+        # NOTE: id(df) is intentionally excluded from the signature -- it is
+        # only unique for an object's lifetime and gets reused after GC, so a
+        # fresh `.copy()` of unchanged data would otherwise look "changed"
+        # every rerun and trigger redundant snapshot writes. Shape + columns +
+        # a byte-size fingerprint is enough to catch real content changes.
         df_sig = (
-            id(df),
             df.shape,
             tuple(df.columns),
             int(df.memory_usage(deep=True).sum()) if hasattr(df, "memory_usage") else 0,
         )
         sig_changed = st.session_state.get("_df_snapshot_sig") != df_sig
-
 
         draft_cache_key = ("_draft_upload_cache", file_name, df_sig)
         if st.session_state.get("_last_draft_upload_cache") != draft_cache_key or sig_changed:
@@ -223,15 +233,25 @@ def _save_upload_snapshot(df, file_name: str) -> None:
             import json as _json
             import threading
 
-
             if sig_changed:
-                threading.Thread(
-                    target=save_df_snapshot,
-                    args=(uid,),
-                    daemon=True
-                ).start()
+                # Skip if a save for this exact signature is already in
+                # flight -- avoids piling up concurrent parquet writers (and
+                # concurrent SQLite writers downstream) when the signature
+                # changes across several reruns in quick succession.
+                if st.session_state.get("_df_snapshot_inflight_sig") != df_sig:
+                    st.session_state["_df_snapshot_inflight_sig"] = df_sig
+                    # Capture the DataFrame reference on the main thread now
+                    # and pass it explicitly -- save_df_snapshot() must not
+                    # fall back to reading st.session_state from the
+                    # background thread itself.
+                    df_ref = df
+                    threading.Thread(
+                        target=save_df_snapshot,
+                        args=(uid, df_ref),
+                        daemon=True,
+                    ).start()
                 st.session_state["_df_snapshot_sig"] = df_sig
-
+                st.session_state.pop("_df_snapshot_inflight_sig", None)
 
             save_draft(
                 user_id               = uid,
@@ -245,8 +265,14 @@ def _save_upload_snapshot(df, file_name: str) -> None:
             )
             st.session_state["_last_draft_upload_cache"] = draft_cache_key
     except Exception as exc:
-        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-        pass
+        # This failure means the user's draft/snapshot did NOT persist --
+        # log loudly enough to actually show up in streamlit.log rather than
+        # only at DEBUG level, since silently swallowing it is a data-loss
+        # risk the user would otherwise never learn about.
+        logging.getLogger(__name__).warning(
+            "Failed to save upload snapshot/draft for user %s: %s",
+            uid, exc, exc_info=True,
+        )
 
 
 
