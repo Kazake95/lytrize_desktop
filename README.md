@@ -226,6 +226,15 @@ rm ~/.local/share/lytrize/lytrize.db
 Restart the app — a fresh database will be created automatically. Your saved sessions will be lost (use **Restore Backup** to recover from a JSON backup if you have one).
 
 ---
+## Upcoming updates
+
+**Official chromium extension for one click full page screenshot**
+
+**Light mode theme**
+
+**UI improvements & minor bug fixes**
+
+---
 
 ## Contributing
 
