@@ -1091,21 +1091,34 @@ def apply_chart_display_options(
                     logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                     pass
 
+            # Build colorbar config for correlation/matrix_heatmap
+            cb_tick_sz   = int(opts.get("colorbar_tick_size", 10))
+            cb_tick_col  = str(opts.get("colorbar_tick_color", "#94a3b8"))
+            cb_title_sz  = int(opts.get("colorbar_title_size", 11))
+            cb_title_col = str(opts.get("colorbar_title_color", "#cbd5e1"))
+            cb_family    = resolve_font_stack(str(opts.get("colorbar_font_family", _raw_family)))
+            cb_title     = opts.get("colorbar_title", "")
+            _cb_font_suffix = dict(weight=_weight, style=_style)
+            
+            cb_kwargs = dict(
+                tickfont=dict(size=cb_tick_sz, color=cb_tick_col, family=cb_family, **_cb_font_suffix),
+            )
+            if cb_title:
+                cb_kwargs["title"] = dict(text=cb_title, font=dict(size=cb_title_sz, color=cb_title_col, family=cb_family, **_cb_font_suffix))
+            
+            try:
+                f2.update_coloraxes(colorbar=cb_kwargs)
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+                pass
+
             for tr in f2.data:
                 ttype_for_cb = str(getattr(tr, "type", "")).lower()
                 if ttype_for_cb not in ("heatmap", "choropleth"):
                     continue
                 cell_sz      = int(opts.get("heatmap_font_size", 10))
-                hdr_sz       = int(opts.get("heatmap_header_size", 10))
-                cb_tick_sz   = int(opts.get("colorbar_tick_size", 10))
-                cb_tick_col  = str(opts.get("colorbar_tick_color", "#94a3b8"))
-                cb_title_sz  = int(opts.get("colorbar_title_size", 11))
-                cb_title_col = str(opts.get("colorbar_title_color", "#cbd5e1"))
-                cb_family    = resolve_font_stack(str(opts.get("colorbar_font_family", _raw_family)))
-                cb_title     = opts.get("colorbar_title", "")
                 _ann_sz  = opts.get("heatmap_annotation_size")
                 final_sz = int(_ann_sz) if _ann_sz is not None else cell_sz
-                _cb_font_suffix = dict(weight=_weight, style=_style)
                 try:
                     tf = getattr(tr, "textfont", None)
                     if tf is not None:
@@ -1116,23 +1129,6 @@ def apply_chart_display_options(
                         }
                         new_tf.update(_cb_font_suffix)
                         tr.textfont = new_tf
-                except Exception as exc:
-                    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                    pass
-                _caps = get_chart_type_capabilities(chart_type)
-                try:
-                    f2.update_xaxes(tickfont=dict(size=_ax_tick_size, color=_ax_tick_color, family=cb_family, **_cb_font_suffix))
-                    f2.update_yaxes(tickfont=dict(size=_ax_tick_size, color=_ax_tick_color, family=cb_family, **_cb_font_suffix))
-                except Exception as exc:
-                    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                    pass
-                try:
-                    tr.colorbar.tickfont = dict(
-                        size=cb_tick_sz, color=cb_tick_col, family=cb_family, **_cb_font_suffix)
-                    if cb_title:
-                        tr.colorbar.title.text = cb_title
-                    tr.colorbar.title.font = dict(
-                        size=cb_title_sz, color=cb_title_col, family=cb_family, **_cb_font_suffix)
                 except Exception as exc:
                     logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                     pass

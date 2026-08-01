@@ -30,7 +30,6 @@ def run_distribution(df, x_cols=None, y_cols=None, palette=None, **kwargs):
                 x=col,
                 color=color_col,
                 nbins=35,
-                marginal="box",
                 barmode="overlay",
                 opacity=0.75,
                 title=f"Distribution: {col} by {color_col}",
@@ -41,7 +40,6 @@ def run_distribution(df, x_cols=None, y_cols=None, palette=None, **kwargs):
                 df,
                 x=col,
                 nbins=35,
-                marginal="box",
                 title=f"Distribution: {col}",
                 color_discrete_sequence=[pal[i % len(pal)]],
             )
@@ -51,13 +49,6 @@ def run_distribution(df, x_cols=None, y_cols=None, palette=None, **kwargs):
         label = f"Dist: {col} by {color_col}" if color_col else f"Dist: {col}"
         apply_lytrize_standard(fig, title=label, xaxis=col, yaxis="Count",
                                analysis_type="distribution")
-
-        # Hide the marginal box-plot's subplot axes (xaxis2, yaxis2)
-        # so only the main histogram shows axis ticks/grid/titles
-        fig.update_xaxes(showticklabels=False, showgrid=False,
-                         zeroline=False, title="", row=2, col=1)
-        fig.update_yaxes(showticklabels=False, showgrid=False,
-                         zeroline=False, title="", row=2, col=1)
 
         charts.append((label, fig))
 

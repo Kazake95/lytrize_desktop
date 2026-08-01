@@ -32,6 +32,7 @@ def run_correlation(df, x_cols=None, y_cols=None, palette=None, **kwargs):
     for tr in fig.data:
         if str(getattr(tr, "type", "")).lower() == "heatmap":
             tr.texttemplate = "%{z:.2f}"
+            tr.hovertemplate = "x: %{x}<br>y: %{y}<br>correlation: %{z:.3f}<extra></extra>"
     fig.update_layout(**chart_layout())
     apply_lytrize_standard(fig, title="Correlation Heatmap",
                            analysis_type="correlation")
