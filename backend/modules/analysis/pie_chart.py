@@ -69,6 +69,9 @@ def run_pie_chart(df, x_cols=None, y_cols=None, agg="mean", sort_by=None,
                     color_discrete_sequence=pal,
                     hole=0.45)
                 fig.update_layout(**chart_layout())
+                fig.update_traces(
+                    hovertemplate="%{label}<br>Value=%{value:.2f}<br>Percent=%{percent:.2%}<extra></extra>"
+                )
                 apply_lytrize_standard(fig, title=f"{agg_label} {metric} Split by {col}{title_suffix}",
                                        legend=col, analysis_type="pie_chart",
                                        axis_editing=False)
@@ -90,6 +93,9 @@ def run_pie_chart(df, x_cols=None, y_cols=None, agg="mean", sort_by=None,
                 color_discrete_sequence=pal,
                 hole=0.45)
             fig.update_layout(**chart_layout())
+            fig.update_traces(
+                hovertemplate="%{label}<br>Value=%{value:.2f}<br>Percent=%{percent:.2%}<extra></extra>"
+            )
             apply_lytrize_standard(fig, title=f"Distribution of {col}{title_suffix}",
                                    legend=col, analysis_type="pie_chart",
                                    axis_editing=False)
