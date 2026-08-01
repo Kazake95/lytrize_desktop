@@ -74,7 +74,7 @@ CHART_TYPE_SETTINGS: dict[str, dict[str, Any]] = {
     "categorical": {
         "has_axes": True, "has_legend": False,
         "controls": ["title", "axes_labels",
-                    "show_value_labels", "label_position", "bar_gap", "bar_mode"],
+                    "show_value_labels", "label_position", "bar_gap", "bar_mode", "line_width"],
         "typography": ["family", "font_style", "header",
                       "axis_title", "axis_tick"],
     },

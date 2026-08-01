@@ -301,11 +301,11 @@ def _render_config_panel_body(aid: str, df, sk) -> None:
     elif aid == "categorical":
         c1, c2, c3, c4, c5, c6, c7, c8 = st.columns(8)
         with c1:
-            st.multiselect("Dimensions", cat, default=cat[:2], key=sk("x"),
-                           help="Columns to split the data by")
+            st.selectbox("Dimension", cat, key=sk("x"),
+                         help="Column to split the data by")
         with c2:
-            st.multiselect("Metrics", num, key=sk("y"),
-                           help="Values to aggregate (optional)")
+            st.selectbox("Metric", num, key=sk("y"),
+                         help="Value to aggregate (optional)")
         with c3:
             st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=sk("agg"),
                          help="How to combine multiple metric values")
@@ -481,19 +481,21 @@ def _collect_kwargs(aid: str, df, uid: Optional[str] = None) -> dict:
         kwargs.update(x_cols=g("x", num) or num)
 
     elif aid == "categorical":
-        x        = g("x", cat[:2]) or cat[:2]
-        y_raw    = g("y", [])
-        y        = y_raw if y_raw else None
+        x        = _single_choice_value(g("x", cat[:2] if cat else NONE), cat[:2] if cat else NONE)
+        y        = _single_choice_value(g("y", NONE), NONE)
         agg      = _AGG_FUNCS.get(g("agg", "Avg"), "mean")
         raw_sort = g("sort", "Value ↓")
         sort_by  = _sort_map.get(raw_sort, "Value (Desc)")
         top_n_v  = int(g("top_n", 0) or 0)
         top_n    = top_n_v if top_n_v > 0 else None
-        kwargs.update(x_cols=x, y_cols=y, agg=agg, sort_by=sort_by, top_n=top_n)
+        kwargs.update(x_cols=None if x in (NONE, None, "") else [x], 
+                      y_cols=None if y in (NONE, None, "") else [y], 
+                      agg=agg, sort_by=sort_by, top_n=top_n)
         direction = g("direction", "Vertical (Column chart)")
         raw_dual  = g("dual_y", NONE)
         dual_y    = None if (not raw_dual or raw_dual == NONE) else raw_dual
-        if dual_y and y and dual_y in (y if isinstance(y, list) else [y]):
+        y_list = kwargs.get("y_cols") or []
+        if dual_y and y_list and dual_y in y_list:
             dual_y = None
         dual_y_agg = _AGG_FUNCS.get(g("dual_y_agg", "Avg"), "mean") if dual_y else None
         kwargs.update(direction=direction, dual_y_col=dual_y, dual_y_agg=dual_y_agg)

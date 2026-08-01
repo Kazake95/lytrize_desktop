@@ -116,6 +116,7 @@ def run_categorical(df, x_cols=None, y_cols=None, agg="mean", sort_by=None,
                         text=[f"{v:,.1f}" for v in v1],
                         textposition="outside",
                         cliponaxis=False,
+                        hovertemplate="%{x}<br>%{text}<extra></extra>" if not is_horiz else "%{y}<br>%{text}<extra></extra>",
                     ), secondary_y=False)
                     line_color = _pick_contrast_color(pal, 0)
                     fig.add_trace(go.Scatter(
@@ -128,6 +129,7 @@ def run_categorical(df, x_cols=None, y_cols=None, agg="mean", sort_by=None,
                         textposition="top center",
                         textfont=dict(color=line_color),
                         texttemplate=None,
+                        hovertemplate="%{x}<br>%{text}<extra></extra>",
                     ), secondary_y=True)
                     fig.data[-1].mode = "lines+markers"
                     fig.update_layout(
@@ -155,6 +157,7 @@ def run_categorical(df, x_cols=None, y_cols=None, agg="mean", sort_by=None,
                         text=texts,
                         textposition="outside",
                         cliponaxis=False,
+                        hovertemplate="%{x}<br>%{text}<extra></extra>" if not is_horiz else "%{y}<br>%{text}<extra></extra>",
                     ))
                     d_lbl = "Bar" if is_horiz else "Column"
                     fig.update_layout(
