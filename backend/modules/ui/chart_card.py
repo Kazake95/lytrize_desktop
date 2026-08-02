@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import copy
 import html
+import json
 import re
 from typing import Any
 
@@ -187,7 +188,7 @@ def get_display_fig(uid: str, base_fig, meta: dict, chart_type: str, *,
 # ---------------------------------------------------------------------------
 @st.fragment(run_every=None)  # manual reruns only -- no polling
 def render_chart_card(uid: str, title: str, fig, chart_type: str,
-                      meta: dict, auto_insights: list[str],
+                      meta: dict,
                       *, key_prefix: str, edit_mode: bool,
                       viewing_saved: bool = False,
                       on_meta_changed=None) -> None:
@@ -195,7 +196,7 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
 
     Parameters
     ----------
-    uid / title / fig / chart_type / meta / auto_insights:
+    uid / title / fig / chart_type / meta:
         Standard chart identity and content.
     key_prefix:
         "analysis" or "dash_typo" to avoid widget-key collisions when the same
@@ -211,7 +212,7 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
     * Top bar:  Edit button | Delete button (title rendered inside Plotly).
     * Two-column body:
         - Left  (1/3): Chart Settings expander + Typography expander.
-        - Right (2/3): plotly_chart + auto-insights + notes text_area.
+        - Right (2/3): plotly_chart + notes text_area.
     Every widget gets a stable `key` derived from uid so Streamlit's diff engine
     can recognise it across fragment reruns.
     """
@@ -320,7 +321,7 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
                 _set_tab, _typo_tab = st.tabs(["Layout", "Typography"])
                 with _set_tab:
                     updates = render_chart_settings_controls(
-                        uid, title, fig, _stype, meta, auto_insights,
+                        uid, title, fig, _stype, meta,
                         key_prefix=key_prefix,
                         show_text_style=False,
                         matrix_view=_meta_view,
@@ -345,7 +346,7 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
                         _merged.update(text_updates)
                         on_meta_changed(uid, "text_style", _merged)
 
-    # ---- RIGHT: figure render + insights + notes ---------------------- #
+    # ---- RIGHT: figure render + notes ---------------------- #
     with chart_col:
         # Re-read meta in case settings above mutated it
         meta = st.session_state.get(f"chart_meta_{uid}", meta)
@@ -379,13 +380,6 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
         if _is_table:
             st.markdown("</div>", unsafe_allow_html=True)
 
-        # Auto-insights ------------------------------------------------------
-        if auto_insights:
-            with st.expander("💡 Auto-Insights", expanded=False):
-                from modules.charts import clean_insight_text
-                for ins in auto_insights:
-                    st.markdown(f"- {clean_insight_text(ins)}")
-
         # Notes --------------------------------------------------------------
         note_key = f"desc_{uid}"
         if note_key not in st.session_state:
@@ -396,6 +390,33 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
         def _sync_note(_u=uid):
             val = st.session_state.get(f"desc_{_u}", "")
             st.session_state.setdefault("_notes_shadow", {})[_u] = val
+            # Persist note changes to database immediately
+            try:
+                # Use appropriate persist function based on current page
+                if st.session_state.get("page") == "dashboard":
+                    from modules.pages.dashboard import _persist
+                    _persist()
+                elif st.session_state.get("editing_session_id"):
+                    # Analysis page with active editing session
+                    from modules.database import update_session_db
+                    from modules.charts import charts_to_json
+                    eid = st.session_state.editing_session_id
+                    uid_user = st.session_state.get("user_id")
+                    if eid and uid_user:
+                        update_session_db(
+                            eid,
+                            st.session_state.get("editing_session_name", "Session"),
+                            charts_to_json(st.session_state.get("charts", [])),
+                            st.session_state.get("selected_analyses", []),
+                            uid_user,
+                            dashboard_title=st.session_state.get("dashboard_title", ""),
+                            kpis_json=json.dumps(st.session_state.get("kpis", [])),
+                            layout_mode=st.session_state.get("layout_mode", "portrait"),
+                            grid_order_json=json.dumps(st.session_state.get("grid_order", [])),
+                            grid_fullwidth_json=json.dumps(st.session_state.get("grid_fullwidth", {})),
+                        )
+            except Exception:
+                pass
 
         st.text_area(
             "✍️ Analysis Notes (auto-saved to Dashboard)",

@@ -370,12 +370,6 @@ def show_column_manager(df):
                         ]
 
 
-                    if "col_descriptions" in st.session_state:
-                        col_descs = st.session_state["col_descriptions"]
-                        if col_to_rename in col_descs:
-                            col_descs[new_name_clean] = col_descs.pop(col_to_rename)
-                            st.session_state["col_descriptions"] = col_descs
-
                     st.success(f"✅ Renamed '{col_to_rename}' to '{new_name_clean}'")
                     st.rerun()
                 except Exception as e:

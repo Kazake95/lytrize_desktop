@@ -46,8 +46,6 @@ EXPORT_DEFAULT_THEME = {
     "accent_color": BRAND_1,
     "card_border": "#334155",
     "text_color": DARK["text_primary"],
-    "insight_bg": "#1e2a45",
-    "insight_border": BRAND_1,
     "notes_bg": "#1e1a2e",
     "notes_border": BRAND_2,
 }
@@ -60,8 +58,6 @@ EXPORT_DARK_THEME = {
     "accent_color": "#818cf8",
     "card_border": "#334155",
     "text_color": DARK["text_primary"],
-    "insight_bg": "#1e2a45",
-    "insight_border": "#818cf8",
     "notes_bg": "#1e1a2e",
     "notes_border": "#a78bfa",
 }
@@ -76,8 +72,6 @@ EXPORT_PURPLE_THEME = {
     "accent_color": "#c084fc",
     "card_border": "#6b21a8",
     "text_color": "#f5f3ff",
-    "insight_bg": "#3b0764",
-    "insight_border": "#c084fc",
     "notes_bg": "#1e0030",
     "notes_border": "#e879f9",
 }
@@ -90,8 +84,6 @@ EXPORT_CORPORATE_THEME = {
     "accent_color": "#16a34a",
     "card_border": "#bbf7d0",
     "text_color": "#14532d",
-    "insight_bg": "#dcfce7",
-    "insight_border": "#16a34a",
     "notes_bg": "#f7fee7",
     "notes_border": "#65a30d",
 }

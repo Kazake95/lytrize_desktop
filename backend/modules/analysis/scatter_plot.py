@@ -47,8 +47,8 @@ def _add_trendline(fig, plot_df, x: str, y: str, tl_type: str) -> None:
     Falls back to pure numpy OLS when scipy is absent.
     
     The computed trendline metadata (slope, intercept, r_value, r_squared,
-    n_points, type) is stored on fig._lytrize_trendline for the auto-insight
-    engine to consume, so insights always reflect the actual rendered trend.
+    n_points, type) is stored on fig._lytrize_trendline for the
+    engine to consume, so results always reflect the actual rendered trend.
     """
     x_vals = pd.to_numeric(plot_df[x], errors="coerce").dropna().values
     y_vals = pd.to_numeric(plot_df[y], errors="coerce").dropna().values
@@ -294,7 +294,6 @@ def run_scatter_plot(df, x_col=None, y_col=None, color_col=None, size_col=None,
         "x_axis": x,
         "y_axis": y,
         "legend": color,
-        "supports_auto_insights": True,
         "supports_notes": True,
         "supports_axis_editing": True,
         "supports_legend_editing": True,

@@ -265,9 +265,6 @@ def _save_upload_snapshot(df, file_name: str) -> None:
                 charts_json           = "[]",
                 file_name             = file_name,
                 editing_file_name     = st.session_state.get("editing_file_name", ""),
-                col_descriptions_json = _json.dumps(
-                    st.session_state.get("col_descriptions", {})
-                ),
             )
             st.session_state["_last_draft_upload_cache"] = draft_cache_key
 
@@ -371,38 +368,6 @@ def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
             st.dataframe(_prev_df, use_container_width=True, height=min(380, 38 + len(_prev_df) * 35))
 
     _render_upload_preview()
-
-
-    # ── Column Descriptions (fragment-isolated so typing doesn't rerun the
-    # entire page; also uses data_editor instead of N text_inputs) ────────
-    @st.fragment(run_every=None)
-    def _render_col_descriptions():
-        with st.expander("📖 Describe Your Columns (optional)", expanded=False):
-            st.markdown("Describe what each column means for better auto-insights.")
-            col_descs = st.session_state.get("col_descriptions", {})
-            # Build a small editable table — one row per column, far fewer
-            # widgets than N separate st.text_input calls.
-            _desc_rows = [{"Column": c, "Description": col_descs.get(c, "")} for c in df.columns]
-            _edited = st.data_editor(
-                _desc_rows,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Column": st.column_config.TextColumn(disabled=True),
-                    "Description": st.column_config.TextColumn(
-                        width="large",
-                        help="e.g. 'Total revenue in USD'",
-                    ),
-                },
-                key="_col_desc_editor",
-            )
-            if st.button("💾 Save Column Descriptions", key="save_col_descs"):
-                st.session_state.col_descriptions = {
-                    row["Column"]: row["Description"] for row in _edited
-                }
-                st.success("✅ Saved.")
-
-    _render_col_descriptions()
 
 
     # ── Data Quality (fragment-isolated) ──────────────────────────────────
