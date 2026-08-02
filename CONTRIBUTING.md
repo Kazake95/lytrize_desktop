@@ -300,7 +300,7 @@ Shared configuration constants:
 
 ### `backend/modules/charts.py` — Chart Utilities & Insight Engine
 
-- **`PALETTES`** — 15 named color palettes (Default Blue-Purple, Vibrant, Nature Green, Warm Sunset, etc.)
+- **`PALETTES`** — 16 named color palettes (Default Blue-Purple, Vibrant, Nature Green, Warm Sunset, etc.)
 - **`chart_layout(height)`** — Returns a dict of Plotly layout kwargs used by every chart (transparent background, no gridlines, dark hover labels).
 - **`generate_chart_insights(chart_type, title, fig, col_descriptions)`** — Produces plain-English observations from a Plotly figure. Handles distributions, correlations, outliers, time series, categorical/pie, scatter, statistical, data quality, and matrix charts.
 - **`charts_to_json(charts)`** — Serializes the active chart list to JSON for database storage.
@@ -316,9 +316,6 @@ All SQLite operations. Key functions:
 - **`_connect()`** — Returns a SQLite connection with WAL mode, NORMAL synchronous, 8MB cache, MEMORY temp store, and 128MB mmap.
 - **`_db()`** — Context manager that commits on success and rolls back on error.
 - **`get_or_create_guest_user()`** — Returns the permanent local guest user, creating it if needed.
-- **`save_draft(...)`** / **`get_draft(user_id)`** / **`clear_draft(user_id)`** — Draft session management (auto-save during analysis).
-- **`save_session_db(...)`** / **`update_session_db(...)`** / **`delete_session_db(...)`** — Saved session CRUD.
-- **`get_user_sessions(user_id)`** — Returns the 20 most recent sessions (cached with `@st.cache_data`, 30s TTL).
 - **`save_draft(...)`** / **`get_draft(user_id)`** / **`clear_draft(user_id)`** — Draft session management (auto-save during analysis).
 - **`save_session_db(...)`** / **`update_session_db(...)`** / **`delete_session_db(...)`** — Saved session CRUD.
 - **`get_user_sessions(user_id)`** — Returns the 20 most recent sessions (cached with `@st.cache_data`, 30s TTL).
@@ -364,7 +361,7 @@ Each runner module implements a `run_<type>(df, **kwargs)` function that returns
 | `time_series.py` | `run_time_series(df, **kwargs)` | Line charts with date grouping and aggregation |
 | `scatter_plot.py` | `run_scatter_plot(df, **kwargs)` | Scatter plots with trendlines (OLS/LOWESS) |
 | `matrix_table.py` | `run_matrix_table(df, **kwargs)` | Pivot table as a data table |
-| `matrix_heatmap.py` | `run_matrix_heatmap(df, **kwargs)` | Pivot table as a heatmap |
+| `matrix_table.py` | `run_matrix_heatmap(df, **kwargs)` | Pivot table as a heatmap |
 | `outlier.py` | `run_outlier(df, **kwargs)` | IQR-based outlier detection charts |
 | `outlier.py` | `run_outlier_upload(df)` | Outlier summary for the upload page |
 | `map_plot.py` | `run_map_plot(df, **kwargs)` | Geographic scatter or choropleth maps |
@@ -663,13 +660,6 @@ All tables are created in `init_db()` with `CREATE TABLE IF NOT EXISTS`. Migrati
 | `action_detail` | TEXT | JSON or text detail |
 | `ts` | TIMESTAMP | Default `CURRENT_TIMESTAMP` |
 
-| Column | Type | Description |
-|---|---|---|
-| `token` | TEXT PK | UUID token string |
-| `user_id` | INTEGER FK | References `users(id)` |
-| `username` | TEXT | Username at token creation |
-| `expires_at` | TIMESTAMP | 7 days from creation |
-
 ---
 
 ## Session State Keys
@@ -801,7 +791,7 @@ The build script (`build.sh`):
 1. Cleans the build directory
 2. Copies `backend/`, `desktop/`, and `service/` to the staging area
 3. Creates an isolated Python virtual environment
-4. Installs all dependencies (streamlit, pandas, plotly, openpyxl, statsmodels, pycountry, PySide6)
+4. Installs all dependencies (streamlit, pandas, plotly, openpyxl, scipy, statsmodels, pycountry, pyarrow, PySide6)
 5. Patches venv shebangs for portability
 6. Slims the venv (removes `__pycache__`, tests, docs, `.pyc` files)
 7. Bakes icons at standard sizes (16-256px)
