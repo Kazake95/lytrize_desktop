@@ -134,19 +134,17 @@ def run_time_series(df, x_cols=None, y_cols=None, agg="mean", date_part=None,
         if dual_valid and y2_vals is not None:
             fig = make_subplots(specs=[[{"secondary_y": True}]])
             fig.add_trace(go.Scatter(
-                x=x_vals, y=y_vals, mode="lines+markers+text",
+                x=x_vals, y=y_vals, mode="lines+markers",
                 name=f"{agg_lbl} {col}",
                 line=dict(color=c_pri, width=2), marker=dict(size=5),
-                text=[f"{v:,.1f}" for v in y_vals],
-                textposition="top center",
+                hovertemplate=f"<b>{agg_lbl} {col}</b><br>" + "%{x}<br>Value: <b>%{y:,.2f}</b><extra></extra>",
             ), secondary_y=False)
             fig.add_trace(go.Scatter(
-                x=x_vals, y=y2_vals, mode="lines+markers+text",
+                x=x_vals, y=y2_vals, mode="lines+markers",
                 name=f"{dual_agg_lbl} {dual}",
                 line=dict(color=c_sec, width=2, dash="dash"),
                 marker=dict(size=5),
-                text=[f"{v:,.1f}" for v in y2_vals],
-                textposition="top center",
+                hovertemplate=f"<b>{dual_agg_lbl} {dual}</b><br>" + "%{x}<br>Value: <b>%{y:,.2f}</b><extra></extra>",
             ), secondary_y=True)
             _ts_title = f"TS: {col} & {dual}"
             fig.update_layout(
@@ -156,6 +154,7 @@ def run_time_series(df, x_cols=None, y_cols=None, agg="mean", date_part=None,
                 fig.update_xaxes(type="category", title_text=x_label)
             fig.update_yaxes(title_text=f"{agg_lbl} {col}", secondary_y=False)
             fig.update_yaxes(title_text=f"{dual_agg_lbl} {dual}", secondary_y=True)
+            fig.update_layout(hovermode='x unified')
             apply_lytrize_standard(fig, title=_ts_title,
                                    xaxis=dt_col or "Index", yaxis=col,
                                    analysis_type="time_series")
@@ -179,6 +178,9 @@ def run_time_series(df, x_cols=None, y_cols=None, agg="mean", date_part=None,
                     title=f"Trend: {col}",
                     color_discrete_sequence=[c_pri])
             fig.update_layout(**chart_layout())
+            fig.update_traces(
+                hovertemplate=f"<b>{agg_lbl} {col}</b><br>" + "%{x}<br>Value: <b>%{y:,.2f}</b><extra></extra>"
+            )
             _ts_title = f"TS: {col}"
             apply_lytrize_standard(fig, title=_ts_title,
                                    xaxis=dt_col or "Index", yaxis=col,

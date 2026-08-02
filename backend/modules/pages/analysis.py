@@ -244,6 +244,7 @@ def _add_charts(new_charts, active):
         st.session_state[f"chart_type_{uid}"]    = active
         st.session_state[f"auto_insights_{uid}"] = generate_chart_insights(
             active, title, fig, col_descs)
+        apply_hover_format(fig)
         _edit_prefix = f"_edit_{uid}_{active}_"
         for _k in list(st.session_state.keys()):
             if _k.startswith(_edit_prefix):

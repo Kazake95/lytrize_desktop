@@ -235,11 +235,20 @@ def apply_hover_format(fig) -> None:
                 )
 
         elif ttype == "scatter":
-            trace.hovertemplate = (
-                "<b>%{x}</b><br>"
-                "Value: <b>%{y:.3~s}</b>"
-                "<extra></extra>"
-            )
+            trace_name = getattr(trace, "name", "") or ""
+            if trace_name:
+                trace.hovertemplate = (
+                    f"<b>{trace_name}</b><br>"
+                    "%{x}<br>"
+                    "Value: <b>%{y:,.2f}</b>"
+                    "<extra></extra>"
+                )
+            else:
+                trace.hovertemplate = (
+                    "<b>%{x}</b><br>"
+                    "Value: <b>%{y:,.2f}</b>"
+                    "<extra></extra>"
+                )
 
         elif ttype == "histogram":
             trace.hovertemplate = (
