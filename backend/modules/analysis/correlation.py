@@ -40,6 +40,7 @@ def run_correlation(df, x_cols=None, y_cols=None, palette=None, **kwargs):
         "analysis_type": "correlation",
         "x_axis": None, "y_axis": None,
         "legend": None,
+        "supports_auto_insights": True, "supports_notes": True,
         "supports_axis_editing": False, "supports_legend_editing": True,
     }
     charts.append(("Correlation", fig))

@@ -213,6 +213,7 @@ def run_matrix_heatmap(df, index_col=None, columns_col=None, values_col=None,
         "analysis_type": "matrix_heatmap",
         "x_axis": cols, "y_axis": idx,
         "legend": f"{agg_label}({vals})",
+        "supports_auto_insights": False, "supports_notes": True,
         "supports_axis_editing": True, "supports_legend_editing": True,
         "matrix_view": "heatmap",
     }
@@ -379,6 +380,7 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
     fig._lytrize_meta = {
         "analysis_type": "matrix_table",
         "x_axis": cols, "y_axis": idx, "legend": None,
+        "supports_auto_insights": False, "supports_notes": True,
         "supports_axis_editing": True,
         "matrix_view": "table",
     }

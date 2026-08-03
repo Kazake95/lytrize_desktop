@@ -15,6 +15,7 @@ from typing import Any
 import streamlit as st
 
 
+from modules.charts import clean_insight_text
 from modules.ui.font_manager import inject_font_preview_css, font_select
 
 
@@ -1180,7 +1181,7 @@ def apply_chart_display_options(
 # Public renderer API (imported by chart_card.py / analysis.py / dashboard.py)
 # ---------------------------------------------------------------------------
 def render_chart_settings_controls(uid: str, title: str, fig, chart_type: str,
-                                   meta: dict, *,
+                                   meta: dict, auto_insights: list[str], *,
                                    key_prefix: str = "analysis",
                                    show_text_style: bool = False,
                                    matrix_view: str = "") -> dict:

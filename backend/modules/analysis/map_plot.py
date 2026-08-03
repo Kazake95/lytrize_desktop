@@ -797,6 +797,7 @@ def _run_scatter_map(
         "analysis_type": "map_plot",
         "x_axis": None, "y_axis": None,
         "legend": color,
+        "supports_auto_insights": True,
         "supports_notes": True,
         "supports_axis_editing": False,
         "supports_legend_editing": True,
@@ -966,6 +967,7 @@ def _run_choropleth(
         )
     fig._lytrize_meta = {
         "analysis_type": "map_plot", "x_axis": None, "y_axis": None,
+        "legend": value_col, "supports_auto_insights": True,
         "supports_notes": True, "supports_axis_editing": False,
         "supports_legend_editing": False,
     }
@@ -1047,6 +1049,7 @@ def _render_scatter_geo(
     fig.update_layout(**layout)
     fig._lytrize_meta = {
         "analysis_type": "map_plot", "x_axis": None, "y_axis": None,
+        "legend": value_col, "supports_auto_insights": True,
         "supports_notes": True, "supports_axis_editing": False,
         "supports_legend_editing": False,
     }

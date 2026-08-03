@@ -213,7 +213,7 @@ The app exports a standalone HTML file. To save that page as a PNG, use your bro
 If no supported browser is detected, copy `http://127.0.0.1:8501` into any browser while the launcher window shows "Running".
 
 **Large files are slow**
-Lytrize uses smart sampling for scatter plots (8,000 points) and maps (5,000 points), plus chunked reading for CSVs over 30 MB. For best performance with files over 100 MB, use 4 GB+ RAM.
+Lytrize uses smart sampling for scatter plots and maps (default 8,000 points) and chunked reading for CSVs over 30 MB. For best performance with files over 100 MB, use 4 GB+ RAM.
 
 **Something looks broken**
 Check the terminal output for Python tracebacks. If the issue happens again, open an issue and attach the log.
@@ -226,15 +226,13 @@ rm ~/.local/share/lytrize/lytrize.db
 Restart the app — a fresh database will be created automatically. Your saved sessions will be lost (use **Restore Backup** to recover from a JSON backup if you have one).
 
 ---
-## Upcoming development plan
+## Upcoming updates
 
-**1. Official chromium extension for one click full page screenshot**
+**Official chromium extension for one click full page screenshot**
 
-**2. Light mode theme**
+**Light mode theme**
 
-**3. Dynamic flter/slicer per chart**
-
-**4. UI improvements & minor bug fixes**
+**UI improvements & minor bug fixes**
 
 ---
 

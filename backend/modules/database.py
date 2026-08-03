@@ -247,6 +247,7 @@ def init_db() -> None:
             kpis_json            TEXT DEFAULT '[]',
             chart_meta_json      TEXT DEFAULT '{}',
             layout_mode           TEXT DEFAULT 'portrait',
+            col_descriptions_json TEXT DEFAULT '{}',
             updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id)
         )""")
@@ -280,6 +281,9 @@ def init_db() -> None:
                 ("updated_at",          "TIMESTAMP"),
                 ("export_text_json",    "TEXT DEFAULT '{}'"),
                 ("export_colours_json", "TEXT DEFAULT '{}'"),
+            ],
+            "draft_sessions": [
+                ("col_descriptions_json", "TEXT DEFAULT '{}'"),
             ],
         }
 
@@ -508,6 +512,7 @@ def save_draft(
     kpis_json: str = "[]",
     chart_meta_json: str = "{}",
     layout_mode: str = "portrait",
+    col_descriptions_json: str = "{}",
 ) -> None:
     """Upsert the user's current in-progress state to draft_sessions."""
     try:
@@ -516,11 +521,13 @@ def save_draft(
                     INSERT OR REPLACE INTO draft_sessions
                         (user_id, page, charts_json, file_name, editing_session_id,
                          editing_session_name, editing_file_name, dashboard_title,
-                         kpis_json, chart_meta_json, layout_mode, updated_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)""",
+                         kpis_json, chart_meta_json, layout_mode,
+                         col_descriptions_json, updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)""",
                     (user_id, page, charts_json, file_name,
                      editing_session_id, editing_session_name, editing_file_name,
-                     dashboard_title, kpis_json, chart_meta_json, layout_mode),
+                     dashboard_title, kpis_json, chart_meta_json, layout_mode,
+                     col_descriptions_json),
                 )
     except Exception as exc:
         logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
@@ -890,10 +897,11 @@ def get_session_charts(session_id: int, user_id=None) -> list:
         try:
             uid           = item.get("uid", uuid.uuid4().hex[:8])
             desc          = item.get("desc", "")
+            auto_insights = item.get("auto_insights", [])
             chart_type    = item.get("chart_type", "")
             meta          = item.get("meta", {})
             fig           = pio.from_json(item["fig_json"])
-            charts.append((uid, item["title"], fig, desc, chart_type, meta))
+            charts.append((uid, item["title"], fig, desc, auto_insights, chart_type, meta))
         except Exception as exc:
             logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
