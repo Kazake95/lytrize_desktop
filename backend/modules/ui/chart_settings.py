@@ -1105,11 +1105,27 @@ def apply_chart_display_options(
             if cb_title:
                 cb_kwargs["title"] = dict(text=cb_title, font=dict(size=cb_title_sz, color=cb_title_col, family=cb_family, **_cb_font_suffix))
             
-            try:
-                f2.update_coloraxes(colorbar=cb_kwargs)
-            except Exception as exc:
-                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                pass
+            # go.Heatmap traces store colorbar directly on the trace, so update
+            # each trace individually rather than relying on update_coloraxes.
+            for tr in f2.data:
+                ttype_for_cb = str(getattr(tr, "type", "")).lower()
+                if ttype_for_cb not in ("heatmap", "choropleth"):
+                    continue
+                try:
+                    if not hasattr(tr, "colorbar") or tr.colorbar is None:
+                        tr.colorbar = dict()
+                    tr.colorbar.tickfont = dict(
+                        size=cb_tick_sz, color=cb_tick_col, family=cb_family, **_cb_font_suffix)
+                    if cb_title:
+                        _side = getattr(getattr(tr.colorbar, "title", None), "side", "right") if hasattr(tr.colorbar, "title") and tr.colorbar.title else "right"
+                        tr.colorbar.title.text = cb_title
+                        tr.colorbar.title.font = dict(
+                            size=cb_title_sz, color=cb_title_col, family=cb_family, **_cb_font_suffix)
+                        if hasattr(tr.colorbar.title, "side"):
+                            tr.colorbar.title.side = _side
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+                    pass
 
             for tr in f2.data:
                 ttype_for_cb = str(getattr(tr, "type", "")).lower()

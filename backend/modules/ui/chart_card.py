@@ -147,7 +147,8 @@ def _fig_signature(fig) -> str:
 
 
 def get_display_fig(uid: str, base_fig, meta: dict, chart_type: str, *,
-                    force: bool = False):
+                    force: bool = False,
+                    matrix_view: str = ""):
     """Return the *display-ready* figure, recomputed only when meta or base_fig changes.
 
     Cache key combines ``compute_meta_hash(meta)`` with a figure signature.
@@ -195,7 +196,7 @@ def get_display_fig(uid: str, base_fig, meta: dict, chart_type: str, *,
         return fig
 
     # Full update needed
-    fig = apply_chart_display_options(base_fig, meta, chart_type, _inplace=False)
+    fig = apply_chart_display_options(base_fig, meta, chart_type, _inplace=False, matrix_view=matrix_view)
     st.session_state[cache_key] = fig
     st.session_state[hash_key]  = cache_hash
     st.session_state[f"_display_fig_full_hash_{uid}"] = meta_hash
@@ -372,7 +373,7 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
         meta = st.session_state.get(f"chart_meta_{uid}", meta)
 
         # Use the shared memoized cache: only rebuild if meta actually changed
-        fig_show = get_display_fig(uid, fig, meta, chart_type)
+        fig_show = get_display_fig(uid, fig, meta, chart_type, matrix_view=_meta_view)
 
         # Axis post-processing that depends on the *display* meta
         _ctype_now = st.session_state.get(f"chart_type_{uid}", chart_type)
