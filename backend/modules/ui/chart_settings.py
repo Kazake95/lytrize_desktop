@@ -785,6 +785,22 @@ def apply_chart_display_options(
                         for col in tr.cells.values
                     ]
 
+                _num_fmt = opts.get("table_number_format")
+                if _num_fmt and hasattr(tr.cells, "values") and tr.cells.values:
+                    _new_vals = []
+                    for _ci, _col in enumerate(tr.cells.values):
+                        if _ci == 0:
+                            _new_vals.append(_col)
+                            continue
+                        _new_col = []
+                        for _v in _col:
+                            try:
+                                _new_col.append(format(float(_v), _num_fmt))
+                            except Exception:
+                                _new_col.append(_v)
+                        _new_vals.append(_new_col)
+                    tr.cells.values = _new_vals
+
                 tr.cells.height  = row_h
                 tr.header.height = hdr_h
                 if hasattr(tr.cells, "align") and hasattr(tr.header, "values"):
