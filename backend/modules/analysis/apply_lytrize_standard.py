@@ -22,7 +22,6 @@ def apply_lytrize_standard(
     height=None,
     analysis_type="generic",
     notes_supported=True,
-    insights_supported=True,
     axis_editing=True,
     legend_editing=True,
 ):
@@ -76,7 +75,6 @@ def apply_lytrize_standard(
         "x_axis": xaxis,
         "y_axis": yaxis,
         "legend": legend,
-        "supports_auto_insights": insights_supported,
         "supports_notes": notes_supported,
         "supports_axis_editing": axis_editing,
         "supports_legend_editing": legend_editing,
