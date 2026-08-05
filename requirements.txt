@@ -7,4 +7,4 @@ statsmodels>=0.14.0,<0.15.0
 pycountry>=23.12.11,<25.0.0
 PySide6>=6.11.0,<7.0.0
 pyarrow>=14.0.0,<19.0.0
-starlette<0.37.0
+starlette>=0.21.0,<0.36.0

@@ -51,18 +51,7 @@ python3 -m venv "$VENV_BUILD"
 # ── [4/7] Install Python dependencies ────────────────────────────────────────
 echo "[4/7] Installing Python dependencies..."
 "$VENV_BUILD/bin/pip" install --upgrade pip --quiet
-"$VENV_BUILD/bin/pip" install \
-    "streamlit>=1.40.0" \
-    "pandas>=2.2.0" \
-    "plotly>=5.22.0" \
-    "openpyxl>=3.1.0" \
-    "scipy>=1.12.0" \
-    "statsmodels>=0.14.0" \
-    "pycountry>=23.12.11" \
-    "pyarrow>=14.0.0" \
-    --quiet
-echo "      Installing PySide6 (may take 2-3 minutes)..."
-"$VENV_BUILD/bin/pip" install PySide6 --quiet
+"$VENV_BUILD/bin/pip" install -r requirements.txt --quiet
 
 # ── [5/7] Patch venv shebangs for portability ─────────────────────────────────
 echo "[5/7] Patching venv shebangs for portability..."
