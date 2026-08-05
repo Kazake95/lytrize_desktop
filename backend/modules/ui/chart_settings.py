@@ -15,7 +15,6 @@ from typing import Any
 import streamlit as st
 
 
-from modules.charts import clean_insight_text
 from modules.ui.font_manager import inject_font_preview_css, font_select
 
 
@@ -120,7 +119,7 @@ CHART_TYPE_SETTINGS: dict[str, dict[str, Any]] = {
         "has_axes": True, "has_legend": True,
         "controls": ["title", "axes_labels", "legend_labels",
                     "marker_opacity", "marker_size", "show_value_labels",
-                    "line_width", "show_markers", "line_fill"],
+                    "line_width", "show_markers", "line_fill", "render_mode"],
         "typography": ["family", "font_style", "header",
                       "axis_title", "axis_tick", "legend_title", "legend_item"],
     },
@@ -182,7 +181,7 @@ CONTROLS_ADVANCED: dict[str, list[str]] = {
                        "colorbar_tick_size", "colorbar_tick_color",
                        "colorbar_title_size", "colorbar_title_color"],
     "time_series":    ["line_shape", "line_fill"],
-    "scatter_plot":   ["line_width", "show_markers", "line_fill"],
+    "scatter_plot":   ["line_width", "show_markers", "line_fill", "render_mode"],
     "matrix_table":   ["table_index_align", "table_data_align",
                        "table_stripe_even_color", "table_stripe_odd_color",
                        "table_number_format", "table_header_height"],
@@ -234,6 +233,7 @@ _CONTROL_META: dict[str, dict] = {
     "pie_rotation":                 {"t": "slider", "l": "Rotation", "k": "pr", "lo": 0, "hi": 360, "d": 0, "s": 1},
     "pie_label_size":               {"t": "slider", "l": "Label sz", "k": "pls", "lo": 6, "hi": 24, "d": 11, "s": 1},
     "pie_value_size":               {"t": "slider", "l": "Value sz", "k": "pvs", "lo": 6, "hi": 24, "d": 11, "s": 1},
+    "render_mode":                  {"t": "select", "l": "Render mode", "k": "rm", "o": ["svg", "webgl"], "d": "svg"},
     "heatmap_annotation_precision": {"t": "slider", "l": "Precision", "k": "hap", "lo": 0, "hi": 10, "d": 2, "s": 1},
     "heatmap_annotation_size":      {"t": "slider", "l": "Ann sz", "k": "has", "lo": 6, "hi": 24, "d": 10, "s": 1},
     "table_font_size":              {"t": "slider", "l": "Font sz", "k": "tfs", "lo": 8, "hi": 24, "d": 11, "s": 1},
@@ -585,6 +585,17 @@ def apply_chart_display_options(
     if not isinstance(opts, dict):
         opts = {}
     f2 = fig if _inplace else copy.deepcopy(fig)
+    
+    # Fast path for scatter plots with only font/axis changes — skip deep trace iteration
+    _is_scatter = chart_type == "scatter_plot"
+    _scatter_fast = (
+        _is_scatter
+        and not opts.get("show_value_labels")
+        and not opts.get("marker_opacity")
+        and not opts.get("marker_size")
+        and not opts.get("line_width")
+        and not opts.get("line_fill")
+    )
 
     _is_heatmap_view = chart_type == "matrix_table" and matrix_view == "heatmap"
 
@@ -607,231 +618,233 @@ def apply_chart_display_options(
     if opts.get("bar_mode"):
         f2.update_layout(barmode=str(opts["bar_mode"]))
 
-    for tr in f2.data:
-        ttype = str(getattr(tr, "type", "") or "").lower()
-        mode  = str(getattr(tr, "mode", "") or "")
+    # Fast path: skip trace iteration for simple scatter font/axis changes
+    if not _scatter_fast:
+        for tr in f2.data:
+            ttype = str(getattr(tr, "type", "") or "").lower()
+            mode  = str(getattr(tr, "mode", "") or "")
 
-        try:
-            if ttype == "bar":
-                tr.textposition = _label_pos if _show_value_labels else "none"
+            try:
+                if ttype == "bar":
+                    tr.textposition = _label_pos if _show_value_labels else "none"
 
-            if ttype in ("scatter", "scattergl"):
-                if _show_value_labels:
-                    # Populate text with y-values if not already set
-                    if getattr(tr, "text", None) is None:
-                        y_vals = getattr(tr, "y", None)
-                        if y_vals is not None:
-                            try:
-                                tr.text = [str(round(float(v), 2)) if v is not None else "" for v in y_vals]
-                            except (TypeError, ValueError):
-                                pass
-                    if "text" not in mode:
-                        tr.mode = mode + "+text"
-                    tr.textposition = "top center"
-                else:
-                    tr.mode = (
-                        mode.replace("+text", "").replace("text+", "").replace("text", "")
-                    ) or ("lines+markers" if "lines" in mode and "markers" in mode else mode)
+                if ttype in ("scatter", "scattergl"):
+                    if _show_value_labels:
+                        # Populate text with y-values if not already set
+                        if getattr(tr, "text", None) is None:
+                            y_vals = getattr(tr, "y", None)
+                            if y_vals is not None:
+                                try:
+                                    tr.text = [str(round(float(v), 2)) if v is not None else "" for v in y_vals]
+                                except (TypeError, ValueError):
+                                    pass
+                        if "text" not in mode:
+                            tr.mode = mode + "+text"
+                        tr.textposition = "top center"
+                    else:
+                        tr.mode = (
+                            mode.replace("+text", "").replace("text+", "").replace("text", "")
+                        ) or ("lines+markers" if "lines" in mode and "markers" in mode else mode)
 
-            if ttype == "histogram":
-                nbins = opts.get("histogram_bins")
-                if nbins:
-                    tr.nbinsx = int(nbins)
-                if opts.get("histogram_opacity") is not None:
-                    tr.opacity = float(opts["histogram_opacity"])
+                if ttype == "histogram":
+                    nbins = opts.get("histogram_bins")
+                    if nbins:
+                        tr.nbinsx = int(nbins)
+                    if opts.get("histogram_opacity") is not None:
+                        tr.opacity = float(opts["histogram_opacity"])
 
-            if ttype in ("scatter", "scattergl", "scattermap", "scattermapbox"):
-                if opts.get("marker_opacity") is not None and hasattr(tr, "marker"):
-                    tr.marker.opacity = float(opts["marker_opacity"])
-                if opts.get("marker_size") is not None and hasattr(tr, "marker"):
-                    tr.marker.size = int(opts["marker_size"])
-                if "lines" in mode:
-                    if opts.get("line_width") is not None:
-                        tr.line.width = int(opts["line_width"])
-                    if opts.get("line_shape"):
-                        tr.line.shape = str(opts["line_shape"])
-                    fill = opts.get("line_fill", "none")
-                    tr.fill = fill if fill and fill != "none" else "none"
-                if "markers" in mode and opts.get("show_markers") is False:
-                    tr.mode = (
-                        mode.replace("+markers", "")
-                            .replace("markers+", "")
-                            .replace("markers", "lines")
-                    )
+                if ttype in ("scatter", "scattergl", "scattermap", "scattermapbox"):
+                    if opts.get("marker_opacity") is not None and hasattr(tr, "marker"):
+                        tr.marker.opacity = float(opts["marker_opacity"])
+                    if opts.get("marker_size") is not None and hasattr(tr, "marker"):
+                        tr.marker.size = int(opts["marker_size"])
+                    if "lines" in mode:
+                        if opts.get("line_width") is not None:
+                            tr.line.width = int(opts["line_width"])
+                        if opts.get("line_shape"):
+                            tr.line.shape = str(opts["line_shape"])
+                        fill = opts.get("line_fill", "none")
+                        tr.fill = fill if fill and fill != "none" else "none"
+                    if "markers" in mode and opts.get("show_markers") is False:
+                        tr.mode = (
+                            mode.replace("+markers", "")
+                                .replace("markers+", "")
+                                .replace("markers", "lines")
+                        )
 
-            if ttype in ("pie", "sunburst", "treemap"):
-                if opts.get("donut_hole") is not None and hasattr(tr, "hole"):
-                    tr.hole = float(opts["donut_hole"])
-                if opts.get("pie_textinfo"):
-                    tr.textinfo = str(opts["pie_textinfo"])
-                if opts.get("pull_slices") is not None and ttype == "pie":
-                    tr.pull = float(opts["pull_slices"])
-                if opts.get("pie_rotation") is not None and hasattr(tr, "rotation"):
-                    tr.rotation = int(opts["pie_rotation"])
+                if ttype in ("pie", "sunburst", "treemap"):
+                    if opts.get("donut_hole") is not None and hasattr(tr, "hole"):
+                        tr.hole = float(opts["donut_hole"])
+                    if opts.get("pie_textinfo"):
+                        tr.textinfo = str(opts["pie_textinfo"])
+                    if opts.get("pull_slices") is not None and ttype == "pie":
+                        tr.pull = float(opts["pull_slices"])
+                    if opts.get("pie_rotation") is not None and hasattr(tr, "rotation"):
+                        tr.rotation = int(opts["pie_rotation"])
                 if opts.get("pie_direction") and hasattr(tr, "direction"):
                     tr.direction = str(opts["pie_direction"])
 
-            if ttype in ("heatmap", "choropleth"):
-                if opts.get("heatmap_colorscale"):
-                    tr.colorscale = str(opts["heatmap_colorscale"])
-                show_text = opts.get("heatmap_show_text")
-                if show_text is False:
-                    tr.text         = None
-                    tr.texttemplate = None
-                else:
-                    prec = int(opts.get("heatmap_annotation_precision", 2))
-                    existing_tmpl = getattr(tr, "texttemplate", None)
-                    if isinstance(existing_tmpl, str) and "%{z" in existing_tmpl:
-                        import re as _re
-                        tr.texttemplate = _re.sub(
-                            r"%\{z:[^}]*\}", f"%{{z:.{prec}f}}", existing_tmpl
-                        ) if "%{z:" in existing_tmpl else f"%{{z:.{prec}f}}"
+                if ttype in ("heatmap", "choropleth"):
+                    if opts.get("heatmap_colorscale"):
+                        tr.colorscale = str(opts["heatmap_colorscale"])
+                    show_text = opts.get("heatmap_show_text")
+                    if show_text is False:
+                        tr.text         = None
+                        tr.texttemplate = None
                     else:
-                        fmt = f"{{:.{prec}f}}"
-                        z_raw = getattr(tr, "z", None)
-                        z_arr = None
+                        prec = int(opts.get("heatmap_annotation_precision", 2))
+                        existing_tmpl = getattr(tr, "texttemplate", None)
+                        if isinstance(existing_tmpl, str) and "%{z" in existing_tmpl:
+                            import re as _re
+                            tr.texttemplate = _re.sub(
+                                r"%\{z:[^}]*\}", f"%{{z:.{prec}f}}", existing_tmpl
+                            ) if "%{z:" in existing_tmpl else f"%{{z:.{prec}f}}"
+                        else:
+                            fmt = f"{{:.{prec}f}}"
+                            z_raw = getattr(tr, "z", None)
+                            z_arr = None
+                            try:
+                                import numpy as _np, base64 as _b64
+                                import pandas as _pd
+                                if isinstance(z_raw, dict) and "bdata" in z_raw:
+                                    _dtype_map = {
+                                        "f8": "<f8", "f4": "<f4",
+                                        "i4": "<i4", "i8": "<i8",
+                                    }
+                                    _dtype = _np.dtype(
+                                        _dtype_map.get(z_raw.get("dtype", "f8"), z_raw.get("dtype", "<f8"))
+                                    )
+                                    _shape = tuple(
+                                        int(s) for s in str(z_raw.get("shape", "")).split(",") if s.strip()
+                                    )
+                                    _arr = _np.frombuffer(_b64.b64decode(z_raw["bdata"]), dtype=_dtype)
+                                    z_arr = _arr.reshape(_shape) if _shape else _arr
+                                elif isinstance(z_raw, _pd.DataFrame):
+                                    z_arr = z_raw.values
+                                elif z_raw is not None:
+                                    z_arr = z_raw
+                            except Exception as exc:
+                                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+                                pass
+                            if z_arr is not None:
+                                new_text = []
+                                for row in z_arr:
+                                    new_row = []
+                                    for v in row:
+                                        try:
+                                            new_row.append(fmt.format(float(v)))
+                                        except (TypeError, ValueError):
+                                            new_row.append(str(v) if v is not None else "")
+                                    new_text.append(new_row)
+                                tr.text = new_text
+                                tr.texttemplate = "%{text}"
+                    ann_size       = opts.get("heatmap_annotation_size")
+                    ann_color_mode = opts.get("heatmap_annotation_color", "auto")
+                    # Handle auto mode vs direct hex color
+                    if ann_color_mode in ("auto", "light", "dark"):
+                        if ann_color_mode == "auto":
+                            try:
+                                z_vals = [v for row in (tr.z or []) for v in (row or []) if v is not None]
+                                if z_vals:
+                                    z_mid   = (min(z_vals) + max(z_vals)) / 2
+                                    z_range = max(z_vals) - min(z_vals) or 1
+                                    norm_mid = (z_mid - min(z_vals)) / z_range
+                                    ann_color = "white" if norm_mid < 0.55 else "#1e293b"
+                                else:
+                                    ann_color = "white"
+                            except Exception:
+                                ann_color = "white"
+                        else:
+                            ann_color = {"light": "white", "dark": "#1e293b"}.get(ann_color_mode)
+                    else:
+                        # Direct hex color from color picker
+                        ann_color = ann_color_mode if ann_color_mode.startswith("#") else None
+                    if ann_size is not None or ann_color is not None:
+                        existing_tf = getattr(tr, "textfont", None)
+                        _tf_family = _safe_get_font_attr(existing_tf, "family", None)
+                        new_tf: dict = {
+                            "size":  _safe_get_font_attr(existing_tf, "size", 10) or 10,
+                            "color": _safe_get_font_attr(existing_tf, "color", "white") or "white",
+                        }
+                        if _tf_family:
+                            new_tf["family"] = _tf_family
+                        if ann_size  is not None: new_tf["size"]  = int(ann_size)
+                        if ann_color is not None: new_tf["color"] = ann_color
+                        tr.textfont = new_tf
+
+                if ttype == "table":
+                    _hdr_vals = getattr(tr.header, "values", None) or []
+                    _is_footer_trace = all(
+                        str(v).strip() in ("", "[]", "None")
+                        for v in _hdr_vals
+                    ) and len(_hdr_vals) > 0
+                    if _is_footer_trace:
+                        continue
+
+                    cell_size    = int(opts.get("table_font_size", 11))
+                    header_size  = int(opts.get("table_header_font_size", max(cell_size, 12)))
+                    row_h        = int(opts.get("table_row_height", 26))
+                    hdr_h        = max(int(opts.get("table_header_height", 22)), header_size + 12)
+                    idx_align    = opts.get("table_index_align", "left")
+                    data_align   = opts.get("table_data_align", "right")
+
+                    tr.cells.font = dict(size=cell_size, color=str(opts.get("table_font_color", "#f1f5f9")), family=_font_family)
+                    tr.header.font = dict(size=header_size, color="white", family=_font_family)
+
+                    if hasattr(tr.header, "values") and tr.header.values:
+                        tr.header.values = [_wrap_html_style(str(v), _font_style) for v in tr.header.values]
+                    if hasattr(tr.cells, "values") and tr.cells.values:
+                        tr.cells.values = [
+                            [_wrap_html_style(str(v), _font_style) for v in col]
+                            for col in tr.cells.values
+                        ]
+
+                    tr.cells.height  = row_h
+                    tr.header.height = hdr_h
+                    if hasattr(tr.cells, "align") and hasattr(tr.header, "values"):
+                        n_hdr_cols = len(tr.header.values) if tr.header.values else 0
+                        if n_hdr_cols > 1:
+                            tr.cells.align  = [idx_align] + [data_align] * (n_hdr_cols - 1)
+                            tr.header.align = [idx_align] + ["center"] * (n_hdr_cols - 1)
+
+                    hdr_color = opts.get("table_header_color")
+                    if hdr_color and hasattr(tr.header, "values"):
+                        n_hdr = len(tr.header.values) if tr.header.values else 0
+                        if n_hdr > 0:
+                            new_hdr_fills = [hdr_color] * n_hdr
+                            tr.header.fill.color = new_hdr_fills
+
+                    hdr_text_color = opts.get("table_header_text_color")
+                    if hdr_text_color and hasattr(tr.header, "font"):
                         try:
-                            import numpy as _np, base64 as _b64
-                            import pandas as _pd
-                            if isinstance(z_raw, dict) and "bdata" in z_raw:
-                                _dtype_map = {
-                                    "f8": "<f8", "f4": "<f4",
-                                    "i4": "<i4", "i8": "<i8",
-                                }
-                                _dtype = _np.dtype(
-                                    _dtype_map.get(z_raw.get("dtype", "f8"), z_raw.get("dtype", "<f8"))
-                                )
-                                _shape = tuple(
-                                    int(s) for s in str(z_raw.get("shape", "")).split(",") if s.strip()
-                                )
-                                _arr = _np.frombuffer(_b64.b64decode(z_raw["bdata"]), dtype=_dtype)
-                                z_arr = _arr.reshape(_shape) if _shape else _arr
-                            elif isinstance(z_raw, _pd.DataFrame):
-                                z_arr = z_raw.values
-                            elif z_raw is not None:
-                                z_arr = z_raw
+                            tr.header.font.color = str(hdr_text_color)
                         except Exception as exc:
                             logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                             pass
-                        if z_arr is not None:
-                            new_text = []
-                            for row in z_arr:
-                                new_row = []
-                                for v in row:
-                                    try:
-                                        new_row.append(fmt.format(float(v)))
-                                    except (TypeError, ValueError):
-                                        new_row.append(str(v) if v is not None else "")
-                                new_text.append(new_row)
-                            tr.text = new_text
-                            tr.texttemplate = "%{text}"
-                ann_size       = opts.get("heatmap_annotation_size")
-                ann_color_mode = opts.get("heatmap_annotation_color", "auto")
-                # Handle auto mode vs direct hex color
-                if ann_color_mode in ("auto", "light", "dark"):
-                    if ann_color_mode == "auto":
-                        try:
-                            z_vals = [v for row in (tr.z or []) for v in (row or []) if v is not None]
-                            if z_vals:
-                                z_mid   = (min(z_vals) + max(z_vals)) / 2
-                                z_range = max(z_vals) - min(z_vals) or 1
-                                norm_mid = (z_mid - min(z_vals)) / z_range
-                                ann_color = "white" if norm_mid < 0.55 else "#1e293b"
-                            else:
-                                ann_color = "white"
-                        except Exception:
-                            ann_color = "white"
-                    else:
-                        ann_color = {"light": "white", "dark": "#1e293b"}.get(ann_color_mode)
-                else:
-                    # Direct hex color from color picker
-                    ann_color = ann_color_mode if ann_color_mode.startswith("#") else None
-                if ann_size is not None or ann_color is not None:
-                    existing_tf = getattr(tr, "textfont", None)
-                    _tf_family = _safe_get_font_attr(existing_tf, "family", None)
-                    new_tf: dict = {
-                        "size":  _safe_get_font_attr(existing_tf, "size", 10) or 10,
-                        "color": _safe_get_font_attr(existing_tf, "color", "white") or "white",
-                    }
-                    if _tf_family:
-                        new_tf["family"] = _tf_family
-                    if ann_size  is not None: new_tf["size"]  = int(ann_size)
-                    if ann_color is not None: new_tf["color"] = ann_color
-                    tr.textfont = new_tf
 
-            if ttype == "table":
-                _hdr_vals = getattr(tr.header, "values", None) or []
-                _is_footer_trace = all(
-                    str(v).strip() in ("", "[]", "None")
-                    for v in _hdr_vals
-                ) and len(_hdr_vals) > 0
-                if _is_footer_trace:
-                    continue
+                    stripe_even = opts.get("table_stripe_even_color")
+                    stripe_odd  = opts.get("table_stripe_odd_color")
+                    if (stripe_even or stripe_odd) and hasattr(tr.cells, "values"):
+                        n_rows = len(tr.cells.values[0]) if tr.cells.values else 0
+                        _even = stripe_even or "#1e293b"
+                        _odd  = stripe_odd  or "#0f172a"
+                        n_cols_t = len(tr.cells.values)
+                        tr.cells.fill.color = [
+                            [_even if ri % 2 == 0 else _odd for ri in range(n_rows)]
+                            for _ in range(n_cols_t)
+                        ]
 
-                cell_size    = int(opts.get("table_font_size", 11))
-                header_size  = int(opts.get("table_header_font_size", max(cell_size, 12)))
-                row_h        = int(opts.get("table_row_height", 26))
-                hdr_h        = max(int(opts.get("table_header_height", 22)), header_size + 12)
-                idx_align    = opts.get("table_index_align", "left")
-                data_align   = opts.get("table_data_align", "right")
-
-                tr.cells.font = dict(size=cell_size, color=str(opts.get("table_font_color", "#f1f5f9")), family=_font_family)
-                tr.header.font = dict(size=header_size, color="white", family=_font_family)
-
-                if hasattr(tr.header, "values") and tr.header.values:
-                    tr.header.values = [_wrap_html_style(str(v), _font_style) for v in tr.header.values]
-                if hasattr(tr.cells, "values") and tr.cells.values:
-                    tr.cells.values = [
-                        [_wrap_html_style(str(v), _font_style) for v in col]
-                        for col in tr.cells.values
-                    ]
-
-                tr.cells.height  = row_h
-                tr.header.height = hdr_h
-                if hasattr(tr.cells, "align") and hasattr(tr.header, "values"):
-                    n_hdr_cols = len(tr.header.values) if tr.header.values else 0
-                    if n_hdr_cols > 1:
-                        tr.cells.align  = [idx_align] + [data_align] * (n_hdr_cols - 1)
-                        tr.header.align = [idx_align] + ["center"] * (n_hdr_cols - 1)
-
-                hdr_color = opts.get("table_header_color")
-                if hdr_color and hasattr(tr.header, "values"):
-                    n_hdr = len(tr.header.values) if tr.header.values else 0
-                    if n_hdr > 0:
-                        new_hdr_fills = [hdr_color] * n_hdr
-                        tr.header.fill.color = new_hdr_fills
-
-                hdr_text_color = opts.get("table_header_text_color")
-                if hdr_text_color and hasattr(tr.header, "font"):
+                # Apply font family to textfont if it exists (skip heatmap - handled separately below)
+                if hasattr(tr, "textfont") and tr.textfont is not None and ttype != "heatmap":
                     try:
-                        tr.header.font.color = str(hdr_text_color)
+                        tr.textfont.family = _font_family
                     except Exception as exc:
                         logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                         pass
 
-                stripe_even = opts.get("table_stripe_even_color")
-                stripe_odd  = opts.get("table_stripe_odd_color")
-                if (stripe_even or stripe_odd) and hasattr(tr.cells, "values"):
-                    n_rows = len(tr.cells.values[0]) if tr.cells.values else 0
-                    _even = stripe_even or "#1e293b"
-                    _odd  = stripe_odd  or "#0f172a"
-                    n_cols_t = len(tr.cells.values)
-                    tr.cells.fill.color = [
-                        [_even if ri % 2 == 0 else _odd for ri in range(n_rows)]
-                        for _ in range(n_cols_t)
-                    ]
-
-            # Apply font family to textfont if it exists (skip heatmap - handled separately below)
-            if hasattr(tr, "textfont") and tr.textfont is not None and ttype != "heatmap":
-                try:
-                    tr.textfont.family = _font_family
-                except Exception as exc:
-                    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                    pass
-
-        except Exception:
-            # One bad trace must not abort the rest of the figure.
-            continue
+            except Exception:
+                # One bad trace must not abort the rest of the figure.
+                continue
 
     _leg_title = meta.get("legend_title", "")
     if _leg_title:
@@ -1181,7 +1194,7 @@ def apply_chart_display_options(
 # Public renderer API (imported by chart_card.py / analysis.py / dashboard.py)
 # ---------------------------------------------------------------------------
 def render_chart_settings_controls(uid: str, title: str, fig, chart_type: str,
-                                   meta: dict, auto_insights: list[str], *,
+                                   meta: dict, *,
                                    key_prefix: str = "analysis",
                                    show_text_style: bool = False,
                                    matrix_view: str = "") -> dict:

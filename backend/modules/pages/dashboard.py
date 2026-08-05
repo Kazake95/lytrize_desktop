@@ -13,7 +13,7 @@ from modules.database import (
     get_session_charts, get_session_meta,
     clear_draft, save_draft,
 )
-from modules.charts import charts_to_json, clean_insight_text, _fmt_num, apply_hover_format
+from modules.charts import charts_to_json, _fmt_num, apply_hover_format
 from modules.export import generate_html_report
 from modules.ui.css import inject_footer, render_logo
 from modules.ui.chart_settings import (
@@ -215,10 +215,9 @@ def _all_charts(viewing_saved):
     out = []
     for uid, title, fig in st.session_state.get("charts", []):
         desc   = st.session_state.get(f"desc_{uid}", "")
-        autos  = st.session_state.get(f"auto_insights_{uid}", [])
         ctype  = st.session_state.get(f"chart_type_{uid}", "")
         meta   = _meta(uid)
-        out.append((uid, title, fig, desc, autos, ctype, meta))
+        out.append((uid, title, fig, desc, ctype, meta))
     return out
 
 
@@ -614,9 +613,9 @@ def _render_layout_builder(charts):
 
 
 def _render_chart(item, idx, total, viewing_saved):
-    """Render a single chart card with settings, insights, and notes."""
-    uid, title, fig, desc, autos, ctype, saved_meta = \
-        item if len(item) == 7 else (*item[:6], {})
+    """Render a single chart card with settings, and notes."""
+    uid, title, fig, desc, ctype, saved_meta = \
+        item if len(item) == 6 else (*item[:5], {})
     meta = saved_meta if viewing_saved else _meta(uid)
     note_key = f"desc_{uid}"
     if not viewing_saved:
@@ -628,12 +627,11 @@ def _render_chart(item, idx, total, viewing_saved):
     if not viewing_saved:
         # Delegate the entire per-chart card to the isolated fragment.  This
         # covers: Chart Settings expander, Typography expander, plotly_chart,
-        # auto-insights, and the notes text_area.  Grid-order buttons (⬆/⬇)
         # remain here because they mutate the shared ordered_charts list.
         from modules.ui.chart_card import render_chart_card
         chart_type = st.session_state.get(f"chart_type_{uid}", ctype or "")
         render_chart_card(
-            uid, title, fig, chart_type, meta, autos,
+            uid, title, fig, chart_type, meta,
             key_prefix="dash",
             edit_mode=not viewing_saved,
             viewing_saved=viewing_saved,
@@ -704,17 +702,13 @@ def _render_chart(item, idx, total, viewing_saved):
             key=f"dash_plotly_{uid}",
             config={"responsive": True, "displayModeBar": "hover", "mathjax": False},
         )
-        if autos:
-            with st.expander("💡 Insights", expanded=False):
-                from modules.charts import clean_insight_text
-                for ins in autos:
-                    st.markdown(f"- {clean_insight_text(ins)}")
         live_desc = st.session_state.get(note_key, "") or (desc or "")
         if live_desc:
             safe_desc = escape(str(live_desc))
             st.markdown(
                 f'<div style="background:rgba(133,102,252,0.07);border-left:3px solid #8566fc;'
-                f'border-radius:6px;padding:.6rem .9rem;font-size:.87rem;margin-top:.3rem;">'
+                f'border-radius:6px;padding:.6rem .9rem;font-size:.87rem;margin-top:.3rem;'
+                f'white-space:pre-wrap;word-break:break-word;">'
                 f'<strong>Analysis Notes:</strong> {safe_desc}</div>',
                 unsafe_allow_html=True,
             )
@@ -830,7 +824,7 @@ def page_dashboard():
     if is_editing and not st.session_state.get("_edit_notes_loaded"):
         eid    = st.session_state.editing_session_id
         loaded = get_session_charts(eid, st.session_state.get("user_id"))
-        for uid, title, fig, desc, auto, ctype, meta in loaded:
+        for uid, title, fig, desc, ctype, meta in loaded:
             note_key = f"desc_{uid}"
             current_note = st.session_state.get(note_key, None)
             if desc and (current_note is None or current_note == ""):
@@ -850,9 +844,8 @@ def page_dashboard():
         )
         if _session_just_loaded:
             loaded = get_session_charts(sid, st.session_state.get("user_id"))
-            for uid, title, fig, desc, auto, ctype, meta in loaded:
+            for uid, title, fig, desc, ctype, meta in loaded:
                 st.session_state[f"desc_{uid}"]          = desc
-                st.session_state[f"auto_insights_{uid}"] = auto
                 st.session_state[f"chart_type_{uid}"]    = ctype
                 st.session_state[f"chart_meta_{uid}"]    = meta
             st.session_state._view_charts = loaded
@@ -1056,7 +1049,7 @@ def _generate_export_html(
         style = _merge_text_style(meta.get("text_style", {}))
         fig  = _apply_axes(item[2], meta.get("x_label",""), meta.get("y_label",""), style)
         fig  = _apply_legend_names(fig, meta.get("legend_names", {}), meta.get("legend_title", ""), style)
-        fig  = apply_chart_display_options(fig, meta, item[5] if len(item)>5 else "")
+        fig  = apply_chart_display_options(fig, meta, item[4] if len(item)>4 else "")
         notes = st.session_state.get(f"desc_{uid}", "") or (item[3] if len(item) > 3 else "")
         export_charts.append((uid, item[1], fig, notes, item[4] if len(item)>4 else [],
                               item[5] if len(item)>5 else "", meta))
@@ -1066,7 +1059,6 @@ def _generate_export_html(
     _EX_DEFAULTS = {
         "ex_bg": "#121a2e", "ex_card": "#1b2245", "ex_kpi": "#1b2245",
         "ex_accent": "#6163df", "ex_border": "#2c3564", "ex_text": "#f5f7ff",
-        "ex_ins_bg": "#1a2441", "ex_ins_bd": "#6163df",
         "ex_not_bg": "#1a1732", "ex_not_bd": "#8566fc",
         "ex_density": "Comfortable", "ex_radius": 12, "ex_chart_h": 400,
         "ex_width": "Auto", "ex_meta": True,
@@ -1091,8 +1083,6 @@ def _generate_export_html(
         "accent_color":   st.session_state.get("ex_accent", _EX_DEFAULTS["ex_accent"]),
         "card_border":    st.session_state.get("ex_border", _EX_DEFAULTS["ex_border"]),
         "text_color":     st.session_state.get("ex_text",   _EX_DEFAULTS["ex_text"]),
-        "insight_bg":     st.session_state.get("ex_ins_bg", _EX_DEFAULTS["ex_ins_bg"]),
-        "insight_border": st.session_state.get("ex_ins_bd", _EX_DEFAULTS["ex_ins_bd"]),
         "notes_bg":       st.session_state.get("ex_not_bg", _EX_DEFAULTS["ex_not_bg"]),
         "notes_border":   st.session_state.get("ex_not_bd", _EX_DEFAULTS["ex_not_bd"]),
         "card_radius":    st.session_state.get("ex_radius", _EX_DEFAULTS["ex_radius"]),
@@ -1107,10 +1097,6 @@ def _generate_export_html(
         "title_style":  st.session_state.get("ex_title_style",  "Normal"),
         "title_size":   st.session_state.get("ex_title_size",   28),
         "title_color":  st.session_state.get("ex_title_color",  "#6163df"),
-        "insights_font": st.session_state.get("ex_insights_font", "Inter"),
-        "insights_style": st.session_state.get("ex_insights_style", "Normal"),
-        "insights_size": st.session_state.get("ex_insights_size", 14),
-        "insights_color": st.session_state.get("ex_insights_color", "#f5f7ff"),
         "notes_font":    st.session_state.get("ex_notes_font",    "Inter"),
         "notes_style":  st.session_state.get("ex_notes_style",  "Normal"),
         "notes_size":   st.session_state.get("ex_notes_size",   14),
@@ -1134,12 +1120,11 @@ def _render_export_colour_customiser() -> None:
     _EX_DEFAULTS = {
         "ex_bg": "#121a2e", "ex_card": "#1b2245", "ex_kpi": "#1b2245",
         "ex_accent": "#6163df", "ex_border": "#2c3564", "ex_text": "#f5f7ff",
-        "ex_ins_bg": "#1a2441", "ex_ins_bd": "#6163df",
         "ex_not_bg": "#1a1732", "ex_not_bd": "#8566fc",
         "ex_density": "Comfortable", "ex_radius": 12, "ex_chart_h": 400,
         "ex_width": "Auto", "ex_meta": True,
         "ex_kpi_text_color": "#f5f7ff", "ex_kpi_val_size": 14,
-        "ex_title_color": "#6163df", "ex_insights_color": "#f5f7ff", "ex_notes_color": "#f5f7ff",
+        "ex_title_color": "#6163df", "ex_notes_color": "#f5f7ff",
     }
     _PRESETS = {
         "⚡ Midnight Pulse": {
@@ -1149,12 +1134,9 @@ def _render_export_colour_customiser() -> None:
             "ex_accent": "#8b5cf6",#0D1325
             "ex_border": "#31406e",
             "ex_text": "#f8fbff",
-            "ex_ins_bg": "#14264a",
-            "ex_ins_bd": "#22d3ee",
             "ex_not_bg": "#1b1736",
             "ex_not_bd": "#f472b6",
             "ex_title_color": "#8b5cf6",
-            "ex_insights_color": "#f8fbff",
             "ex_notes_color": "#f8fbff",
             "ex_kpi_text_color": "#f8fbff",
         },
@@ -1165,12 +1147,9 @@ def _render_export_colour_customiser() -> None:
             "ex_accent": "#38bdf8",
             "ex_border": "#0ea5e9",
             "ex_text": "#ecfeff",
-            "ex_ins_bg": "#123e52",
-            "ex_ins_bd": "#22d3ee",
             "ex_not_bg": "#102a43",
             "ex_not_bd": "#a855f7",
             "ex_title_color": "#38bdf8",
-            "ex_insights_color": "#ecfeff",
             "ex_notes_color": "#ecfeff",
             "ex_kpi_text_color": "#ecfeff",
         },
@@ -1181,12 +1160,9 @@ def _render_export_colour_customiser() -> None:
             "ex_accent": "#ec4899",
             "ex_border": "#8b5cf6",
             "ex_text": "#fff7ff",
-            "ex_ins_bg": "#37124d",
-            "ex_ins_bd": "#f59e0b",
             "ex_not_bg": "#211638",
             "ex_not_bd": "#60a5fa",
             "ex_title_color": "#ec4899",
-            "ex_insights_color": "#fff7ff",
             "ex_notes_color": "#fff7ff",
             "ex_kpi_text_color": "#fff7ff",
         },
@@ -1197,12 +1173,9 @@ def _render_export_colour_customiser() -> None:
             "ex_accent": "#f97316",
             "ex_border": "#f59e0b",
             "ex_text": "#fff7ed",
-            "ex_ins_bg": "#3a2410",
-            "ex_ins_bd": "#facc15",
             "ex_not_bg": "#2d1e0b",
             "ex_not_bd": "#fb7185",
             "ex_title_color": "#f97316",
-            "ex_insights_color": "#fff7ed",
             "ex_notes_color": "#fff7ed",
             "ex_kpi_text_color": "#fff7ed",
         },
@@ -1213,12 +1186,9 @@ def _render_export_colour_customiser() -> None:
             "ex_accent": "#60a5fa",
             "ex_border": "#22d3ee",
             "ex_text": "#eff6ff",
-            "ex_ins_bg": "#12324b",
-            "ex_ins_bd": "#38bdf8",
             "ex_not_bg": "#14213d",
             "ex_not_bd": "#34d399",
             "ex_title_color": "#60a5fa",
-            "ex_insights_color": "#eff6ff",
             "ex_notes_color": "#eff6ff",
             "ex_kpi_text_color": "#eff6ff",
         },
@@ -1229,12 +1199,9 @@ def _render_export_colour_customiser() -> None:
             "ex_accent": "#22c55e",
             "ex_border": "#34d399",
             "ex_text": "#effaf3",
-            "ex_ins_bg": "#123324",
-            "ex_ins_bd": "#a3e635",
             "ex_not_bg": "#182817",
             "ex_not_bd": "#f59e0b",
             "ex_title_color": "#22c55e",
-            "ex_insights_color": "#effaf3",
             "ex_notes_color": "#effaf3",
             "ex_kpi_text_color": "#effaf3",
         },
@@ -1245,12 +1212,9 @@ def _render_export_colour_customiser() -> None:
             "ex_accent": "#14b8a6",
             "ex_border": "#b7e4d3",
             "ex_text": "#0f172a",
-            "ex_ins_bg": "#e7fff5",
-            "ex_ins_bd": "#22c55e",
             "ex_not_bg": "#fff7e6",
             "ex_not_bd": "#f59e0b",
             "ex_title_color": "#14b8a6",
-            "ex_insights_color": "#0f172a",
             "ex_notes_color": "#0f172a",
             "ex_kpi_text_color": "#0f172a",
         },
@@ -1261,12 +1225,9 @@ def _render_export_colour_customiser() -> None:
             "ex_accent": "#ec4899",
             "ex_border": "#f6b3d4",
             "ex_text": "#3f1634",
-            "ex_ins_bg": "#ffe4ec",
-            "ex_ins_bd": "#f43f5e",
             "ex_not_bg": "#fff6ea",
             "ex_not_bd": "#fb923c",
             "ex_title_color": "#ec4899",
-            "ex_insights_color": "#3f1634",
             "ex_notes_color": "#3f1634",
             "ex_kpi_text_color": "#3f1634",
         },
@@ -1277,12 +1238,9 @@ def _render_export_colour_customiser() -> None:
             "ex_accent": "#0284c7",
             "ex_border": "#9fd7f5",
             "ex_text": "#0c4a6e",
-            "ex_ins_bg": "#dff3ff",
-            "ex_ins_bd": "#38bdf8",
             "ex_not_bg": "#effcf8",
             "ex_not_bd": "#14b8a6",
             "ex_title_color": "#0284c7",
-            "ex_insights_color": "#0c4a6e",
             "ex_notes_color": "#0c4a6e",
             "ex_kpi_text_color": "#0c4a6e",
         },
@@ -1293,12 +1251,9 @@ def _render_export_colour_customiser() -> None:
             "ex_accent": "#f59e0b",
             "ex_border": "#f7d46b",
             "ex_text": "#713f12",
-            "ex_ins_bg": "#fff1c2",
-            "ex_ins_bd": "#f97316",
             "ex_not_bg": "#fff7e8",
             "ex_not_bd": "#ef4444",
             "ex_title_color": "#f59e0b",
-            "ex_insights_color": "#713f12",
             "ex_notes_color": "#713f12",
             "ex_kpi_text_color": "#713f12",
         },
@@ -1309,12 +1264,9 @@ def _render_export_colour_customiser() -> None:
             "ex_accent": "#db2777",
             "ex_border": "#f3b0cf",
             "ex_text": "#7a1f55",
-            "ex_ins_bg": "#fde2ee",
-            "ex_ins_bd": "#ec4899",
             "ex_not_bg": "#f4f0ff",
             "ex_not_bd": "#8b5cf6",
             "ex_title_color": "#db2777",
-            "ex_insights_color": "#7a1f55",
             "ex_notes_color": "#7a1f55",
             "ex_kpi_text_color": "#7a1f55",
         },
@@ -1325,12 +1277,9 @@ def _render_export_colour_customiser() -> None:
             "ex_accent": "#16a34a",
             "ex_border": "#a7e6b8",
             "ex_text": "#14532d",
-            "ex_ins_bg": "#dcfce7",
-            "ex_ins_bd": "#22c55e",
             "ex_not_bg": "#eefcf4",
             "ex_not_bd": "#10b981",
             "ex_title_color": "#16a34a",
-            "ex_insights_color": "#14532d",
             "ex_notes_color": "#14532d",
             "ex_kpi_text_color": "#14532d",
         },
@@ -1378,8 +1327,6 @@ def _render_export_colour_customiser() -> None:
             ex_border = st.color_picker("Card border",         st.session_state.get("ex_border", _EX_DEFAULTS["ex_border"]), key="ex_border")
             ex_text   = st.color_picker("Body text",           st.session_state.get("ex_text",   _EX_DEFAULTS["ex_text"]),   key="ex_text")
         with ec3:
-            ex_ins_bg = st.color_picker("Insights background", st.session_state.get("ex_ins_bg", _EX_DEFAULTS["ex_ins_bg"]), key="ex_ins_bg")
-            ex_ins_bd = st.color_picker("Insights border",     st.session_state.get("ex_ins_bd", _EX_DEFAULTS["ex_ins_bd"]), key="ex_ins_bd")
             ex_not_bg = st.color_picker("Notes background",    st.session_state.get("ex_not_bg", _EX_DEFAULTS["ex_not_bg"]), key="ex_not_bg")
             ex_not_bd = st.color_picker("Notes border",        st.session_state.get("ex_not_bd", _EX_DEFAULTS["ex_not_bd"]), key="ex_not_bd")
     with tab_text:
@@ -1400,18 +1347,6 @@ def _render_export_colour_customiser() -> None:
             ex_title_style,
             ex_title_size,
             ex_title_color,
-        )
-        st.markdown("**Insights**")
-        ex_insights_font = font_select("Font", default=st.session_state.get("ex_insights_font", "Inter"), key="ex_insights_font")
-        ex_insights_style = st.selectbox("Style", font_styles_list, key="ex_insights_style")
-        ex_insights_size = st.slider("Size", 10, 50, int(st.session_state.get("ex_insights_size", 14)), key="ex_insights_size")
-        ex_insights_color = st.color_picker("Colour", st.session_state.get("ex_insights_color", "#f5f7ff"), key="ex_insights_color")
-        _render_section_preview(
-            "💡 Insights Preview – Sample insight showing current text styling",
-            ex_insights_font,
-            ex_insights_style,
-            ex_insights_size,
-            ex_insights_color,
         )
         st.markdown("**Notes**")
         ex_notes_font = font_select("Font", default=st.session_state.get("ex_notes_font", "Inter"), key="ex_notes_font")
@@ -1529,10 +1464,6 @@ def _collect_export_text_json() -> str:
         "title_style":  st.session_state.get("ex_title_style",  "Normal"),
         "title_size":   st.session_state.get("ex_title_size",   28),
         "title_color":  st.session_state.get("ex_title_color",  "#6163df"),
-        "insights_font": st.session_state.get("ex_insights_font", "Inter"),
-        "insights_style": st.session_state.get("ex_insights_style", "Normal"),
-        "insights_size": st.session_state.get("ex_insights_size", 14),
-        "insights_color": st.session_state.get("ex_insights_color", "#f5f7ff"),
         "notes_font":    st.session_state.get("ex_notes_font",    "Inter"),
         "notes_style":  st.session_state.get("ex_notes_style",  "Normal"),
         "notes_size":   st.session_state.get("ex_notes_size",   14),
@@ -1549,8 +1480,6 @@ def _collect_export_colours_json() -> str:
         "accent":        st.session_state.get("ex_accent", "#6163df"),
         "border":        st.session_state.get("ex_border", "#2c3564"),
         "text":          st.session_state.get("ex_text",   "#f5f7ff"),
-        "ins_bg":        st.session_state.get("ex_ins_bg", "#1a2441"),
-        "ins_bd":        st.session_state.get("ex_ins_bd", "#6163df"),
         "not_bg":        st.session_state.get("ex_not_bg", "#1a1732"),
         "not_bd":        st.session_state.get("ex_not_bd", "#8566fc"),
         "density":       st.session_state.get("ex_density",    "Comfortable"),

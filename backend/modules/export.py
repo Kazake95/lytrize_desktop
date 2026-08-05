@@ -5,7 +5,6 @@ import re
 import copy
 import datetime
 from html import escape
-from modules.charts import clean_insight_text
 
 
 
@@ -88,8 +87,6 @@ DEFAULT_THEME = {
     "accent_color":   "#6163df",
     "card_border":    "#2c3564",
     "text_color":     "#f5f7ff",
-    "insight_bg":     "#1a2441",
-    "insight_border": "#6163df",
     "notes_bg":       "#1a1732",
     "notes_border":   "#8566fc",
     "card_radius":    12,
@@ -103,10 +100,6 @@ DEFAULT_THEME = {
     "title_style":    "Normal",
     "title_size":     28,
     "title_color":    "#6163df",
-    "insights_font":  "Inter",
-    "insights_style": "Normal",
-    "insights_size":  14,
-    "insights_color": "#f5f7ff",
     "notes_font":     "Inter",
     "notes_style":    "Normal",
     "notes_size":     14,
@@ -263,8 +256,7 @@ def generate_html_report(
     chart_blocks = ""
     for idx, item in enumerate(charts):
         uid, chart_title, fig, notes = item[:4]
-        auto_insights = item[4] if len(item) > 4 else []
-        meta          = item[6] if len(item) > 6 else {}
+        meta          = item[5] if len(item) > 5 else {}
 
 
         display_title = meta.get("custom_title") or chart_title
@@ -309,18 +301,6 @@ def generate_html_report(
         )
 
 
-        insight_html = ""
-        if auto_insights and meta.get("show_auto_insights", True):
-            hidden  = set(meta.get("hidden_insights", []))
-            visible = [ins for i, ins in enumerate(auto_insights) if i not in hidden]
-            if visible:
-                items = "".join(f"<li>{_h(clean_insight_text(ins))}</li>" for ins in visible)
-                insight_html = (
-                    f'<div class="insights"><strong>Insights</strong>'
-                    f'<ul>{items}</ul></div>'
-                )
-
-
         notes_str  = str(notes).strip() if notes else ""
         notes_html = (
             f'<div class="notes"><strong>Analysis Notes:</strong> {_h(notes_str)}</div>'
@@ -334,7 +314,7 @@ def generate_html_report(
             f'font-family:{text_style["family"]};color:{text_style["header_color"]};">'
             f'{_h(display_title)}</h2>'
             + f'<div class="chart-wrap">{chart_html}</div>'
-            + insight_html + notes_html
+            + notes_html
             + "</div>"
         )
 
@@ -445,22 +425,6 @@ def generate_html_report(
     .chart-wrap svg.main-svg     {{ width: 100% !important; }}
 
 
-    /* ── Insights ── */
-    .insights {{
-      background: {t['insight_bg']};
-      border-left: 3px solid {t['insight_border']};
-      border-radius: 6px;
-      padding: 0.6rem 0.9rem;
-      margin-top: 0.7rem;
-      font-size: {t['insights_size'] / 16:.2f}rem;
-      color: {t['insights_color']};
-      font-family: {t['insights_font']}, 'DejaVu Sans', Arial, sans-serif;
-    }}
-    .insights strong {{ display: block; margin-bottom: 0.25rem; }}
-    .insights ul {{ margin-left: 1rem; }}
-    .insights li {{ margin-bottom: 0.2rem; line-height: 1.5; }}
-
-
     /* ── Notes ── */
     .notes {{
       background: {t['notes_bg']};
@@ -472,6 +436,8 @@ def generate_html_report(
       color: {t['notes_color']};
       font-family: {t['notes_font']}, 'DejaVu Sans', Arial, sans-serif;
       font-style: italic;
+      white-space: pre-wrap;
+      word-break: break-word;
     }}
 
 

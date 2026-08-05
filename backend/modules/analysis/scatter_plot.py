@@ -47,8 +47,8 @@ def _add_trendline(fig, plot_df, x: str, y: str, tl_type: str) -> None:
     Falls back to pure numpy OLS when scipy is absent.
     
     The computed trendline metadata (slope, intercept, r_value, r_squared,
-    n_points, type) is stored on fig._lytrize_trendline for the auto-insight
-    engine to consume, so insights always reflect the actual rendered trend.
+    n_points, type) is stored on fig._lytrize_trendline for the
+    engine to consume, so results always reflect the actual rendered trend.
     """
     x_vals = pd.to_numeric(plot_df[x], errors="coerce").dropna().values
     y_vals = pd.to_numeric(plot_df[y], errors="coerce").dropna().values
@@ -131,7 +131,7 @@ def _pearson_r(a, b):
 def _opacity(n: int) -> float:
     if n < 300:    return 0.90
     if n < 1_500:  return 0.75
-    if n < 8_000:  return 0.55
+    if n < 3_500:  return 0.55
     return 0.40
 
 
@@ -147,8 +147,16 @@ def _normalise_size(series: pd.Series, lo: float = 4, hi: float = 28) -> pd.Seri
 
 
 
+def _adaptive_sample_limit(n_color_groups: int, base_limit: int = 3_500) -> int:
+    """Reduce sample limit when many color groups multiply trace count."""
+    if n_color_groups <= 3:
+        return base_limit
+    # Each color group becomes a separate trace; cap total to keep SVG fast
+    return max(500, base_limit // n_color_groups)
+
+
 def run_scatter_plot(df, x_col=None, y_col=None, color_col=None, size_col=None,
-                     trendline=None, palette=None, **kwargs):
+                     trendline=None, palette=None, render_mode="svg", **kwargs):
     charts = []
     num = _num_cols()
     pal = palette or COLORS
@@ -164,7 +172,14 @@ def run_scatter_plot(df, x_col=None, y_col=None, color_col=None, size_col=None,
     tl    = trendline.lower() if trendline and trendline.lower() != "none" else None
 
 
-    plot_df, sampled = sample_for_plot(df, n=8_000)
+    # Adaptive sampling: lower cap for SVG stability, allow higher only for WebGL
+    _render = (render_mode or "svg").lower()
+    if _render not in ("svg", "webgl"):
+        _render = "svg"
+    _sample_limit = 8_000 if _render == "webgl" else _adaptive_sample_limit(
+        n_color_groups=df[color].nunique() if color else 1
+    )
+    plot_df, sampled = sample_for_plot(df, n=_sample_limit)
     n_pts   = len(plot_df)
     opacity = _opacity(n_pts)
 
@@ -196,11 +211,23 @@ def run_scatter_plot(df, x_col=None, y_col=None, color_col=None, size_col=None,
 
 
     extra_cols = [c for c in [color, size_col] if c and c in plot_df.columns and c not in (x, y)]
-    ht_lines   = [f"<b>{x}:</b> %{{x:,}}", f"<b>{y}:</b> %{{y:,}}"]
-    for i, col in enumerate(extra_cols):
-        ht_lines.append(f"<b>{col}:</b> %{{customdata[{i}]:,}}")
-    hover_template = "<br>".join(ht_lines) + "<extra></extra>"
+    
+    # Minimal hover by default for performance; only include extra data if requested
+    _hover = f"<b>{x}:</b> %{{x:,}}<br><b>{y}:</b> %{{y:,}}<extra></extra>"
+    _custom_data = None
+    if kwargs.get("show_value_labels") and extra_cols:
+        # Only build rich hover when value labels are explicitly enabled
+        ht_lines = [f"<b>{x}:</b> %{{x:,}}", f"<b>{y}:</b> %{{y:,}}"]
+        for i, col in enumerate(extra_cols):
+            ht_lines.append(f"<b>{col}:</b> %{{customdata[{i}]:,}}")
+        _hover = "<br>".join(ht_lines) + "<extra></extra>"
+        _custom_data = extra_cols if _render == "svg" else None
 
+    # Disable marker edge lines by default (adds SVG rendering cost)
+    _marker_line = None
+    if _render == "svg" and kwargs.get("marker_size", 6) > 10:
+        # Only add edges for large markers where they actually help visibility
+        _marker_line = dict(width=0.3, color="rgba(255,255,255,0.15)")
 
     fig = px.scatter(
         plot_df, x=x, y=y,
@@ -213,13 +240,8 @@ def run_scatter_plot(df, x_col=None, y_col=None, color_col=None, size_col=None,
         # the parameter is simply ignored with no error or warning.
         # Instead, we add the trendline manually below via _add_trendline()
         # which uses a pure-numpy OLS fallback when scipy is absent.
-        custom_data=extra_cols if extra_cols else None,
-        # WebGL rendering only pays off once there are enough points that
-        # SVG pan/zoom starts to feel sluggish; below that, SVG gives
-        # crisper marker edges with no downside. sample_for_plot() above
-        # already caps n_pts at 8,000, so this only flips on for the
-        # upper end of that range.
-        render_mode="webgl" if n_pts > 2_000 else "svg",
+        custom_data=_custom_data,
+        render_mode=_render,
     )
     # Manually add trendline trace — works with or without scipy
     if tl:
@@ -242,8 +264,8 @@ def run_scatter_plot(df, x_col=None, y_col=None, color_col=None, size_col=None,
 
     fig.update_traces(
         selector=dict(mode="markers"),
-        hovertemplate=hover_template,
-        marker=dict(line=dict(width=0.4, color="rgba(255,255,255,0.20)")),
+        hovertemplate=_hover,
+        marker=dict(line=_marker_line),
     )
     if tl:
         fig.update_traces(
@@ -288,16 +310,17 @@ def run_scatter_plot(df, x_col=None, y_col=None, color_col=None, size_col=None,
 
 
     
-
+    # Store render mode in meta so chart_card / export can inspect it
     fig._lytrize_meta = {
         "analysis_type": "scatter",
         "x_axis": x,
         "y_axis": y,
         "legend": color,
-        "supports_auto_insights": True,
         "supports_notes": True,
         "supports_axis_editing": True,
         "supports_legend_editing": True,
+        "render_mode": _render,
+        "n_points": n_pts,
     }
 
 

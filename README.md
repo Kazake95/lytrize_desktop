@@ -39,7 +39,7 @@ Upload a CSV or Excel file and get interactive charts, dashboards, and insights 
 1. **Install** — grab the `.deb` or `.rpm` from the [releases page](https://github.com/Kazake95/lytrize_desktop/releases) and install with `dpkg -i` or `dnf install`.
 2. **Open** — launch `lytrize` from your application menu or terminal. The launcher window appears while the backend starts, then your browser opens automatically.
 3. **Upload** — click **Start New Analysis** on the home screen and choose a CSV or Excel file (up to 300 MB).
-4. **Analyze** — on the Analysis page, click any chart-type card (bar, time series, scatter, correlation, etc.), choose your columns, and click **Generate**. Charts appear instantly with auto-generated insights.
+4. **Analyze** — on the Analysis page, click any chart-type card (bar, time series, scatter, correlation, etc.), choose your columns, and click **Generate**. Charts appear instantly.
 5. **Build & Export** — click **Proceed to Dashboard**, arrange your charts in a grid, add KPI cards, then **Download HTML** to get a standalone file you can open in any browser or save as PNG via DevTools.
 
 ---
@@ -48,9 +48,8 @@ Upload a CSV or Excel file and get interactive charts, dashboards, and insights 
 
 | | |
 |---|---|
-| **📊 11 Analysis types** | Descriptive, statistical, distribution, correlation, categorical bar, pie & donut, time series, scatter plot, matrix heatmap, pivot table, and map plot |
-| **🔍 Additional tools** | Outlier detection and data quality checks (available on upload page) |
-| **📋 Dashboard builder** | Arrange charts in a portrait (2-column) or landscape (3-column) grid, add KPI summary cards, set a title |
+| **📊 11 chart types** | Bar, pie/donut, scatter, histogram, time series, correlation, pivot table, matrix heatmap, geographic map, outlier, and data quality |
+| **🗂️ Dashboard builder** | Arrange charts in a portrait (2-column) or landscape (3-column) grid, add KPI summary cards, set a title |
 | **📤 Export** | Download as a self-contained HTML file — then use your browser's DevTools to save as PNG |
 | **🧹 Data tools** | Rename columns, change data types, flag outliers, and handle missing values before analysis |
 | **💾 Session backup & restore** | Save local session backups and restore any compatible JSON backup, including ones shared by other users |
@@ -134,7 +133,7 @@ Launch Lytrize from your application menu or run `lytrize` in a terminal. A laun
 Click **Start New Analysis** on the home screen and choose a CSV or Excel file. Lytrize shows a preview and lets you rename columns, fix data types, and flag outliers before proceeding.
 
 ### 3. Run an analysis
-On the Analysis page, click any chart-type card — bar chart, time series, scatter plot, correlation heatmap, and so on. Choose your columns and options, then click **Generate**. Charts appear right away with auto-generated insights.
+On the Analysis page, click any chart-type card — bar chart, time series, scatter plot, correlation heatmap, and so on. Choose your columns and options, then click **Generate**. Charts appear right away.
 
 ### 4. Build a dashboard
 Charts you generate collect in your session. Click **Proceed to Dashboard** to arrange them, add KPI summary cards, set a title, and pick a portrait (2-column) or landscape (3-column) layout.
@@ -159,6 +158,8 @@ Your session saves automatically as you work. Use **Save Session** to make a nam
 | **Matrix Heatmap** | Cross-tabulation heatmap (pivot table as a heatmap) |
 | **Pivot Table** | Cross-tabulation table (pivot table as a data table) |
 | **Map Plot** | Geographic scatter (lat/lon) or choropleth (country/region names) |
+| **Outlier** | IQR-based outlier detection across numeric columns |
+| **Data Quality** | Missing values, duplicate rows, and column quality summary |
 
 ---
 
@@ -211,7 +212,7 @@ The app exports a standalone HTML file. To save that page as a PNG, use your bro
 If no supported browser is detected, copy `http://127.0.0.1:8501` into any browser while the launcher window shows "Running".
 
 **Large files are slow**
-Lytrize uses smart sampling for scatter plots and maps (default 8,000 points) and chunked reading for CSVs over 30 MB. For best performance with files over 100 MB, use 4 GB+ RAM.
+Lytrize uses smart sampling for scatter plots (8,000 points) and maps (5,000 points), plus chunked reading for CSVs over 30 MB. For best performance with files over 100 MB, use 4 GB+ RAM.
 
 **Something looks broken**
 Check the terminal output for Python tracebacks. If the issue happens again, open an issue and attach the log.
@@ -224,13 +225,15 @@ rm ~/.local/share/lytrize/lytrize.db
 Restart the app — a fresh database will be created automatically. Your saved sessions will be lost (use **Restore Backup** to recover from a JSON backup if you have one).
 
 ---
-## Upcoming updates
+## Upcoming development plan
 
-**Official chromium extension for one click full page screenshot**
+**1. Official chromium extension for one click full page screenshot**
 
-**Light mode theme**
+**2. Light mode theme**
 
-**UI improvements & minor bug fixes**
+**3. Dynamic flter/slicer per chart**
+
+**4. UI improvements & minor bug fixes**
 
 ---
 

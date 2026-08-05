@@ -100,8 +100,10 @@ echo "[4/7] Installing Python dependencies..."
     "pandas>=2.2.0" \
     "plotly>=5.22.0" \
     "openpyxl>=3.1.0" \
+    "scipy>=1.12.0" \
     "statsmodels>=0.14.0" \
     "pycountry>=23.12.11" \
+    "pyarrow>=14.0.0" \
     --quiet
 echo "      Installing PySide6 (may take 2-3 minutes)..."
 "$VENV/bin/pip" install PySide6 --quiet

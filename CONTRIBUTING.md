@@ -85,7 +85,6 @@ lytrize_desktop/
 │       │   ├── outlier.py
 │       │   ├── map_plot.py
 │       │   ├── data_quality.py
-│       │   └── insights.py       # Auto-insight generation
 │       ├── pages/              # Streamlit page implementations
 │       │   ├── __init__.py
 │       │   ├── home.py         # Home page + saved sessions browser
@@ -162,7 +161,7 @@ Lytrize has a **two-layer architecture**: a PySide6 desktop launcher that manage
 │      correlation.py, categorical.py, pie_chart.py,                  │
 │      time_series.py, scatter_plot.py, matrix_table.py,              │
 │      outlier.py, map_plot.py, data_quality.py,                      │
-│      insights.py, apply_lytrize_standard.py                          │
+│      apply_lytrize_standard.py                                       │
 │                                                                     │
 │    pages/         — Streamlit page implementations                    │
 │      home.py         — Home page + saved sessions browser            │
@@ -287,7 +286,7 @@ The main Streamlit application. Key responsibilities:
 
 - **`main()`** — Orchestrates app startup: initializes the database, injects CSS, creates/restores the guest user, restores drafts, and dispatches to the active page.
 - **`_init_db_once()`** — Cached function that calls `init_db()` exactly once per process.
-- **`_restore_draft(user_id)`** — Reloads an in-progress analysis session from `draft_sessions` into `session_state`: charts (deserialized from Plotly JSON), KPIs, dashboard title, layout mode, column descriptions, and the DataFrame snapshot.
+- **`_restore_draft(user_id)`** — Reloads an in-progress analysis session from `draft_sessions` into `session_state`: charts (deserialized from Plotly JSON), KPIs, dashboard title, layout mode, and the DataFrame snapshot.
 - **Routing** — Reads `st.session_state.page` (or the `p` URL parameter) and calls the corresponding page function. URL parameters `p` (page) and `sid` (session ID) are kept in sync.
 
 ### `backend/config.py` — Constants
@@ -300,9 +299,9 @@ Shared configuration constants:
 
 ### `backend/modules/charts.py` — Chart Utilities & Insight Engine
 
-- **`PALETTES`** — 15 named color palettes (Default Blue-Purple, Vibrant, Nature Green, Warm Sunset, etc.)
+- **`PALETTES`** — 16 named color palettes (Default Blue-Purple, Vibrant, Nature Green, Warm Sunset, etc.)
 - **`chart_layout(height)`** — Returns a dict of Plotly layout kwargs used by every chart (transparent background, no gridlines, dark hover labels).
-- **`generate_chart_insights(chart_type, title, fig, col_descriptions)`** — Produces plain-English observations from a Plotly figure. Handles distributions, correlations, outliers, time series, categorical/pie, scatter, statistical, data quality, and matrix charts.
+- **`generate_chart_insights(chart_type, title, fig)`** — Produces plain-English observations from a Plotly figure. Handles distributions, correlations, outliers, time series, categorical/pie, scatter, statistical, data quality, and matrix charts.
 - **`charts_to_json(charts)`** — Serializes the active chart list to JSON for database storage.
 - **`charts_json_cached()`** — Memoized version that only re-serializes when the chart set or notes actually change (debounced autosave).
 - **`clean_insights(insights)`** — Strips markdown bold markers and normalizes spacing from insight text.
@@ -322,6 +321,7 @@ All SQLite operations. Key functions:
 - **`get_session_charts(session_id, user_id)`** — Loads and deserializes charts from a saved session (Plotly JSON → Figure objects).
 - **`get_session_meta(session_id, user_id)`** — Fetches dashboard metadata (title, KPIs, layout, grid order, export settings).
 - **`export_sessions_to_dict(...)`** / **`import_sessions_from_dict(...)`** — Backup/restore as JSON.
+- **`merge_user_data(source_user_id, target_user_id)`** — Reassigns local data from a guest account to a newly signed-in account.
 - **`log_activity(user_id, action_type, detail, session_id)`** — Appends to the audit log (never raises).
 
 ### `backend/modules/export.py` — HTML Export Engine
@@ -343,7 +343,7 @@ The central registry that connects chart types to their runners and configuratio
 - **`render_config_panel(aid, df)`** — Renders the configuration widgets for a chart type (non-scoped, used on the main analysis page).
 - **`render_config_panel_scoped(uid, aid, df)`** — Renders uid-scoped configuration widgets (used in the regenerate panel).
 - **`_collect_kwargs(aid, df)`** / **`_collect_kwargs_scoped(uid, aid, df)`** — Reads widget values from `session_state` and returns a kwargs dict for the runner.
-- **`_run(aid, df, **kwargs)`** — Dispatches to the correct runner and returns `(uid, title, fig)` tuples. Calls `generate_insights()` for each chart.
+- **`_run(aid, df, **kwargs)`** — Dispatches to the correct runner and returns a list of `(uid, title, fig)` tuples.
 
 ### `backend/modules/analysis/*.py` — Chart Runners
 
@@ -360,12 +360,11 @@ Each runner module implements a `run_<type>(df, **kwargs)` function that returns
 | `time_series.py` | `run_time_series(df, **kwargs)` | Line charts with date grouping and aggregation |
 | `scatter_plot.py` | `run_scatter_plot(df, **kwargs)` | Scatter plots with trendlines (OLS/LOWESS) |
 | `matrix_table.py` | `run_matrix_table(df, **kwargs)` | Pivot table as a data table |
-| `matrix_heatmap.py` | `run_matrix_heatmap(df, **kwargs)` | Pivot table as a heatmap |
+| `matrix_table.py` | `run_matrix_heatmap(df, **kwargs)` | Pivot table as a heatmap |
 | `outlier.py` | `run_outlier(df, **kwargs)` | IQR-based outlier detection charts |
 | `outlier.py` | `run_outlier_upload(df)` | Outlier summary for the upload page |
 | `map_plot.py` | `run_map_plot(df, **kwargs)` | Geographic scatter or choropleth maps |
 | `data_quality.py` | `run_data_quality(df)` | Missing values, duplicates, column quality |
-| `insights.py` | `generate_insights(aid, df, uid, **kwargs)` | Auto-insight generation for each chart |
 | `apply_lytrize_standard.py` | (helpers) | Shared chart styling and figure normalization |
 
 ### `backend/modules/pages/` — Page Implementations
@@ -379,7 +378,6 @@ Each runner module implements a `run_<type>(df, **kwargs)` function that returns
 #### `upload.py` — Upload & Data Preparation
 - File uploader for CSV and Excel (up to 300 MB).
 - Data preview (top/bottom/random 10 rows).
-- Column descriptions (optional, improves auto-insights).
 - Data quality summary (missing values, duplicates).
 - Outlier detection.
 - Column Manager (rename columns).
@@ -424,7 +422,7 @@ Each runner module implements a `run_<type>(df, **kwargs)` function that returns
 - `set_theme_mode(mode)` / `get_theme_mode()` — Theme switching (dark/light).
 
 #### `chart_card.py` — Per-Chart Card (Isolated Fragment)
-- **`render_chart_card(uid, title, fig, chart_type, meta, auto_insights, ...)`** — Renders a single chart inside an `@st.fragment` so that adjusting one chart's settings only reruns that chart.
+- **`render_chart_card(uid, title, fig, chart_type, meta, ...)`** — Renders a single chart inside an `@st.fragment` so that adjusting one chart's settings only reruns that chart.
 - Two-column layout: settings (left) + chart (right).
 - Settings include: Chart Settings expander (display options) and Typography expander (fonts, sizes, colors).
 - Top bar: title/subtitle preview, Edit Chart button, Delete button.
@@ -534,8 +532,6 @@ Called by `/usr/local/bin/lytrize`. Resolves the venv Python (`/opt/lytrize/venv
 
 5. **Add kwargs collection** — In `_collect_kwargs()` and `_collect_kwargs_scoped()`, add an `elif aid == "<new_type>":` branch that reads widget values and builds the kwargs dict for the runner.
 
-6. **Add auto-insights** (optional) — If your chart type should generate insights, add a branch in `generate_chart_insights()` in `charts.py`.
-
 That's it — no other files need changes.
 
 ---
@@ -620,7 +616,7 @@ All tables are created in `init_db()` with `CREATE TABLE IF NOT EXISTS`. Migrati
 | `rows_count` | INTEGER | Row count of the dataset |
 | `cols_count` | INTEGER | Column count |
 | `analysis_types` | TEXT | JSON list of analysis types used |
-| `charts_json` | TEXT | JSON array of charts (fig_json, title, desc, insights, meta) |
+| `charts_json` | TEXT | JSON array of charts (fig_json, title, desc, meta) |
 | `dashboard_title` | TEXT | Dashboard title |
 | `kpis_json` | TEXT | JSON array of KPI cards |
 | `layout_mode` | TEXT | "portrait" or "landscape" |
@@ -646,7 +642,6 @@ All tables are created in `init_db()` with `CREATE TABLE IF NOT EXISTS`. Migrati
 | `kpis_json` | TEXT | In-progress KPIs |
 | `chart_meta_json` | TEXT | JSON object of chart metadata |
 | `layout_mode` | TEXT | "portrait" or "landscape" |
-| `col_descriptions_json` | TEXT | JSON object of column descriptions |
 | `updated_at` | TIMESTAMP | Default `CURRENT_TIMESTAMP` |
 
 ### `user_activity`
@@ -658,13 +653,6 @@ All tables are created in `init_db()` with `CREATE TABLE IF NOT EXISTS`. Migrati
 | `action_type` | TEXT | e.g., "analysis_run", "dashboard_saved", "session_updated" |
 | `action_detail` | TEXT | JSON or text detail |
 | `ts` | TIMESTAMP | Default `CURRENT_TIMESTAMP` |
-
-| Column | Type | Description |
-|---|---|---|
-| `token` | TEXT PK | UUID token string |
-| `user_id` | INTEGER FK | References `users(id)` |
-| `username` | TEXT | Username at token creation |
-| `expires_at` | TIMESTAMP | 7 days from creation |
 
 ---
 
@@ -683,7 +671,6 @@ The application uses `st.session_state` extensively. Keys are prefixed to avoid 
 | `df` | upload page | Active DataFrame |
 | `file_name` | upload page | Original file name |
 | `file_signature` | upload page | Stable signature of the uploaded file |
-| `col_descriptions` | upload page | `{col: desc}` from column classifier |
 | `num_cols` | upload page | Confirmed numeric column names |
 | `cat_cols` | upload page | Confirmed categorical column names |
 | `dt_cols` | upload page | Confirmed datetime column names |
@@ -714,7 +701,6 @@ The application uses `st.session_state` extensively. Keys are prefixed to avoid 
 |---|---|
 | `chart_type_{uid}` | Analysis type ID for the chart |
 | `desc_{uid}` | User-written notes for the chart |
-| `auto_insights_{uid}` | List of auto-generated insight strings |
 | `chart_meta_{uid}` | Dict of display options, text style, custom title, subtitle, etc. |
 
 ### Internal / Cache Keys
@@ -778,7 +764,7 @@ Configuration widgets use namespaced keys:
 ### Common Pitfalls
 
 - **Streamlit reruns are expensive** — Avoid heavy computation at module top-level. Use `@st.cache_data` or `@st.cache_resource`.
-- **Session state key collisions** — Always prefix keys (`_cfg_`, `auto_insights_`, `desc_`, `chart_meta_`).
+- **Session state key collisions** — Always prefix keys (`_cfg_`, `desc_`, `chart_meta_`).
 - **Circular imports** — Keep chart runners in `modules/analysis/` and UI helpers in `modules/ui/`. Shared constants go in `charts.py` or `config.py`.
 - **Plotly figure mutability** — Deep-copy figures before mutating them in export or display helpers. Plotly figures are mutable and shared across reruns.
 - **Cache invalidation** — `compute_meta_hash()` hashes the full meta dict so any future key auto-invalidates the display cache.
@@ -797,7 +783,7 @@ The build script (`build.sh`):
 1. Cleans the build directory
 2. Copies `backend/`, `desktop/`, and `service/` to the staging area
 3. Creates an isolated Python virtual environment
-4. Installs all dependencies (streamlit, pandas, plotly, openpyxl, statsmodels, pycountry, PySide6)
+4. Installs all dependencies (streamlit, pandas, plotly, openpyxl, scipy, statsmodels, pycountry, pyarrow, PySide6)
 5. Patches venv shebangs for portability
 6. Slims the venv (removes `__pycache__`, tests, docs, `.pyc` files)
 7. Bakes icons at standard sizes (16-256px)
@@ -897,7 +883,7 @@ Currently, the project does not include an automated test suite. When adding new
 ### Common Pitfalls
 
 - **Streamlit reruns are expensive** — Avoid heavy computation at module top-level; use `@st.cache_data` or `@st.cache_resource`.
-- **Session state key collisions** — Always prefix keys (`_cfg_`, `auto_insights_`, `desc_`, `chart_meta_`).
+- **Session state key collisions** — Always prefix keys (`_cfg_`, `desc_`, `chart_meta_`).
 - **Circular imports** — Keep chart runners in `modules/analysis/` and UI helpers in `modules/ui/`. Shared constants go in `charts.py` or `config.py`.
 - **Plotly figure mutability** — Deep-copy figures before mutating them in export or display helpers.
 - **Duplicate widget IDs** — When rendering the same widget in a loop, use unique keys derived from the loop variable.
@@ -910,7 +896,7 @@ Currently, the project does not include an automated test suite. When adding new
 - **Python version:** 3.11+
 - **Docstrings:** Use Google-style docstrings (`Args`, `Returns`, `Raises`).
 - **Naming:** `snake_case` for functions and variables, `PascalCase` for classes, `UPPER_SNAKE` for constants.
-- **Streamlit session state keys:** Prefix keys to avoid collisions (`_cfg_{aid}_{key}`, `auto_insights_{uid}`, `desc_{uid}`, `chart_meta_{uid}`).
+- **Streamlit session state keys:** Prefix keys to avoid collisions (`_cfg_{aid}_{key}`, `desc_{uid}`, `chart_meta_{uid}`).
 - **Error handling:** Catch and log errors; do not crash the UI. Use `try/except` around user-facing operations.
 - **Performance:** Use `@st.cache_resource` for one-per-process assets and `@st.cache_data` for computed data. Avoid unnecessary disk I/O on reruns.
 - **HTML escaping:** Use the `_h()` helper from `modules/export.py` when injecting user-controlled text into HTML strings.
