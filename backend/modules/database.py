@@ -157,17 +157,6 @@ def _column_exists(conn, table: str, column: str) -> bool:
 
 
 
-def _ensure_index(conn, index_sql: str) -> None:
-    """Create an index if it does not already exist."""
-    try:
-        conn.cursor().execute(index_sql)
-    except Exception as exc:
-        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-        pass
-
-
-
-
 def _guest_row_id(conn) -> Optional[int]:
     """Return the permanent local guest user ID if it exists."""
     c = conn.cursor()
@@ -247,6 +236,7 @@ def init_db() -> None:
             kpis_json            TEXT DEFAULT '[]',
             chart_meta_json      TEXT DEFAULT '{}',
             layout_mode           TEXT DEFAULT 'portrait',
+            col_descriptions_json TEXT DEFAULT '{}',
             updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id)
         )""")
@@ -282,6 +272,7 @@ def init_db() -> None:
                 ("export_colours_json", "TEXT DEFAULT '{}'"),
             ],
             "draft_sessions": [
+                ("col_descriptions_json", "TEXT DEFAULT '{}'"),
             ],
         }
 
@@ -457,47 +448,6 @@ def get_or_create_guest_user() -> dict:
 
 
 
-def merge_user_data(source_user_id: int, target_user_id: int) -> None:
-    """Reassign local data from a guest account to a newly signed-in account."""
-    if not source_user_id or not target_user_id or source_user_id == target_user_id:
-        return
-    try:
-        with _db() as conn:
-            cur = conn.cursor()
-            for table in ("sessions", "user_activity"):
-                cur.execute(
-                    f"UPDATE {table} SET user_id=? WHERE user_id=?",
-                    (target_user_id, source_user_id),
-                )
-
-
-            cur.execute("SAVEPOINT draft_merge")
-            try:
-                cur.execute(
-                    "DELETE FROM draft_sessions WHERE user_id=?",
-                    (target_user_id,),
-                )
-                cur.execute(
-                    "UPDATE draft_sessions SET user_id=? WHERE user_id=?",
-                    (target_user_id, source_user_id),
-                )
-                cur.execute("RELEASE SAVEPOINT draft_merge")
-            except Exception:
-                cur.execute("ROLLBACK TO SAVEPOINT draft_merge")
-                raise
-
-
-        try:
-            get_user_sessions.clear()
-        except Exception as exc:
-            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-            pass
-    except Exception as e:
-        log.warning("merge_user_data: %s", e)
-
-
-
-
 def save_draft(
     user_id: int,
     page: str,
@@ -510,6 +460,7 @@ def save_draft(
     kpis_json: str = "[]",
     chart_meta_json: str = "{}",
     layout_mode: str = "portrait",
+    col_descriptions_json: str = "{}",
 ) -> None:
     """Upsert the user's current in-progress state to draft_sessions."""
     try:
@@ -519,11 +470,12 @@ def save_draft(
                         (user_id, page, charts_json, file_name, editing_session_id,
                          editing_session_name, editing_file_name, dashboard_title,
                          kpis_json, chart_meta_json, layout_mode,
-                         updated_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)""",
+                         col_descriptions_json, updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)""",
                     (user_id, page, charts_json, file_name,
                      editing_session_id, editing_session_name, editing_file_name,
-                     dashboard_title, kpis_json, chart_meta_json, layout_mode),
+                     dashboard_title, kpis_json, chart_meta_json, layout_mode,
+                     col_descriptions_json),
                 )
     except Exception as exc:
         logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
@@ -600,26 +552,6 @@ def save_session_db(
                  f"session='{session_name}' file='{file_name}'", sid)
     get_user_sessions.clear()
     return sid
-
-
-
-
-def get_session_uuid(session_id: int, user_id=None) -> Optional[str]:
-    """Return the logical UUID for a session row."""
-    try:
-        with _db() as conn:
-            c = conn.cursor()
-            if user_id is None:
-                c.execute(_ph("SELECT session_uuid FROM sessions WHERE id=?"), (session_id,))
-            else:
-                c.execute(
-                    _ph("SELECT session_uuid FROM sessions WHERE id=? AND user_id=?"),
-                    (session_id, user_id),
-                )
-            row = c.fetchone()
-            return row[0] if row and row[0] else None
-    except Exception:
-        return None
 
 
 
@@ -893,29 +825,15 @@ def get_session_charts(session_id: int, user_id=None) -> list:
         try:
             uid           = item.get("uid", uuid.uuid4().hex[:8])
             desc          = item.get("desc", "")
+            auto_insights = item.get("auto_insights", [])
             chart_type    = item.get("chart_type", "")
-            fig           = pio.from_json(item["fig_json"])
             meta          = item.get("meta", {})
-            charts.append((uid, item["title"], fig, desc, chart_type, meta))
+            fig           = pio.from_json(item["fig_json"])
+            charts.append((uid, item["title"], fig, desc, auto_insights, chart_type, meta))
         except Exception as exc:
             logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
     return charts
-
-
-
-
-def delete_user_db(user_id: int) -> bool:
-    """Permanently delete a user account and all associated data."""
-    try:
-        with _db() as conn:
-
-            _execute(conn, _ph("DELETE FROM sessions        WHERE user_id=?"), (user_id,))
-            _execute(conn, _ph("DELETE FROM users           WHERE id=?"),      (user_id,))
-        return True
-    except Exception as e:
-        log.error("delete_user_db: %s", e)
-        return False
 
 
 

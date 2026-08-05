@@ -216,7 +216,7 @@ Lytrize has a **two-layer architecture**: a PySide6 desktop launcher that manage
 2. **App bootstrap** — `app.py:main()` calls `_init_db_once()` (creates SQLite tables), `inject_css()` (loads fonts + stylesheet), creates a guest user if needed, and restores any saved draft.
 3. **Routing** — `app.py` reads `st.session_state.page` (or the `p` URL parameter) and dispatches to `page_home()`, `page_upload()`, `page_analysis()`, `page_dashboard()`, or `page_profile()`.
 4. **Upload** — `page_upload()` uses `read_csv_fast()` or `read_excel_sheet()` from `perf.py` to load the file, runs `optimize_dtypes()`, and stores the DataFrame in `st.session_state.df`. The column classifier (`column_tools.py`) auto-detects numeric, categorical, and datetime columns.
-5. **Analysis** — `page_analysis()` renders chart-type cards from `ANALYSIS_OPTIONS`. When the user clicks **Generate**, `_collect_kwargs()` reads widget values from `session_state`, `_run()` dispatches to the appropriate chart runner,
+5. **Analysis** — `page_analysis()` renders chart-type cards from `ANALYSIS_OPTIONS`. When the user clicks **Generate**, `_collect_kwargs()` reads widget values from `session_state`, `_run()` dispatches to the appropriate chart runner, and `generate_chart_insights()` produces plain-English observations.
 6. **Chart display** — Each chart is rendered in an isolated `@st.fragment` (`chart_card.py`) so that adjusting one chart's settings only reruns that chart, not the entire page.
 7. **Dashboard** — `page_dashboard()` arranges charts in a grid, calculates KPI cards, and renders the export button. `generate_html_report()` from `export.py` produces a self-contained HTML file with inline Plotly.js.
 8. **Persistence** — Drafts auto-save on every chart mutation via `save_draft()`. Saved sessions are stored in the `sessions` table via `save_session_db()`. The DataFrame is snapshotted to parquet via `save_df_snapshot()` for tab-refresh recovery.
@@ -302,8 +302,10 @@ Shared configuration constants:
 
 - **`PALETTES`** — 15 named color palettes (Default Blue-Purple, Vibrant, Nature Green, Warm Sunset, etc.)
 - **`chart_layout(height)`** — Returns a dict of Plotly layout kwargs used by every chart (transparent background, no gridlines, dark hover labels).
+- **`generate_chart_insights(chart_type, title, fig, col_descriptions)`** — Produces plain-English observations from a Plotly figure. Handles distributions, correlations, outliers, time series, categorical/pie, scatter, statistical, data quality, and matrix charts.
 - **`charts_to_json(charts)`** — Serializes the active chart list to JSON for database storage.
 - **`charts_json_cached()`** — Memoized version that only re-serializes when the chart set or notes actually change (debounced autosave).
+- **`clean_insights(insights)`** — Strips markdown bold markers and normalizes spacing from insight text.
 - **Helper functions** — `_fmt_num()` (K/M/B formatting), `_fmt_pct()`, `_fmt_label()`, `_as_number_series()`, `_as_list()`, `_plural()`.
 
 ### `backend/modules/database.py` — Database Layer
@@ -317,13 +319,9 @@ All SQLite operations. Key functions:
 - **`save_draft(...)`** / **`get_draft(user_id)`** / **`clear_draft(user_id)`** — Draft session management (auto-save during analysis).
 - **`save_session_db(...)`** / **`update_session_db(...)`** / **`delete_session_db(...)`** — Saved session CRUD.
 - **`get_user_sessions(user_id)`** — Returns the 20 most recent sessions (cached with `@st.cache_data`, 30s TTL).
-- **`save_draft(...)`** / **`get_draft(user_id)`** / **`clear_draft(user_id)`** — Draft session management (auto-save during analysis).
-- **`save_session_db(...)`** / **`update_session_db(...)`** / **`delete_session_db(...)`** — Saved session CRUD.
-- **`get_user_sessions(user_id)`** — Returns the 20 most recent sessions (cached with `@st.cache_data`, 30s TTL).
 - **`get_session_charts(session_id, user_id)`** — Loads and deserializes charts from a saved session (Plotly JSON → Figure objects).
 - **`get_session_meta(session_id, user_id)`** — Fetches dashboard metadata (title, KPIs, layout, grid order, export settings).
 - **`export_sessions_to_dict(...)`** / **`import_sessions_from_dict(...)`** — Backup/restore as JSON.
-- **`merge_user_data(source_user_id, target_user_id)`** — Reassigns local data from a guest account to a newly signed-in account.
 - **`log_activity(user_id, action_type, detail, session_id)`** — Appends to the audit log (never raises).
 
 ### `backend/modules/export.py` — HTML Export Engine
@@ -426,7 +424,7 @@ Each runner module implements a `run_<type>(df, **kwargs)` function that returns
 - `set_theme_mode(mode)` / `get_theme_mode()` — Theme switching (dark/light).
 
 #### `chart_card.py` — Per-Chart Card (Isolated Fragment)
-- **`render_chart_card(uid, title, fig, chart_type, meta, ...)`** — Renders a single chart inside an `@st.fragment` so that adjusting one chart's settings only reruns that chart.
+- **`render_chart_card(uid, title, fig, chart_type, meta, auto_insights, ...)`** — Renders a single chart inside an `@st.fragment` so that adjusting one chart's settings only reruns that chart.
 - Two-column layout: settings (left) + chart (right).
 - Settings include: Chart Settings expander (display options) and Typography expander (fonts, sizes, colors).
 - Top bar: title/subtitle preview, Edit Chart button, Delete button.
@@ -536,6 +534,7 @@ Called by `/usr/local/bin/lytrize`. Resolves the venv Python (`/opt/lytrize/venv
 
 5. **Add kwargs collection** — In `_collect_kwargs()` and `_collect_kwargs_scoped()`, add an `elif aid == "<new_type>":` branch that reads widget values and builds the kwargs dict for the runner.
 
+6. **Add auto-insights** (optional) — If your chart type should generate insights, add a branch in `generate_chart_insights()` in `charts.py`.
 
 That's it — no other files need changes.
 
@@ -647,6 +646,7 @@ All tables are created in `init_db()` with `CREATE TABLE IF NOT EXISTS`. Migrati
 | `kpis_json` | TEXT | In-progress KPIs |
 | `chart_meta_json` | TEXT | JSON object of chart metadata |
 | `layout_mode` | TEXT | "portrait" or "landscape" |
+| `col_descriptions_json` | TEXT | JSON object of column descriptions |
 | `updated_at` | TIMESTAMP | Default `CURRENT_TIMESTAMP` |
 
 ### `user_activity`
@@ -683,6 +683,7 @@ The application uses `st.session_state` extensively. Keys are prefixed to avoid 
 | `df` | upload page | Active DataFrame |
 | `file_name` | upload page | Original file name |
 | `file_signature` | upload page | Stable signature of the uploaded file |
+| `col_descriptions` | upload page | `{col: desc}` from column classifier |
 | `num_cols` | upload page | Confirmed numeric column names |
 | `cat_cols` | upload page | Confirmed categorical column names |
 | `dt_cols` | upload page | Confirmed datetime column names |
@@ -713,6 +714,7 @@ The application uses `st.session_state` extensively. Keys are prefixed to avoid 
 |---|---|
 | `chart_type_{uid}` | Analysis type ID for the chart |
 | `desc_{uid}` | User-written notes for the chart |
+| `auto_insights_{uid}` | List of auto-generated insight strings |
 | `chart_meta_{uid}` | Dict of display options, text style, custom title, subtitle, etc. |
 
 ### Internal / Cache Keys
@@ -776,7 +778,7 @@ Configuration widgets use namespaced keys:
 ### Common Pitfalls
 
 - **Streamlit reruns are expensive** — Avoid heavy computation at module top-level. Use `@st.cache_data` or `@st.cache_resource`.
-- **Session state key collisions** — Always prefix keys (`_cfg_`, `desc_`, `chart_meta_`).
+- **Session state key collisions** — Always prefix keys (`_cfg_`, `auto_insights_`, `desc_`, `chart_meta_`).
 - **Circular imports** — Keep chart runners in `modules/analysis/` and UI helpers in `modules/ui/`. Shared constants go in `charts.py` or `config.py`.
 - **Plotly figure mutability** — Deep-copy figures before mutating them in export or display helpers. Plotly figures are mutable and shared across reruns.
 - **Cache invalidation** — `compute_meta_hash()` hashes the full meta dict so any future key auto-invalidates the display cache.
@@ -895,7 +897,7 @@ Currently, the project does not include an automated test suite. When adding new
 ### Common Pitfalls
 
 - **Streamlit reruns are expensive** — Avoid heavy computation at module top-level; use `@st.cache_data` or `@st.cache_resource`.
-- **Session state key collisions** — Always prefix keys (`_cfg_`, `desc_`, `chart_meta_`).
+- **Session state key collisions** — Always prefix keys (`_cfg_`, `auto_insights_`, `desc_`, `chart_meta_`).
 - **Circular imports** — Keep chart runners in `modules/analysis/` and UI helpers in `modules/ui/`. Shared constants go in `charts.py` or `config.py`.
 - **Plotly figure mutability** — Deep-copy figures before mutating them in export or display helpers.
 - **Duplicate widget IDs** — When rendering the same widget in a loop, use unique keys derived from the loop variable.
@@ -908,7 +910,7 @@ Currently, the project does not include an automated test suite. When adding new
 - **Python version:** 3.11+
 - **Docstrings:** Use Google-style docstrings (`Args`, `Returns`, `Raises`).
 - **Naming:** `snake_case` for functions and variables, `PascalCase` for classes, `UPPER_SNAKE` for constants.
-- **Streamlit session state keys:** Prefix keys to avoid collisions (`_cfg_{aid}_{key}`, ``, `desc_{uid}`, `chart_meta_{uid}`).
+- **Streamlit session state keys:** Prefix keys to avoid collisions (`_cfg_{aid}_{key}`, `auto_insights_{uid}`, `desc_{uid}`, `chart_meta_{uid}`).
 - **Error handling:** Catch and log errors; do not crash the UI. Use `try/except` around user-facing operations.
 - **Performance:** Use `@st.cache_resource` for one-per-process assets and `@st.cache_data` for computed data. Avoid unnecessary disk I/O on reruns.
 - **HTML escaping:** Use the `_h()` helper from `modules/export.py` when injecting user-controlled text into HTML strings.

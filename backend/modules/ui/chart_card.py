@@ -147,8 +147,7 @@ def _fig_signature(fig) -> str:
 
 
 def get_display_fig(uid: str, base_fig, meta: dict, chart_type: str, *,
-                    force: bool = False,
-                    matrix_view: str = ""):
+                    force: bool = False):
     """Return the *display-ready* figure, recomputed only when meta or base_fig changes.
 
     Cache key combines ``compute_meta_hash(meta)`` with a figure signature.
@@ -161,7 +160,6 @@ def get_display_fig(uid: str, base_fig, meta: dict, chart_type: str, *,
     hash_key    = f"_display_fig_hash_{uid}"
     sig_key     = f"_display_fig_sig_{uid}"
     obj_id_key  = f"_display_fig_objid_{uid}"
-    font_hash_key = f"_display_fig_font_hash_{uid}"
 
     # Cache figure signature by object identity to avoid repeated to_json()
     current_obj_id = id(base_fig)
@@ -178,29 +176,9 @@ def get_display_fig(uid: str, base_fig, meta: dict, chart_type: str, *,
     if not force and st.session_state.get(hash_key) == cache_hash:
         return st.session_state.get(cache_key, base_fig)
 
-    # Fast path: if only fonts changed, use lightweight font-only updater
-    # instead of expensive full apply_chart_display_options() with deepcopy
-    meta_hash = compute_meta_hash(meta)
-    font_hash = _font_only_hash(meta)
-    cached_font_hash = st.session_state.get(font_hash_key)
-    
-    if (not force and 
-        cached_font_hash is not None and 
-        cached_font_hash != font_hash and
-        st.session_state.get(f"_display_fig_full_hash_{uid}") == meta_hash):
-        # Only fonts changed - use fast path
-        fig = _apply_font_only(base_fig, meta, chart_type)
-        st.session_state[cache_key] = fig
-        st.session_state[hash_key]  = cache_hash
-        st.session_state[font_hash_key] = font_hash
-        return fig
-
-    # Full update needed
-    fig = apply_chart_display_options(base_fig, meta, chart_type, _inplace=False, matrix_view=matrix_view)
+    fig = apply_chart_display_options(base_fig, meta, chart_type, _inplace=False)
     st.session_state[cache_key] = fig
     st.session_state[hash_key]  = cache_hash
-    st.session_state[f"_display_fig_full_hash_{uid}"] = meta_hash
-    st.session_state[font_hash_key] = font_hash
     return fig
 
 
@@ -209,7 +187,7 @@ def get_display_fig(uid: str, base_fig, meta: dict, chart_type: str, *,
 # ---------------------------------------------------------------------------
 @st.fragment(run_every=None)  # manual reruns only -- no polling
 def render_chart_card(uid: str, title: str, fig, chart_type: str,
-                      meta: dict,
+                      meta: dict, auto_insights: list[str],
                       *, key_prefix: str, edit_mode: bool,
                       viewing_saved: bool = False,
                       on_meta_changed=None) -> None:
@@ -217,7 +195,7 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
 
     Parameters
     ----------
-    uid / title / fig / chart_type / meta:
+    uid / title / fig / chart_type / meta / auto_insights:
         Standard chart identity and content.
     key_prefix:
         "analysis" or "dash_typo" to avoid widget-key collisions when the same
@@ -233,7 +211,7 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
     * Top bar:  Edit button | Delete button (title rendered inside Plotly).
     * Two-column body:
         - Left  (1/3): Chart Settings expander + Typography expander.
-        - Right (2/3): plotly_chart + notes text_area.
+        - Right (2/3): plotly_chart + auto-insights + notes text_area.
     Every widget gets a stable `key` derived from uid so Streamlit's diff engine
     can recognise it across fragment reruns.
     """
@@ -342,7 +320,7 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
                 _set_tab, _typo_tab = st.tabs(["Layout", "Typography"])
                 with _set_tab:
                     updates = render_chart_settings_controls(
-                        uid, title, fig, _stype, meta,
+                        uid, title, fig, _stype, meta, auto_insights,
                         key_prefix=key_prefix,
                         show_text_style=False,
                         matrix_view=_meta_view,
@@ -373,7 +351,7 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
         meta = st.session_state.get(f"chart_meta_{uid}", meta)
 
         # Use the shared memoized cache: only rebuild if meta actually changed
-        fig_show = get_display_fig(uid, fig, meta, chart_type, matrix_view=_meta_view)
+        fig_show = get_display_fig(uid, fig, meta, chart_type)
 
         # Axis post-processing that depends on the *display* meta
         _ctype_now = st.session_state.get(f"chart_type_{uid}", chart_type)
@@ -400,6 +378,13 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
 
         if _is_table:
             st.markdown("</div>", unsafe_allow_html=True)
+
+        # Auto-insights ------------------------------------------------------
+        if auto_insights:
+            with st.expander("💡 Auto-Insights", expanded=False):
+                from modules.charts import clean_insight_text
+                for ins in auto_insights:
+                    st.markdown(f"- {clean_insight_text(ins)}")
 
         # Notes --------------------------------------------------------------
         note_key = f"desc_{uid}"

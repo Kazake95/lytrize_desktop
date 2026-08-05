@@ -164,7 +164,7 @@ def run_scatter_plot(df, x_col=None, y_col=None, color_col=None, size_col=None,
     tl    = trendline.lower() if trendline and trendline.lower() != "none" else None
 
 
-    plot_df, sampled = sample_for_plot(df, n=3_000)
+    plot_df, sampled = sample_for_plot(df, n=8_000)
     n_pts   = len(plot_df)
     opacity = _opacity(n_pts)
 
@@ -214,7 +214,12 @@ def run_scatter_plot(df, x_col=None, y_col=None, color_col=None, size_col=None,
         # Instead, we add the trendline manually below via _add_trendline()
         # which uses a pure-numpy OLS fallback when scipy is absent.
         custom_data=extra_cols if extra_cols else None,
-        render_mode="svg",
+        # WebGL rendering only pays off once there are enough points that
+        # SVG pan/zoom starts to feel sluggish; below that, SVG gives
+        # crisper marker edges with no downside. sample_for_plot() above
+        # already caps n_pts at 8,000, so this only flips on for the
+        # upper end of that range.
+        render_mode="webgl" if n_pts > 2_000 else "svg",
     )
     # Manually add trendline trace — works with or without scipy
     if tl:
@@ -238,13 +243,7 @@ def run_scatter_plot(df, x_col=None, y_col=None, color_col=None, size_col=None,
     fig.update_traces(
         selector=dict(mode="markers"),
         hovertemplate=hover_template,
-        marker=dict(
-            line=dict(
-                width=0 if n_pts > 1000 else 0.4,
-                color="rgba(255,255,255,0.20)"
-            ),
-            symbol="circle",
-        ),
+        marker=dict(line=dict(width=0.4, color="rgba(255,255,255,0.20)")),
     )
     if tl:
         fig.update_traces(
@@ -295,6 +294,7 @@ def run_scatter_plot(df, x_col=None, y_col=None, color_col=None, size_col=None,
         "x_axis": x,
         "y_axis": y,
         "legend": color,
+        "supports_auto_insights": True,
         "supports_notes": True,
         "supports_axis_editing": True,
         "supports_legend_editing": True,

@@ -5,6 +5,7 @@ import re
 import copy
 import datetime
 from html import escape
+from modules.charts import clean_insight_text
 
 
 
@@ -262,7 +263,8 @@ def generate_html_report(
     chart_blocks = ""
     for idx, item in enumerate(charts):
         uid, chart_title, fig, notes = item[:4]
-        meta          = item[5] if len(item) > 5 else {}
+        auto_insights = item[4] if len(item) > 4 else []
+        meta          = item[6] if len(item) > 6 else {}
 
 
         display_title = meta.get("custom_title") or chart_title
@@ -307,9 +309,21 @@ def generate_html_report(
         )
 
 
+        insight_html = ""
+        if auto_insights and meta.get("show_auto_insights", True):
+            hidden  = set(meta.get("hidden_insights", []))
+            visible = [ins for i, ins in enumerate(auto_insights) if i not in hidden]
+            if visible:
+                items = "".join(f"<li>{_h(clean_insight_text(ins))}</li>" for ins in visible)
+                insight_html = (
+                    f'<div class="insights"><strong>Insights</strong>'
+                    f'<ul>{items}</ul></div>'
+                )
+
+
         notes_str  = str(notes).strip() if notes else ""
         notes_html = (
-            f'<div class="notes"><strong>Analysis Notes:</strong> {_h(notes_str).replace(chr(10), "<br>")}</div>'
+            f'<div class="notes"><strong>Analysis Notes:</strong> {_h(notes_str)}</div>'
             if notes_str else ""
         )
 
@@ -320,7 +334,7 @@ def generate_html_report(
             f'font-family:{text_style["family"]};color:{text_style["header_color"]};">'
             f'{_h(display_title)}</h2>'
             + f'<div class="chart-wrap">{chart_html}</div>'
-            + notes_html
+            + insight_html + notes_html
             + "</div>"
         )
 
@@ -458,7 +472,6 @@ def generate_html_report(
       color: {t['notes_color']};
       font-family: {t['notes_font']}, 'DejaVu Sans', Arial, sans-serif;
       font-style: italic;
-      white-space: pre-wrap;
     }}
 
 

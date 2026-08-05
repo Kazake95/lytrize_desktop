@@ -13,7 +13,7 @@ from modules.database import (
     get_session_charts, get_session_meta,
     clear_draft, save_draft,
 )
-from modules.charts import charts_to_json, _fmt_num, apply_hover_format
+from modules.charts import charts_to_json, clean_insight_text, _fmt_num, apply_hover_format
 from modules.export import generate_html_report
 from modules.ui.css import inject_footer, render_logo
 from modules.ui.chart_settings import (
@@ -215,9 +215,10 @@ def _all_charts(viewing_saved):
     out = []
     for uid, title, fig in st.session_state.get("charts", []):
         desc   = st.session_state.get(f"desc_{uid}", "")
+        autos  = st.session_state.get(f"auto_insights_{uid}", [])
         ctype  = st.session_state.get(f"chart_type_{uid}", "")
         meta   = _meta(uid)
-        out.append((uid, title, fig, desc, ctype, meta))
+        out.append((uid, title, fig, desc, autos, ctype, meta))
     return out
 
 
@@ -614,8 +615,8 @@ def _render_layout_builder(charts):
 
 def _render_chart(item, idx, total, viewing_saved):
     """Render a single chart card with settings, insights, and notes."""
-    uid, title, fig, desc, ctype, saved_meta = \
-        item if len(item) == 6 else (*item[:5], {})
+    uid, title, fig, desc, autos, ctype, saved_meta = \
+        item if len(item) == 7 else (*item[:6], {})
     meta = saved_meta if viewing_saved else _meta(uid)
     note_key = f"desc_{uid}"
     if not viewing_saved:
@@ -632,7 +633,7 @@ def _render_chart(item, idx, total, viewing_saved):
         from modules.ui.chart_card import render_chart_card
         chart_type = st.session_state.get(f"chart_type_{uid}", ctype or "")
         render_chart_card(
-            uid, title, fig, chart_type, meta,
+            uid, title, fig, chart_type, meta, autos,
             key_prefix="dash",
             edit_mode=not viewing_saved,
             viewing_saved=viewing_saved,
@@ -703,13 +704,17 @@ def _render_chart(item, idx, total, viewing_saved):
             key=f"dash_plotly_{uid}",
             config={"responsive": True, "displayModeBar": "hover", "mathjax": False},
         )
+        if autos:
+            with st.expander("💡 Insights", expanded=False):
+                from modules.charts import clean_insight_text
+                for ins in autos:
+                    st.markdown(f"- {clean_insight_text(ins)}")
         live_desc = st.session_state.get(note_key, "") or (desc or "")
         if live_desc:
-            safe_desc = escape(str(live_desc)).replace("\n", "<br>")
+            safe_desc = escape(str(live_desc))
             st.markdown(
                 f'<div style="background:rgba(133,102,252,0.07);border-left:3px solid #8566fc;'
-                f'border-radius:6px;padding:.6rem .9rem;font-size:.87rem;margin-top:.3rem;'
-                f'white-space:pre-wrap;">'
+                f'border-radius:6px;padding:.6rem .9rem;font-size:.87rem;margin-top:.3rem;">'
                 f'<strong>Analysis Notes:</strong> {safe_desc}</div>',
                 unsafe_allow_html=True,
             )
@@ -729,7 +734,7 @@ def _render_grid(ordered_charts, viewing_saved):
     while i < total:
         item     = ordered_charts[i]
         uid      = item[0]
-        item_meta = item[5] if viewing_saved and len(item) > 5 else _meta(uid)
+        item_meta = item[6] if viewing_saved and len(item) > 6 else _meta(uid)
         is_fw    = fw.get(uid, False) or item_meta.get("full_width", False)
 
 
@@ -744,7 +749,7 @@ def _render_grid(ordered_charts, viewing_saved):
                 if i + s < total:
                     ni   = ordered_charts[i + s]
                     n_fw = fw.get(ni[0], False) or (
-                        ni[5] if viewing_saved and len(ni) > 5 else _meta(ni[0])
+                        ni[6] if viewing_saved and len(ni) > 6 else _meta(ni[0])
                     ).get("full_width", False)
                     if not n_fw:
                         row_items.append(ni)
@@ -825,7 +830,7 @@ def page_dashboard():
     if is_editing and not st.session_state.get("_edit_notes_loaded"):
         eid    = st.session_state.editing_session_id
         loaded = get_session_charts(eid, st.session_state.get("user_id"))
-        for uid, title, fig, desc, ctype, meta in loaded:
+        for uid, title, fig, desc, auto, ctype, meta in loaded:
             note_key = f"desc_{uid}"
             current_note = st.session_state.get(note_key, None)
             if desc and (current_note is None or current_note == ""):
@@ -845,8 +850,9 @@ def page_dashboard():
         )
         if _session_just_loaded:
             loaded = get_session_charts(sid, st.session_state.get("user_id"))
-            for uid, title, fig, desc, ctype, meta in loaded:
+            for uid, title, fig, desc, auto, ctype, meta in loaded:
                 st.session_state[f"desc_{uid}"]          = desc
+                st.session_state[f"auto_insights_{uid}"] = auto
                 st.session_state[f"chart_type_{uid}"]    = ctype
                 st.session_state[f"chart_meta_{uid}"]    = meta
             st.session_state._view_charts = loaded
@@ -1044,16 +1050,16 @@ def _generate_export_html(
     full_width = st.session_state.get("grid_fullwidth", {})
     for item in charts:
         uid  = item[0]
-        meta = dict(item[5] if len(item)>5 else _meta(uid))
+        meta = dict(item[6] if len(item)>6 else _meta(uid))
         if full_width.get(uid):
             meta["full_width"] = True
         style = _merge_text_style(meta.get("text_style", {}))
         fig  = _apply_axes(item[2], meta.get("x_label",""), meta.get("y_label",""), style)
         fig  = _apply_legend_names(fig, meta.get("legend_names", {}), meta.get("legend_title", ""), style)
-        fig  = apply_chart_display_options(fig, meta, item[4] if len(item)>4 else "")
+        fig  = apply_chart_display_options(fig, meta, item[5] if len(item)>5 else "")
         notes = st.session_state.get(f"desc_{uid}", "") or (item[3] if len(item) > 3 else "")
-        export_charts.append((uid, item[1], fig, notes,
-                              item[4] if len(item)>4 else "", meta))
+        export_charts.append((uid, item[1], fig, notes, item[4] if len(item)>4 else [],
+                              item[5] if len(item)>5 else "", meta))
 
     safe_file = re.sub(r"[^A-Za-z0-9_.-]+", "_", dash_title).strip("._") or "lytrize_report"
 
@@ -1394,6 +1400,18 @@ def _render_export_colour_customiser() -> None:
             ex_title_style,
             ex_title_size,
             ex_title_color,
+        )
+        st.markdown("**Insights**")
+        ex_insights_font = font_select("Font", default=st.session_state.get("ex_insights_font", "Inter"), key="ex_insights_font")
+        ex_insights_style = st.selectbox("Style", font_styles_list, key="ex_insights_style")
+        ex_insights_size = st.slider("Size", 10, 50, int(st.session_state.get("ex_insights_size", 14)), key="ex_insights_size")
+        ex_insights_color = st.color_picker("Colour", st.session_state.get("ex_insights_color", "#f5f7ff"), key="ex_insights_color")
+        _render_section_preview(
+            "💡 Insights Preview – Sample insight showing current text styling",
+            ex_insights_font,
+            ex_insights_style,
+            ex_insights_size,
+            ex_insights_color,
         )
         st.markdown("**Notes**")
         ex_notes_font = font_select("Font", default=st.session_state.get("ex_notes_font", "Inter"), key="ex_notes_font")

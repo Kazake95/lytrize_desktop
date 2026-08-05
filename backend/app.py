@@ -98,6 +98,7 @@ def _restore_draft(user_id: int) -> None:
                 fig = pio.from_json(fig_json)
                 charts.append((uid, title, fig))
                 st.session_state[f"desc_{uid}"]          = item.get("desc", "")
+                st.session_state[f"auto_insights_{uid}"] = item.get("auto_insights", [])
                 st.session_state[f"chart_type_{uid}"]    = item.get("chart_type", "")
                 st.session_state[f"chart_meta_{uid}"]    = item.get("meta", {})
             except Exception as exc:
@@ -133,6 +134,13 @@ def _restore_draft(user_id: int) -> None:
     df = load_df_snapshot(user_id)
     if df is not None:
         set_df(df)
+        try:
+            col_descs = json.loads(draft.get("col_descriptions_json", "{}") or "{}")
+            if col_descs:
+                st.session_state.col_descriptions = col_descs
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+            pass
 
 
     # Always start at the home page on restart — the user navigates to

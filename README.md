@@ -48,9 +48,9 @@ Upload a CSV or Excel file and get interactive charts, dashboards, and insights 
 
 | | |
 |---|---|
-| **📊 11 chart types** | Bar, pie/donut, scatter, histogram, time series, correlation, pivot table, matrix heatmap, geographic map, outlier, and data quality |
-| **🔍 Auto insights** | Plain-English observations generated for every chart automatically |
-| **🗂️ Dashboard builder** | Arrange charts in a portrait (2-column) or landscape (3-column) grid, add KPI summary cards, set a title |
+| **📊 11 Analysis types** | Descriptive, statistical, distribution, correlation, categorical bar, pie & donut, time series, scatter plot, matrix heatmap, pivot table, and map plot |
+| **🔍 Additional tools** | Outlier detection and data quality checks (available on upload page) |
+| **📋 Dashboard builder** | Arrange charts in a portrait (2-column) or landscape (3-column) grid, add KPI summary cards, set a title |
 | **📤 Export** | Download as a self-contained HTML file — then use your browser's DevTools to save as PNG |
 | **🧹 Data tools** | Rename columns, change data types, flag outliers, and handle missing values before analysis |
 | **💾 Session backup & restore** | Save local session backups and restore any compatible JSON backup, including ones shared by other users |
@@ -159,8 +159,6 @@ Your session saves automatically as you work. Use **Save Session** to make a nam
 | **Matrix Heatmap** | Cross-tabulation heatmap (pivot table as a heatmap) |
 | **Pivot Table** | Cross-tabulation table (pivot table as a data table) |
 | **Map Plot** | Geographic scatter (lat/lon) or choropleth (country/region names) |
-| **Outlier** | IQR-based outlier detection across numeric columns |
-| **Data Quality** | Missing values, duplicate rows, and column quality summary |
 
 ---
 

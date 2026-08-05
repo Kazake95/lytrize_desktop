@@ -15,6 +15,7 @@ from typing import Any
 import streamlit as st
 
 
+from modules.charts import clean_insight_text
 from modules.ui.font_manager import inject_font_preview_css, font_select
 
 
@@ -785,22 +786,6 @@ def apply_chart_display_options(
                         for col in tr.cells.values
                     ]
 
-                _num_fmt = opts.get("table_number_format")
-                if _num_fmt and hasattr(tr.cells, "values") and tr.cells.values:
-                    _new_vals = []
-                    for _ci, _col in enumerate(tr.cells.values):
-                        if _ci == 0:
-                            _new_vals.append(_col)
-                            continue
-                        _new_col = []
-                        for _v in _col:
-                            try:
-                                _new_col.append(format(float(_v), _num_fmt))
-                            except Exception:
-                                _new_col.append(_v)
-                        _new_vals.append(_new_col)
-                    tr.cells.values = _new_vals
-
                 tr.cells.height  = row_h
                 tr.header.height = hdr_h
                 if hasattr(tr.cells, "align") and hasattr(tr.header, "values"):
@@ -1121,27 +1106,11 @@ def apply_chart_display_options(
             if cb_title:
                 cb_kwargs["title"] = dict(text=cb_title, font=dict(size=cb_title_sz, color=cb_title_col, family=cb_family, **_cb_font_suffix))
             
-            # go.Heatmap traces store colorbar directly on the trace, so update
-            # each trace individually rather than relying on update_coloraxes.
-            for tr in f2.data:
-                ttype_for_cb = str(getattr(tr, "type", "")).lower()
-                if ttype_for_cb not in ("heatmap", "choropleth"):
-                    continue
-                try:
-                    if not hasattr(tr, "colorbar") or tr.colorbar is None:
-                        tr.colorbar = dict()
-                    tr.colorbar.tickfont = dict(
-                        size=cb_tick_sz, color=cb_tick_col, family=cb_family, **_cb_font_suffix)
-                    if cb_title:
-                        _side = getattr(getattr(tr.colorbar, "title", None), "side", "right") if hasattr(tr.colorbar, "title") and tr.colorbar.title else "right"
-                        tr.colorbar.title.text = cb_title
-                        tr.colorbar.title.font = dict(
-                            size=cb_title_sz, color=cb_title_col, family=cb_family, **_cb_font_suffix)
-                        if hasattr(tr.colorbar.title, "side"):
-                            tr.colorbar.title.side = _side
-                except Exception as exc:
-                    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                    pass
+            try:
+                f2.update_coloraxes(colorbar=cb_kwargs)
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+                pass
 
             for tr in f2.data:
                 ttype_for_cb = str(getattr(tr, "type", "")).lower()
@@ -1212,7 +1181,7 @@ def apply_chart_display_options(
 # Public renderer API (imported by chart_card.py / analysis.py / dashboard.py)
 # ---------------------------------------------------------------------------
 def render_chart_settings_controls(uid: str, title: str, fig, chart_type: str,
-                                   meta: dict, *,
+                                   meta: dict, auto_insights: list[str], *,
                                    key_prefix: str = "analysis",
                                    show_text_style: bool = False,
                                    matrix_view: str = "") -> dict:

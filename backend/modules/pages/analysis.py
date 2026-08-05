@@ -16,6 +16,8 @@ from modules.analysis.descriptive import run_descriptive
 from modules.analysis.data_quality import run_data_quality
 from modules.charts import (
     charts_to_json,
+    clean_insight_text,
+    generate_chart_insights,
     apply_hover_format,
 )
 from modules.ui.css import inject_footer, render_logo
@@ -125,7 +127,7 @@ def _restore_edit_notes() -> None:
     from modules.database import get_session_charts
     try:
         saved = get_session_charts(eid, uid)
-        for chart_uid, _title, _fig, desc, _ctype, _meta in saved:
+        for chart_uid, _title, _fig, desc, _auto, _ctype, _meta in saved:
             note_key = f"desc_{chart_uid}"
             shadow_val = st.session_state.get("_notes_shadow", {}).get(chart_uid, "")
             restore_val = shadow_val or desc
@@ -222,12 +224,16 @@ def _persist_draft(page="analysis"):
         kpis_json            = json.dumps(st.session_state.get("kpis", [])),
         chart_meta_json      = chart_meta_json,
         layout_mode           = st.session_state.get("layout_mode", "portrait"),
+        col_descriptions_json = json.dumps(
+            st.session_state.get("col_descriptions", {})
+        ),
     )
 
 
 
 
 def _add_charts(new_charts, active):
+    col_descs = st.session_state.get("col_descriptions", {})
     try:
         _gen_kwargs = _collect_kwargs(active, st.session_state.get("df"))
         _widget_state = _collect_widget_state(active)
@@ -236,6 +242,8 @@ def _add_charts(new_charts, active):
         _widget_state = {}
     for uid, title, fig in new_charts:
         st.session_state[f"chart_type_{uid}"]    = active
+        st.session_state[f"auto_insights_{uid}"] = generate_chart_insights(
+            active, title, fig, col_descs)
         apply_hover_format(fig)
         _edit_prefix = f"_edit_{uid}_{active}_"
         for _k in list(st.session_state.keys()):
@@ -484,6 +492,7 @@ def page_analysis():
                              new_fig  if c[0] == regen_uid else c[2])
                             for c in st.session_state.get("charts", [])
                         ]
+                        st.session_state.pop(f"auto_insights_{regen_uid}", None)
                         st.session_state[f"chart_type_{regen_uid}"] = regen_type
                         # Persist the latest scoped widget state so the next
                         # edit opens with these exact selections.
@@ -732,6 +741,7 @@ def _render_chart_list(charts, edit_mode=False):
         # ------------------------------------------------------------------ #
         render_chart_card(
             uid, title, fig, chart_type, meta,
+            auto_insights=st.session_state.get(f"auto_insights_{uid}", []),
             key_prefix="analysis",
             edit_mode=edit_mode,
             viewing_saved=False,

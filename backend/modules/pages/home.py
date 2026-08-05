@@ -164,8 +164,9 @@ def page_home():
                     sm     = get_session_meta(sid, st.session_state.get("user_id"))
                     loaded = get_session_charts(sid, st.session_state.get("user_id"))
                     charts = []
-                    for uid, title, fig, desc, ctype, meta in loaded:
+                    for uid, title, fig, desc, auto, ctype, meta in loaded:
                         st.session_state[f"desc_{uid}"]          = desc
+                        st.session_state[f"auto_insights_{uid}"] = auto
                         st.session_state[f"chart_type_{uid}"]    = ctype
                         st.session_state[f"chart_meta_{uid}"]    = meta
                         charts.append((uid, title, fig))

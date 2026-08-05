@@ -19,6 +19,7 @@ from modules.analysis.scatter_plot  import run_scatter_plot
 from modules.analysis.matrix_table  import run_matrix_heatmap, run_matrix_table
 from modules.analysis.map_plot      import run_map_plot
 from modules.analysis.data_quality  import run_data_quality
+from modules.analysis.insights      import generate_insights
 
 
 from modules.charts import PALETTES, num_cols as _num_cols, cat_cols as _cat_cols, dt_cols as _dt_cols
@@ -623,6 +624,7 @@ def _run(aid: str, df, **kwargs):
             uid = str(uuid.uuid4())[:8]
 
 
+            generate_insights(aid, df, uid, **kwargs)
 
 
             results.append((uid, title, fig))
