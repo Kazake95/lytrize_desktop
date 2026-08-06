@@ -36,6 +36,7 @@ session.token
 launcher_prefs.json
 browser-profiles/
 streamlit.log
+backend/.streamlit
 
 # ── Build artifacts ────────────────────────────────────────────────────────
 *.deb
