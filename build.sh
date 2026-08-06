@@ -50,20 +50,21 @@ python3 -m venv "$VENV_BUILD"
 
 # ── [4/7] Install Python dependencies ────────────────────────────────────────
 echo "[4/7] Installing Python dependencies..."
-"$VENV_BUILD/bin/pip" install --upgrade pip --quiet
+"$VENV_BUILD/bin/pip" install --upgrade pip setuptools wheel --quiet
+# Hardcoded Debian/Ubuntu dependencies (Python 3.13)
 "$VENV_BUILD/bin/pip" install \
-    "streamlit>=1.40.0" \
-    "pandas>=2.2.0" \
-    "plotly>=5.22.0" \
-    "openpyxl>=3.1.0" \
-    "scipy>=1.12.0" \
-    "statsmodels>=0.14.0" \
-    "pycountry>=23.12.11" \
-    "pyarrow>=14.0.0" \
+    "streamlit>=1.40.0,<2.0.0" \
+    "pandas>=2.2.0,<3.0.0" \
+    "plotly>=5.22.0,<6.0.0" \
+    "openpyxl>=3.1.0,<4.0.0" \
+    "scipy>=1.12.0,<2.0.0" \
+    "statsmodels>=0.14.0,<0.15.0" \
+    "pycountry>=23.12.11,<25.0.0" \
+    "PySide6>=6.11.0,<7.0.0" \
     "starlette>=0.21.0,<0.36.0" \
     --quiet
-echo "      Installing PySide6 (may take 2-3 minutes)..."
-"$VENV_BUILD/bin/pip" install PySide6 --quiet
+# Pin pyarrow to 18.1.0 for Debian (Python 3.13) to avoid segfault in 25.x
+"$VENV_BUILD/bin/pip" install "pyarrow==18.1.0" --quiet --only-binary pyarrow
 
 # ── [5/7] Patch venv shebangs for portability ─────────────────────────────────
 echo "[5/7] Patching venv shebangs for portability..."
@@ -81,6 +82,8 @@ echo "[6/7] Slimming venv..."
 find "$VENV_BUILD" -type d \( -name '__pycache__' -o -name 'tests' -o -name 'test' -o -name 'docs' \) \
     -exec rm -rf {} + 2>/dev/null || true
 find "$VENV_BUILD" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete 2>/dev/null || true
+# Remove broken symlinks so dpkg-deb/tar doesn't fail
+find "$VENV_BUILD" -type l ! -exec test -e {} \; -delete 2>/dev/null || true
 
 # ── [7/7] Assemble and build .deb ─────────────────────────────────────────────
 echo "[7/7] Building .deb package..."

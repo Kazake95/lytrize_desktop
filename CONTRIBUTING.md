@@ -115,9 +115,9 @@ lytrize_desktop/
 │   └── rpm/                   # .rpm spec file and structure
 ├── service/                   # systemd user service
 │   └── lytrize.service
-├── build.sh                   # .deb build script
-├── build_rpm.sh               # .rpm build script
-├── requirements.txt           # Python dependencies
+├── build.sh                   # .deb build script (dependencies hardcoded for seemless build)
+├── build_rpm.sh               # .rpm build script (dependencies hardcoded for seemless build)
+├── requirements.txt           # Python dependencies for developmently
 ├── .gitignore
 ├── LICENSE                    # MIT
 ├── README.md                  # User-facing documentation
