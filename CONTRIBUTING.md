@@ -117,7 +117,7 @@ lytrize_desktop/
 │   └── lytrize.service
 ├── build.sh                   # .deb build script (dependencies hardcoded for seemless build)
 ├── build_rpm.sh               # .rpm build script (dependencies hardcoded for seemless build)
-├── requirements.txt           # Python dependencies for developmently
+├── requirements.txt           # Python dependencies for dev purpose
 ├── .gitignore
 ├── LICENSE                    # MIT
 ├── README.md                  # User-facing documentation
