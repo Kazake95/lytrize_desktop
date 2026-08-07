@@ -387,22 +387,52 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
 
         # Notes --------------------------------------------------------------
         note_key = f"desc_{uid}"
-        if note_key not in st.session_state:
-            st.session_state[note_key] = (
-                st.session_state.get("_notes_shadow", {}).get(uid, "")
-            )
+        # ALWAYS restore from shadow before widget render to survive reruns
+        shadow_val = st.session_state.get("_notes_shadow", {}).get(uid, "")
+        if note_key not in st.session_state or not st.session_state[note_key]:
+            st.session_state[note_key] = shadow_val
 
         def _sync_note(_u=uid):
+            # Sync from both possible keys
             val = st.session_state.get(f"desc_{_u}", "")
-            st.session_state.setdefault("_notes_shadow", {})[_u] = val
+            if val:
+                st.session_state.setdefault("_notes_shadow", {})[_u] = val
             # Persist note changes to database immediately
             try:
-                # Use appropriate persist function based on current page
-                if st.session_state.get("page") == "dashboard":
+                # Priority 1: If viewing a saved session (not editing), save directly to that session
+                if st.session_state.get("view_session_id") and not st.session_state.get("editing_session_id"):
+                    from modules.database import update_session_db
+                    from modules.charts import charts_to_json
+                    vid = st.session_state.view_session_id
+                    uid_user = st.session_state.get("user_id")
+                    if vid and uid_user:
+                        # When viewing, st.session_state.charts may not exist - rebuild from _view_charts
+                        charts_list = st.session_state.get("charts", [])
+                        if not charts_list and st.session_state.get("_view_charts"):
+                            # Rebuild charts list from _view_charts with current notes from session state
+                            charts_list = []
+                            for c_uid, c_title, c_fig, c_desc, c_ctype, c_meta in st.session_state._view_charts:
+                                # Get the latest note from session state
+                                current_desc = st.session_state.get(f"desc_{c_uid}", c_desc)
+                                charts_list.append((c_uid, c_title, c_fig))
+                        update_session_db(
+                            vid,
+                            st.session_state.get("view_session_name", "Session"),
+                            charts_to_json(charts_list),
+                            st.session_state.get("selected_analyses", []),
+                            uid_user,
+                            dashboard_title=st.session_state.get("dashboard_title", ""),
+                            kpis_json=json.dumps(st.session_state.get("kpis", [])),
+                            layout_mode=st.session_state.get("layout_mode", "portrait"),
+                            grid_order_json=json.dumps(st.session_state.get("grid_order", [])),
+                            grid_fullwidth_json=json.dumps(st.session_state.get("grid_fullwidth", {})),
+                        )
+                # Priority 2: If editing a session on dashboard, use _persist (saves to draft)
+                elif st.session_state.get("page") == "dashboard" and st.session_state.get("editing_session_id"):
                     from modules.pages.dashboard import _persist
                     _persist()
+                # Priority 3: If on analysis page with editing session
                 elif st.session_state.get("editing_session_id"):
-                    # Analysis page with active editing session
                     from modules.database import update_session_db
                     from modules.charts import charts_to_json
                     eid = st.session_state.editing_session_id
@@ -428,5 +458,5 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
             key=note_key,
             on_change=_sync_note,
             args=(uid,),
-            placeholder="Add your findings or observations here…",
+            placeholder="Add your findings or observations…",
         )

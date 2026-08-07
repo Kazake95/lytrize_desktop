@@ -872,26 +872,50 @@ def apply_chart_display_options(
     _y_label = meta.get("y_label", "")
     _y2_label = meta.get("y2_label", "")
 
+    def _safe_update_xaxes(fig, **kwargs):
+        """Update xaxes, falling back without row/col if figure lacks subplots."""
+        try:
+            fig.update_xaxes(**kwargs)
+        except Exception as exc:
+            if "make_subplots" in str(exc):
+                kwargs.pop("row", None)
+                kwargs.pop("col", None)
+                fig.update_xaxes(**kwargs)
+            else:
+                raise
+
+    def _safe_update_yaxes(fig, **kwargs):
+        """Update yaxes, falling back without row/col if figure lacks subplots."""
+        try:
+            fig.update_yaxes(**kwargs)
+        except Exception as exc:
+            if "make_subplots" in str(exc):
+                kwargs.pop("row", None)
+                kwargs.pop("col", None)
+                fig.update_yaxes(**kwargs)
+            else:
+                raise
+
     if _x_label:
-        f2.update_xaxes(title=dict(text=_x_label, font=_font_style_dict))
+        _safe_update_xaxes(f2, title=dict(text=_x_label, font=_font_style_dict), row=1, col=1)
     else:
-        f2.update_xaxes(title=dict(font=_font_style_dict))
+        _safe_update_xaxes(f2, title=dict(font=_font_style_dict), row=1, col=1)
         
     if _y_label:
         if is_dual_axis_chart(f2):
-            f2.update_yaxes(title=dict(text=_y_label, font=_font_style_dict), secondary_y=False)
+            _safe_update_yaxes(f2, title=dict(text=_y_label, font=_font_style_dict), secondary_y=False, row=1, col=1)
         else:
-            f2.update_yaxes(title=dict(text=_y_label, font=_font_style_dict))
+            _safe_update_yaxes(f2, title=dict(text=_y_label, font=_font_style_dict), row=1, col=1)
     else:
         if is_dual_axis_chart(f2):
-            f2.update_yaxes(title=dict(font=_font_style_dict), secondary_y=False)
+            _safe_update_yaxes(f2, title=dict(font=_font_style_dict), secondary_y=False, row=1, col=1)
         else:
-            f2.update_yaxes(title=dict(font=_font_style_dict))
+            _safe_update_yaxes(f2, title=dict(font=_font_style_dict), row=1, col=1)
         
     if _y2_label:
-        f2.update_yaxes(title=dict(text=_y2_label, font=_font_style_dict), secondary_y=True)
+        _safe_update_yaxes(f2, title=dict(text=_y2_label, font=_font_style_dict), secondary_y=True, row=1, col=1)
     elif is_dual_axis_chart(f2):
-        f2.update_yaxes(title=dict(font=_font_style_dict), secondary_y=True)
+        _safe_update_yaxes(f2, title=dict(font=_font_style_dict), secondary_y=True, row=1, col=1)
 
     text_style = meta.get("text_style", {})
     if isinstance(text_style, dict) and text_style:

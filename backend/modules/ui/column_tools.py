@@ -466,16 +466,16 @@ def show_column_classifier(df):
     st.markdown("## 🏷️ Column Classification")
     st.markdown('<div class="classifier-box">', unsafe_allow_html=True)
     c1, c2, c3 = st.columns(3)
-    with c1: confirmed_num = st.multiselect("Numeric Columns",     all_cols, default=auto_num, key="cls_num")
-    with c2: confirmed_cat = st.multiselect("Categorical Columns", all_cols, default=auto_cat, key="cls_cat")
+    with c1: confirmed_num = st.multiselect("Metrics Columns",     all_cols, default=auto_num, key="cls_num")
+    with c2: confirmed_cat = st.multiselect("Dimension Columns", all_cols, default=auto_cat, key="cls_cat")
     with c3: confirmed_dt  = st.multiselect("Date/Time Columns",   all_cols, default=auto_dt,  key="cls_dt")
     st.markdown('</div>', unsafe_allow_html=True)
 
 
     overlap = []
-    if set(confirmed_num) & set(confirmed_cat): overlap.append("Numeric & Categorical")
-    if set(confirmed_num) & set(confirmed_dt):  overlap.append("Numeric & Date/Time")
-    if set(confirmed_cat) & set(confirmed_dt): overlap.append("Categorical & Date/Time")
+    if set(confirmed_num) & set(confirmed_cat): overlap.append("Metrics & Dimension")
+    if set(confirmed_num) & set(confirmed_dt):  overlap.append("Metrics & Date/Time")
+    if set(confirmed_cat) & set(confirmed_dt): overlap.append("Dimension & Date/Time")
     if overlap:
         st.warning(f"⚠️ Overlap detected between: {', '.join(overlap)}")
 

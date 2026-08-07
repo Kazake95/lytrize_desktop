@@ -172,6 +172,9 @@ def page_upload():
             st.session_state.file_signature = file_sig
             st.session_state["_resume_upload"] = True
             _clear_excel_state()
+            # Clear notes shadow only if NOT in edit mode (edit mode needs to preserve notes)
+            if "editing_session_id" not in st.session_state:
+                st.session_state.pop("_notes_shadow", None)
             mb = mem_mb(df)
             if mb > 50:
                 st.caption(f"📊 Loaded {df.shape[0]:,} rows — memory footprint: {mb:.0f} MB")
@@ -184,6 +187,9 @@ def page_upload():
             _clear_excel_state(uploaded.name)
             st.session_state.file_name      = uploaded.name
             st.session_state.file_signature = file_sig
+            # Clear notes shadow only if NOT in edit mode (edit mode needs to preserve notes)
+            if "editing_session_id" not in st.session_state:
+                st.session_state.pop("_notes_shadow", None)
 
 
         if "df" not in st.session_state:

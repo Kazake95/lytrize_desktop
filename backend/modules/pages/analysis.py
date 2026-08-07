@@ -32,7 +32,7 @@ def _shadow_notes_sync() -> None:
     """Copy all live desc_{uid} widget values into st.session_state._notes_shadow."""
     shadow = st.session_state.setdefault("_notes_shadow", {})
     for k, v in list(st.session_state.items()):
-        if k.startswith("desc_") and k not in ("desc_add", "desc_close"):
+        if k.startswith("desc_") and k not in ("desc_add", "desc_close") and v:
             shadow[k[5:]] = v
     for uid, note in shadow.items():
         key = f"desc_{uid}"
@@ -45,8 +45,9 @@ def _shadow_notes_sync() -> None:
 def _sync_one_note(uid: str) -> None:
     """on_change callback for a single notes text_area."""
     val = st.session_state.get(f"desc_{uid}", "")
-    shadow = st.session_state.setdefault("_notes_shadow", {})
-    shadow[uid] = val
+    if val:
+        shadow = st.session_state.setdefault("_notes_shadow", {})
+        shadow[uid] = val
     st.session_state[f"desc_{uid}"] = val
 
 
@@ -108,15 +109,6 @@ def _autosave() -> None:
 
 def _restore_edit_notes() -> None:
     """Re-seed desc_{uid} keys for all charts in the current editing session."""
-    if st.session_state.get("_analysis_notes_loaded"):
-        shadow = st.session_state.get("_notes_shadow", {})
-        for uid, note in shadow.items():
-            key = f"desc_{uid}"
-            if note and not st.session_state.get(key):
-                st.session_state[key] = note
-        return
-
-
     eid = st.session_state.get("editing_session_id")
     uid = st.session_state.get("user_id")
     if not eid or not uid:
@@ -410,6 +402,12 @@ def page_analysis():
     regen_uid  = st.session_state.get("_regen_uid")
     regen_type = st.session_state.get("_regen_type", "")
     if regen_uid and regen_type and df is not None:
+        # Save old charts before regeneration for note transfer
+        if "_old_charts_before_regen" not in st.session_state:
+            st.session_state["_old_charts_before_regen"] = [
+                c for c in st.session_state.get("charts", [])
+            ]
+        
         chart_entry = next(
             (c for c in st.session_state.get("charts", []) if c[0] == regen_uid), None)
         if chart_entry:
@@ -485,6 +483,17 @@ def page_analysis():
                             for c in st.session_state.get("charts", [])
                         ]
                         st.session_state[f"chart_type_{regen_uid}"] = regen_type
+                        
+                        # Transfer notes from old UIDs to new UIDs when in edit mode
+                        if st.session_state.get("editing_session_id"):
+                            shadow = st.session_state.get("_notes_shadow", {})
+                            # Find old chart UIDs that might have notes
+                            old_chart_uids = [c[0] for c in st.session_state.get("_old_charts_before_regen", [])]
+                            for old_uid in old_chart_uids:
+                                if old_uid in shadow and old_uid != regen_uid:
+                                    # Move note from old UID to regen_uid
+                                    shadow[regen_uid] = shadow.pop(old_uid)
+                                    st.session_state[f"desc_{regen_uid}"] = shadow[regen_uid]
                         # Persist the latest scoped widget state so the next
                         # edit opens with these exact selections.
                         try:
@@ -505,12 +514,14 @@ def page_analysis():
                             pass
                     st.session_state.pop("_regen_uid",  None)
                     st.session_state.pop("_regen_type", None)
+                    st.session_state.pop("_old_charts_before_regen", None)
                     _autosave()
                     st.rerun()
             with rb:
                 if st.button("✕ Cancel", key="regen_cancel", use_container_width=True):
                     st.session_state.pop("_regen_uid",  None)
                     st.session_state.pop("_regen_type", None)
+                    st.session_state.pop("_old_charts_before_regen", None)
                     _shadow_notes_sync()
                     st.rerun()
 

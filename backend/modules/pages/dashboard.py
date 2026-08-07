@@ -52,16 +52,31 @@ def _render_section_preview(label: str, font: str, style: str, size: int, color:
 
 
 def _dash_sync_notes() -> None:
-    """Snapshot all live desc_{uid} note values into _notes_shadow."""
+    """Bidirectional sync: desc_{uid} ↔ _notes_shadow."""
     shadow = st.session_state.setdefault("_notes_shadow", {})
+    
+    # Direction 1: desc_{uid} → shadow (sync all values including empty)
     for k, v in list(st.session_state.items()):
-        if k.startswith("desc_") and isinstance(v, str):
-            shadow[k[5:]] = v
+        if k.startswith("desc_") and k not in ("desc_add", "desc_close") and isinstance(v, str):
+            if v:
+                shadow[k[5:]] = v
+            else:
+                # Remove from shadow if cleared
+                shadow.pop(k[5:], None)
+    
+    # Direction 2: shadow → desc_{uid} (restore missing notes)
+    for uid, note in list(shadow.items()):  # Use list() to avoid dict size change during iteration
+        key = f"desc_{uid}"
+        # Restore from shadow if desc_{uid} is missing or empty
+        if note and (key not in st.session_state or not st.session_state.get(key)):
+            st.session_state[key] = note
 def _persist():
     """Persist the current dashboard draft to the database."""
     uid = st.session_state.get("user_id")
     if not uid:
         return
+    
+    _dash_sync_notes()
     _chart_meta_raw = {}
     for _k in list(st.session_state.keys()):
         if _k.startswith("chart_meta_"):
@@ -218,6 +233,10 @@ def _all_charts(viewing_saved):
         ctype  = st.session_state.get(f"chart_type_{uid}", "")
         meta   = _meta(uid)
         out.append((uid, title, fig, desc, ctype, meta))
+    
+    # Ensure notes are synced before returning charts
+    _dash_sync_notes()
+    
     return out
 
 
@@ -618,10 +637,20 @@ def _render_chart(item, idx, total, viewing_saved):
         item if len(item) == 6 else (*item[:5], {})
     meta = saved_meta if viewing_saved else _meta(uid)
     note_key = f"desc_{uid}"
+    
+    # ALWAYS prioritize shadow over DB/current value - shadow is authoritative for user edits
+    shadow_val = st.session_state.get("_notes_shadow", {}).get(uid, "")
+    if shadow_val:
+        # Shadow has a value - it's the user's edited note, always use it
+        st.session_state[note_key] = shadow_val
+    elif note_key not in st.session_state:
+        # No shadow and key doesn't exist - use DB desc
+        st.session_state[note_key] = desc or ""
+    
     if not viewing_saved:
-        if note_key not in st.session_state or st.session_state[note_key] == "":
-            shadow_val = st.session_state.get("_notes_shadow", {}).get(uid, "")
-            st.session_state[note_key] = shadow_val or desc or ""
+        # Ensure note_key exists in edit mode
+        if note_key not in st.session_state:
+            st.session_state[note_key] = desc or ""
 
 
     if not viewing_saved:
@@ -721,6 +750,9 @@ def _render_chart(item, idx, total, viewing_saved):
 
 
 def _render_grid(ordered_charts, viewing_saved):
+    # Sync notes before rendering to ensure they survive any reruns
+    _dash_sync_notes()
+    
     total    = len(ordered_charts)
     fw       = st.session_state.get("grid_fullwidth", {})
     n_cols   = st.session_state.get("grid_cols_n", 2)
@@ -774,7 +806,9 @@ def page_dashboard():
     if "user_id" not in st.session_state:
         st.session_state.page = "profile"
         st.rerun()
-
+    
+    # Sync notes at page entry to ensure they survive any reruns
+    _dash_sync_notes()
 
     viewing_saved = "view_session_id" in st.session_state
     is_editing    = "editing_session_id" in st.session_state
@@ -782,6 +816,9 @@ def page_dashboard():
 
 
     if is_editing and "kpis" not in st.session_state:
+        # Reset flag to force fresh note load for edit mode
+        st.session_state.pop("_edit_notes_loaded", None)
+        
         eid = st.session_state.editing_session_id
         sm  = get_session_meta(eid, st.session_state.get("user_id"))
         if sm:
@@ -826,8 +863,12 @@ def page_dashboard():
         loaded = get_session_charts(eid, st.session_state.get("user_id"))
         for uid, title, fig, desc, ctype, meta in loaded:
             note_key = f"desc_{uid}"
-            current_note = st.session_state.get(note_key, None)
-            if desc and (current_note is None or current_note == ""):
+            # ALWAYS restore notes from shadow or DB when entering edit mode
+            shadow_note = st.session_state.get("_notes_shadow", {}).get(uid, "")
+            # Priority: shadow > DB
+            if shadow_note:
+                st.session_state[note_key] = shadow_note
+            elif desc:
                 st.session_state[note_key] = desc
             meta_key = f"chart_meta_{uid}"
             if meta and not st.session_state.get(meta_key):
@@ -845,7 +886,14 @@ def page_dashboard():
         if _session_just_loaded:
             loaded = get_session_charts(sid, st.session_state.get("user_id"))
             for uid, title, fig, desc, ctype, meta in loaded:
-                st.session_state[f"desc_{uid}"]          = desc
+                # ALWAYS load notes from shadow or DB
+                note_key = f"desc_{uid}"
+                shadow_note = st.session_state.get("_notes_shadow", {}).get(uid, "")
+                # Priority: shadow > DB
+                if shadow_note:
+                    st.session_state[note_key] = shadow_note
+                elif desc:
+                    st.session_state[note_key] = desc
                 st.session_state[f"chart_type_{uid}"]    = ctype
                 st.session_state[f"chart_meta_{uid}"]    = meta
             st.session_state._view_charts = loaded
@@ -1516,7 +1564,8 @@ def _do_save(sname_in, charts, df):
     st.session_state.editing_session_name = sname_in
     st.session_state.pop("_edit_notes_loaded",    None)
     st.session_state.pop("_analysis_notes_loaded", None)
-    st.session_state.pop("_notes_shadow",          None)
+    # DON'T clear _notes_shadow - it's needed to restore notes after reruns
+    # st.session_state.pop("_notes_shadow",          None)
     st.toast(f"✅ Saved as '{sname_in}'!", icon="✅")
     st.rerun()
 
@@ -1527,7 +1576,8 @@ def _do_update(sname_in, charts, clear_editing=False):
     """Update the currently edited session with the current dashboard state."""
     st.session_state.pop("_edit_notes_loaded",      None)
     st.session_state.pop("_analysis_notes_loaded",  None)
-    st.session_state.pop("_notes_shadow",           None)
+    # DON'T clear _notes_shadow - it's needed to restore notes after reruns
+    # st.session_state.pop("_notes_shadow",           None)
     eid = st.session_state.editing_session_id
     update_session_db(
         eid, sname_in,
