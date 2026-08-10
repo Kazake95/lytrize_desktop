@@ -493,13 +493,51 @@ def _safe_get_font_attr(font_obj, attr: str, default=None):
 
 
 
-def _apply_font_only(fig, meta: dict | None, chart_type: str = ""):
-    """Lightweight font-only post-processor — no deepcopy, no trace iteration.
+def _decode_plotly_array(value):
+    """Decode a Plotly trace array back into a plain Python list.
 
-    Only touches ``fig.layout.title.font`` and ``fig.layout.font`` so that
-    font-family / size / colour changes for the (suppressed) title
-    are reflected without the cost of a full ``apply_chart_display_options``.
-    Returns the same figure object (mutated in-place).
+    ``copy.deepcopy`` on a Plotly figure serialises numpy arrays into a
+    compact dict like ``{'dtype': 'i1', 'bdata': 'AQID...', 'shape': '12'}``.
+    Iterating that dict yields string keys, so ``float(v)`` fails and value
+    labels silently disappear.  This helper normalises ndarray / dict /
+    list / tuple back to a list of scalars.
+    """
+    if value is None:
+        return None
+    if isinstance(value, dict) and "bdata" in value:
+        try:
+            import base64 as _b64
+            import numpy as _np
+            _dtype_map = {
+                "f8": "<f8", "f4": "<f4", "i1": "<i1", "i2": "<i2",
+                "i4": "<i4", "i8": "<i8", "u1": "<u1", "u2": "<u2",
+                "u4": "<u4", "u8": "<u8", "b": "|b1",
+            }
+            _dtype = _np.dtype(
+                _dtype_map.get(str(value.get("dtype", "f8")), str(value.get("dtype", "<f8")))
+            )
+            _shape = tuple(
+                int(s) for s in str(value.get("shape", "")).split(",") if s.strip()
+            )
+            _arr = _np.frombuffer(_b64.b64decode(value["bdata"]), dtype=_dtype)
+            if _shape:
+                _arr = _arr.reshape(_shape)
+            return _arr.tolist()
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+            return None
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    return value
+
+
+def _apply_font_only(fig, meta: dict | None, chart_type: str = ""):
+    """Lightweight typography-only post-processor -- no deepcopy, no O(points)
+    per-trace textfont loop.
+
+    Applies header / global font, axis tick+title fonts, legend title+item
+    fonts and pie label/value fonts via O(1) layout updates.  Returns the same
+    figure object (mutated in-place).
     """
     if not meta:
         return fig
@@ -521,20 +559,65 @@ def _apply_font_only(fig, meta: dict | None, chart_type: str = ""):
     _fs_lower = str(ts.get("font_style", "Normal")).lower()
     _weight = "bold" if "bold" in _fs_lower else "normal"
     _style  = "italic" if "italic" in _fs_lower else "normal"
+    _font_style_dict = dict(family=_font_family, weight=_weight, style=_style)
 
     try:
         fig.update_layout(
-            title=dict(
-                text="",
-                font=dict(size=_hdr_size, color=_hdr_color, family=_hdr_family),
+            title=dict(text="", font=dict(size=_hdr_size, color=_hdr_color, family=_hdr_family)),
+            font=_font_style_dict,
+            legend=dict(
+                bgcolor=str(ts.get("legend_bgcolor", "rgba(0,0,0,0)")),
+                title=dict(font=dict(size=int(ts.get("legend_title_size", 12)),
+                                     color=str(ts.get("legend_title_color", "#cbd5e1")),
+                                     family=_font_family, weight=_weight, style=_style)),
+                font=dict(size=int(ts.get("legend_item_size", 11)),
+                          color=str(ts.get("legend_item_color", "#e2e8f0")),
+                          family=_font_family, weight=_weight, style=_style),
             ),
-            font=dict(family=_font_family, weight=_weight, style=_style),
         )
+        axis_title_font = dict(size=int(ts.get("axis_title_size", 12)),
+                               color=str(ts.get("axis_title_color", "#cbd5e1")),
+                               family=_font_family, weight=_weight, style=_style)
+        axis_tick_font  = dict(size=int(ts.get("axis_tick_size", 10)),
+                               color=str(ts.get("axis_tick_color", "#94a3b8")),
+                               family=_font_family, weight=_weight, style=_style)
+        fig.update_xaxes(title_font=axis_title_font, tickfont=axis_tick_font)
+        fig.update_yaxes(title_font=axis_title_font, tickfont=axis_tick_font)
     except Exception as exc:
         logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
         pass
-    return fig
 
+    # Pie label/value fonts are per-trace but pie charts have few slices, so a
+    # light loop here is cheap and keeps pie typography live.
+    _pie_lbl_sz  = ts.get("pie_label_size")
+    _pie_lbl_clr = ts.get("pie_label_color")
+    _pie_val_sz  = ts.get("pie_value_size")
+    _pie_val_clr = ts.get("pie_value_color")
+    if _pie_lbl_sz or _pie_lbl_clr or _pie_val_sz or _pie_val_clr:
+        for tr in fig.data:
+            ttype = str(getattr(tr, "type", "") or "").lower()
+            if ttype not in ("pie", "sunburst", "treemap"):
+                continue
+            for _pf_attr in ("insidetextfont", "outsidetextfont", "textfont"):
+                _pf = getattr(tr, _pf_attr, None)
+                if _pf is None:
+                    continue
+                _upd = {}
+                if _pie_lbl_sz:
+                    _upd["size"] = int(_pie_lbl_sz)
+                if _pie_lbl_clr and _pie_lbl_clr != "auto":
+                    _upd["color"] = _pie_lbl_clr
+                if _upd:
+                    try:
+                        if isinstance(_pf, dict):
+                            _pf.update(_upd)
+                        else:
+                            for _k, _v in _upd.items():
+                                setattr(_pf, _k, _v)
+                    except Exception as exc:
+                        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+                        pass
+    return fig
 
 
 def _font_only_hash(meta: dict | None) -> str:
@@ -632,7 +715,7 @@ def apply_chart_display_options(
                     if _show_value_labels:
                         # Populate text with y-values if not already set
                         if getattr(tr, "text", None) is None:
-                            y_vals = getattr(tr, "y", None)
+                            y_vals = _decode_plotly_array(getattr(tr, "y", None))
                             if y_vals is not None:
                                 try:
                                     tr.text = [str(round(float(v), 2)) if v is not None else "" for v in y_vals]
@@ -1023,6 +1106,10 @@ def apply_chart_display_options(
                         _upd["color"] = _pie_lbl_clr
                     if _pie_lbl_sz:
                         _upd["size"] = int(_pie_lbl_sz)
+                    # Apply universal font family and style
+                    _upd["family"] = _font_family
+                    _upd["weight"] = _weight
+                    _upd["style"] = _style
                     if _upd:
                         try:
                             if isinstance(_pf, dict):
@@ -1045,6 +1132,10 @@ def apply_chart_display_options(
                         _upd["color"] = _pie_val_clr
                     if _pie_val_sz:
                         _upd["size"] = int(_pie_val_sz)
+                    # Apply universal font family and style
+                    _upd["family"] = _font_family
+                    _upd["weight"] = _weight
+                    _upd["style"] = _style
                     if _upd:
                         try:
                             if isinstance(_pf, dict):
@@ -1348,7 +1439,8 @@ def render_typography_controls(uid: str, fig, chart_type: str,
     Per-element (axis, legend, pie) in an Advanced popover.
     """
     text_style = dict(meta.get("text_style", {}))
-    inject_font_preview_css()
+    # Only inject essential fonts by default - full font list loaded when user opens font picker
+    inject_font_preview_css(["Inter", "Sora"])
     caps = get_chart_type_capabilities(chart_type)
     typo = caps.get("typography", [])
 

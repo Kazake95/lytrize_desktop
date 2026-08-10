@@ -494,16 +494,29 @@ def _css_class(font_name: str) -> str:
     return "lytrize_font_" + font_name.lower().replace(" ", "_").replace("-", "_")
 
 
-def inject_font_preview_css() -> None:
-    """Inject a <style> block with font-family classes for every registered font."""
-    # Inject all fonts for preview (this is called when user opens font picker)
-    inject_bundled_font_css(get_all_font_names())
+def inject_font_preview_css(font_names: list[str] | None = None) -> None:
+    """Inject a <style> block with font-family classes for preview.
+    
+    Args:
+        font_names: List of font display names to inject. If None, injects
+                    only the essential fonts (Inter, Sora) for app chrome.
+                    Pass specific font names when user opens font picker.
+    """
+    # Determine which fonts to inject
+    if font_names is None:
+        # Default: only inject essential branding fonts to avoid browser crash
+        font_names = ["Inter", "Sora"]
+    
+    # Inject the actual font files (base64 data URIs) for requested fonts
+    inject_bundled_font_css(font_names)
 
     if st.session_state.get("_lytrize_font_preview_injected"):
         return
 
     css_rules = ""
     for entry in FONT_ENTRIES:
+        if entry["name"] not in font_names:
+            continue
         cls = _css_class(entry["name"])
         css_rules += f".{cls} {{ font-family: {entry['stack']}; }}\n"
     st.markdown(
@@ -515,14 +528,18 @@ def inject_font_preview_css() -> None:
 
 def font_select(label: str, default: str, key: str) -> str:
     """Render a font-family selector with a live preview line."""
-    # Inject all fonts when font picker is opened
-    inject_bundled_font_css(get_all_font_names())
+    # Only inject the default font initially - selected font injected on change
+    inject_bundled_font_css([default] if default else ["Inter"])
 
     options = get_all_font_names()
     if default not in options:
         options = [default] + options
 
     selected = st.selectbox(label, options, index=_index_of(options, default), key=key)
+
+    # Inject the selected font if it's different from default
+    if selected != default:
+        inject_bundled_font_css([selected])
 
     preview_class = _css_class(selected)
     st.markdown(

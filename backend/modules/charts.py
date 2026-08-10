@@ -39,6 +39,143 @@ def _json_safe(obj):
 
 
 # ---------------------------------------------------------------------------
+# Per-chart fig_json memoization + persistence downsampling
+# ---------------------------------------------------------------------------
+_MAX_PERSIST_POINTS = 10_000
+
+
+def _downsample_series(values, max_points: int = _MAX_PERSIST_POINTS):
+    """Uniformly downsample a sequence to at most *max_points* entries.
+
+    Keeps the first and last points so the line shape is preserved.  Used only
+    for the persisted JSON payload so the database stays small; the on-screen
+    figure is untouched.
+    """
+    if values is None:
+        return values
+    try:
+        n = len(values)
+    except TypeError:
+        return values
+    if n <= max_points:
+        return values
+    step = (n - 1) / (max_points - 1)
+    idx = sorted({int(round(i * step)) for i in range(max_points)})
+    return [values[i] for i in idx]
+
+
+def _decode_bdata(value):
+    """Decode a plotly-serialised numpy array (dict with bdata) into a list.
+
+    ``copy.deepcopy`` on a Plotly figure turns numpy arrays into a compact
+    dict like ``{'dtype': 'i1', 'bdata': 'AQID...', 'shape': '200000'}``.
+    We must decode it BEFORE checking the length, otherwise `len(dict)` is ~3
+    and large traces would never be downsampled.  For correctness these
+    duplicates coexist with chart_settings._decode_plotly_array (that one
+    lives in UI-land; this one lives in persistence-land).
+    """
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    try:
+        import numpy as _np
+        if isinstance(value, _np.ndarray):
+            return value.tolist()
+    except Exception:
+        pass
+    if isinstance(value, dict) and "bdata" in value:
+        try:
+            import base64 as _b64
+            import numpy as _np
+            _dtype_map = {
+                "f8": "<f8", "f4": "<f4", "i1": "<i1", "i2": "<i2",
+                "i4": "<i4", "i8": "<i8", "u1": "<u1", "u2": "<u2",
+                "u4": "<u4", "u8": "<u8", "b": "|b1",
+            }
+            _dtype = _np.dtype(
+                _dtype_map.get(str(value.get("dtype", "f8")), str(value.get("dtype", "<f8")))
+            )
+            _shape = tuple(
+                int(s) for s in str(value.get("shape", "")).split(",") if s.strip()
+            )
+            _arr = _np.frombuffer(_b64.b64decode(value["bdata"]), dtype=_dtype)
+            if _shape:
+                _arr = _arr.reshape(_shape)
+            return _arr.tolist()
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+            return None
+    return None
+
+
+def _downsample_fig_for_persist(fig):
+    """Return a copy of *fig* with large line/scatter traces downsampled.
+
+    Only touches the persisted copy; the live figure in session_state is never
+    mutated.  Falls back to the original figure on any error.
+    """
+    try:
+        import copy as _copy
+        f2 = _copy.deepcopy(fig)
+        for tr in f2.data:
+            ttype = str(getattr(tr, "type", "") or "").lower()
+            if ttype not in ("scatter", "scattergl"):
+                continue
+            mode = str(getattr(tr, "mode", "") or "")
+            if "lines" not in mode and "markers" not in mode:
+                continue
+            y = _decode_bdata(getattr(tr, "y", None))
+            if not y:
+                continue
+            n = len(y)
+            if n <= _MAX_PERSIST_POINTS:
+                continue
+            idx = set(_downsample_series(list(range(n))))
+            tr.y = [y[i] for i in sorted(idx)]
+            x = _decode_bdata(getattr(tr, "x", None))
+            if x and len(x) == n:
+                tr.x = [x[i] for i in sorted(idx)]
+            txt = getattr(tr, "text", None)
+            if txt is not None:
+                try:
+                    if len(txt) == n:
+                        tr.text = [txt[i] for i in sorted(idx)]
+                except TypeError:
+                    pass
+        return f2
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+        return fig
+
+
+def _fig_json_cached(uid: str, fig) -> str:
+    """Return the persisted JSON for a chart, memoized by figure object id.
+
+    Figures are immutable once created (regeneration builds a new object), so
+    caching by ``id(fig)`` means unchanged charts are never re-serialized --
+    only newly generated charts pay the ``pio.to_json`` cost once.
+    """
+    cache = st.session_state.setdefault("_fig_json_cache", {})
+    entry = cache.get(uid)
+    if entry and entry[0] == id(fig):
+        return entry[1]
+    try:
+        persist_fig = _downsample_fig_for_persist(fig)
+        js = pio.to_json(persist_fig)
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+        js = "{}"
+    cache[uid] = (id(fig), js)
+    return js
+
+
+def _invalidate_fig_json(uid: str) -> None:
+    """Drop the cached JSON for a chart (call when its figure is replaced)."""
+    cache = st.session_state.get("_fig_json_cache")
+    if cache:
+        cache.pop(uid, None)
+
+
+# ---------------------------------------------------------------------------
 # Cached charts->JSON helper (Phase 3: debounced autosave)
 # ---------------------------------------------------------------------------
 @session_cached
@@ -80,7 +217,12 @@ def charts_json_cached() -> str:
 # Persistent save wrappers (use the cached JSON)
 # ---------------------------------------------------------------------------
 def charts_to_json(charts: list) -> str:
-    """Serialise the active chart list to a JSON string for database storage."""
+    """Serialise the active chart list to a JSON string for database storage.
+
+    Uses a per-chart memoized ``fig_json`` so unchanged figures are never
+    re-serialized, and downsamples large line/scatter traces so the persisted
+    payload stays small (fixes the CPU/RAM blow-up on every autosave).
+    """
     out = []
     for chart in charts:
         uid, title, fig = chart[:3]
@@ -91,7 +233,7 @@ def charts_to_json(charts: list) -> str:
             out.append({
                 "uid":           uid,
                 "title":         title,
-                "fig_json":      pio.to_json(fig),
+                "fig_json":      _fig_json_cached(uid, fig),
                 "desc":          desc,
                 "chart_type":    chart_type,
                 "meta":          meta,

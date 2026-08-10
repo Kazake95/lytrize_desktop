@@ -177,9 +177,22 @@ def get_display_fig(uid: str, base_fig, meta: dict, chart_type: str, *,
     if not force and st.session_state.get(hash_key) == cache_hash:
         return st.session_state.get(cache_key, base_fig)
 
+    # Font-only fast path: only when the base figure AND the non-typography
+    # meta are unchanged can we safely apply a cheap in-place font update.
+    _meta_no_typo = {k: v for k, v in (meta or {}).items() if k != "text_style"}
+    _non_typo_hash = compute_meta_hash(_meta_no_typo)
+    _prev_guard = st.session_state.get(f"_display_fig_nontypo_{uid}")
+    if _prev_guard == (_non_typo_hash, fig_sig):
+        cached = st.session_state.get(cache_key)
+        if cached is not None:
+            _apply_font_only(cached, meta, chart_type)
+            st.session_state[hash_key] = cache_hash
+            return cached
+
     fig = apply_chart_display_options(base_fig, meta, chart_type, _inplace=False)
     st.session_state[cache_key] = fig
     st.session_state[hash_key]  = cache_hash
+    st.session_state[f"_display_fig_nontypo_{uid}"] = (_non_typo_hash, fig_sig)
     return fig
 
 
@@ -336,7 +349,9 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
                     # this run, then merge typography updates onto the existing
                     # text_style so keys from other tabs are never dropped.
                     from modules.ui.font_manager import inject_font_preview_css
-                    inject_font_preview_css()  # session-guarded; idempotent
+                    # Only inject the fonts actually in use to avoid browser crash
+                    _current_font = text_style.get("family", "Inter")
+                    inject_font_preview_css([_current_font])  # session-guarded; idempotent
                     _meta_for_typo = st.session_state.get(f"chart_meta_{uid}", meta)
                     text_updates = render_typography_controls(
                         uid, fig, _stype, _meta_for_typo, key_prefix=key_prefix,
