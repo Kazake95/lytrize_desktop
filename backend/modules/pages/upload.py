@@ -1,5 +1,6 @@
 """modules/pages/upload.py -- File upload and column classification page."""
 import logging
+import json
 
 
 import streamlit as st
@@ -16,6 +17,8 @@ from modules.utils.perf        import read_csv_fast, mem_mb
 from modules.utils.session_cache import set_df, update_df
 from modules.analysis.data_quality import run_data_quality
 from modules.analysis.outlier import run_outlier_upload
+from modules.utils.transform_log import replay_transform_log
+from modules.utils.regenerate import regenerate_charts, regenerate_kpis, validate_columns
 
 
 
@@ -291,7 +294,204 @@ def _save_upload_snapshot(df, file_name: str) -> None:
 
 
 
+def _auto_update_on_reupload(df: pd.DataFrame, file_name: str) -> pd.DataFrame:
+    """When re-uploading a file for a session that's being edited: replay
+    the saved column transforms (renames/calculated columns/dtype changes),
+    then regenerate every chart and KPI against the refreshed data.
+
+    Runs once per (session, upload) pair -- guarded so it doesn't re-fire
+    on every widget rerun while the user keeps editing.
+    """
+    eid = st.session_state.get("editing_session_id")
+    if not eid:
+        return df
+
+    guard_key = f"_auto_regen_done_{eid}_{st.session_state.get('file_signature')}"
+    if st.session_state.get(guard_key):
+        return df
+    st.session_state[guard_key] = True
+
+    report_lines = []
+
+    transform_log = st.session_state.get("transform_log", [])
+    if transform_log:
+        df, warnings = replay_transform_log(df, transform_log)
+        set_df(df)
+        applied = len(transform_log) - len(warnings)
+        if applied:
+            report_lines.append(("success", f"Reapplied {applied} saved column change(s) from the previous version of this dataset."))
+        for w in warnings:
+            report_lines.append(("warning", w))
+
+    if st.session_state.get("charts") or st.session_state.get("kpis"):
+        pre_check = validate_columns(df)
+        chart_result = regenerate_charts(df)
+        kpi_result = regenerate_kpis(df)
+
+        if chart_result["updated"]:
+            report_lines.append(("success", f"Auto-updated {len(chart_result['updated'])} chart(s) with the new data."))
+        for uid, reason in chart_result["skipped"].items():
+            title = next((t for u, t, _f in st.session_state.get("charts", []) if u == uid), uid)
+            report_lines.append(("warning", f"Chart '{title}': {reason}."))
+
+        if kpi_result["updated"]:
+            report_lines.append(("success", f"Auto-updated {len(kpi_result['updated'])} KPI(s) with the new data."))
+        if kpi_result["skipped"]:
+            report_lines.append((
+                "warning",
+                f"{len(kpi_result['skipped'])} KPI(s) predate auto-update and were left as-is "
+                f"(remove & re-add them to enable auto-refresh): {', '.join(kpi_result['skipped'])}."
+            ))
+
+        for uid, info in pre_check["charts"].items():
+            report_lines.append((
+                "warning",
+                f"Chart '{info['title']}' references column(s) not in the new file: {', '.join(info['missing'])}."
+            ))
+        for label, missing in pre_check["kpis"].items():
+            report_lines.append((
+                "warning",
+                f"KPI '{label}' references column(s) not in the new file: {', '.join(missing)}."
+            ))
+
+    st.session_state["_last_auto_update_report"] = report_lines
+    return df
+
+
+def _apply_upload_filters(df: pd.DataFrame, search_text: str, col_filters: dict) -> pd.DataFrame:
+    """Apply the global text search + per-column filters built by the Full
+    Table view. Pure function so it's testable without Streamlit widgets."""
+    mask = pd.Series(True, index=df.index)
+
+    if search_text:
+        text_cols = df.select_dtypes(include=["object", "category"]).columns
+        if len(text_cols):
+            needle = search_text.lower()
+            sub_mask = pd.Series(False, index=df.index)
+            for c in text_cols:
+                sub_mask |= df[c].astype(str).str.lower().str.contains(needle, na=False, regex=False)
+            mask &= sub_mask
+
+    for col, spec in col_filters.items():
+        if col not in df.columns:
+            continue
+        kind = spec.get("kind")
+        val  = spec.get("value")
+        if kind == "numeric" and val is not None:
+            lo, hi = val
+            mask &= df[col].between(lo, hi)
+        elif kind == "categorical" and val:
+            mask &= df[col].astype(str).isin([str(v) for v in val])
+        elif kind == "text_contains" and val:
+            mask &= df[col].astype(str).str.lower().str.contains(val.lower(), na=False, regex=False)
+        elif kind == "date" and val is not None:
+            start, end = val
+            parsed = pd.to_datetime(df[col], errors="coerce")
+            mask &= (parsed >= pd.Timestamp(start)) & (parsed <= pd.Timestamp(end) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1))
+        elif kind == "bool" and val != "All":
+            mask &= (df[col] == (val == "True"))
+
+    return df[mask]
+
+
+def _render_full_table_filters(df: pd.DataFrame) -> pd.DataFrame:
+    """Render the filter UI for the Full Table preview mode and return the
+    filtered DataFrame. Filter widgets are opt-in per column (via a
+    multiselect) so wide datasets don't render dozens of filter controls
+    at once."""
+    all_cols = df.columns.tolist()
+
+    fc1, fc2 = st.columns([2, 1])
+    with fc1:
+        search_text = st.text_input(
+            "🔎 Search all text columns", key="_ul_filter_search",
+            placeholder="Type to search across every text/category column…",
+        )
+    with fc2:
+        if st.button("♻️ Clear Filters", key="_ul_clear_filters", use_container_width=True):
+            for k in list(st.session_state.keys()):
+                if k.startswith("_ul_filter_"):
+                    del st.session_state[k]
+            st.session_state.pop("_ul_filter_cols", None)
+            st.rerun()
+
+    filter_cols = st.multiselect(
+        "Add a filter for specific column(s)",
+        all_cols, key="_ul_filter_cols",
+        placeholder="Choose column(s) to filter…",
+    )
+
+    col_filters = {}
+    if filter_cols:
+        grid = st.columns(3)
+        for i, col in enumerate(filter_cols):
+            series = df[col]
+            with grid[i % 3]:
+                if pd.api.types.is_datetime64_any_dtype(series):
+                    valid = series.dropna()
+                    if len(valid):
+                        lo_d, hi_d = valid.min().date(), valid.max().date()
+                        dkey = f"_ul_filter_date_{col}"
+                        cur = st.session_state.get(dkey)
+                        if isinstance(cur, tuple) and len(cur) == 2 and (cur[0] < lo_d or cur[1] > hi_d):
+                            st.session_state[dkey] = (lo_d, hi_d)
+                        rng = st.date_input(f"📅 {col}", value=(lo_d, hi_d),
+                                             min_value=lo_d, max_value=hi_d, key=dkey)
+                        if isinstance(rng, tuple) and len(rng) == 2:
+                            col_filters[col] = {"kind": "date", "value": rng}
+                elif pd.api.types.is_bool_dtype(series):
+                    choice = st.selectbox(f"☑ {col}", ["All", "True", "False"], key=f"_ul_filter_bool_{col}")
+                    col_filters[col] = {"kind": "bool", "value": choice}
+                elif pd.api.types.is_numeric_dtype(series):
+                    valid = series.dropna()
+                    if len(valid) and valid.min() != valid.max():
+                        lo_v, hi_v = float(valid.min()), float(valid.max())
+                        nkey = f"_ul_filter_num_{col}"
+                        cur = st.session_state.get(nkey)
+                        if isinstance(cur, tuple) and len(cur) == 2 and (cur[0] < lo_v or cur[1] > hi_v):
+                            st.session_state[nkey] = (lo_v, hi_v)
+                        rng = st.slider(f"🔢 {col}", min_value=lo_v, max_value=hi_v,
+                                         value=(lo_v, hi_v), key=nkey)
+                        col_filters[col] = {"kind": "numeric", "value": rng}
+                    else:
+                        st.caption(f"🔢 {col}: single value, nothing to filter")
+                else:
+                    nunique = series.nunique(dropna=True)
+                    if nunique <= 200:
+                        opts = sorted(series.dropna().astype(str).unique().tolist())
+                        picked = st.multiselect(f"🔤 {col}", opts, key=f"_ul_filter_cat_{col}")
+                        if picked:
+                            col_filters[col] = {"kind": "categorical", "value": picked}
+                    else:
+                        txt = st.text_input(f"🔤 {col} contains…", key=f"_ul_filter_cat_text_{col}")
+                        if txt:
+                            col_filters[col] = {"kind": "text_contains", "value": txt}
+
+    filter_sig = (
+        search_text,
+        tuple(sorted((c, json.dumps(f["value"], default=str)) for c, f in col_filters.items())),
+    )
+    cache_key = ("_ul_full_filtered", st.session_state.get("_df_version", 0), filter_sig)
+    if st.session_state.get("_ul_full_filter_cache_key") != cache_key:
+        filtered = _apply_upload_filters(df, search_text, col_filters)
+        st.session_state["_ul_full_filter_cache"] = filtered
+        st.session_state["_ul_full_filter_cache_key"] = cache_key
+    else:
+        filtered = st.session_state["_ul_full_filter_cache"]
+
+    return filtered
+
+
 def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
+    if "editing_session_id" in st.session_state:
+        df = _auto_update_on_reupload(df, file_name)
+
+    report = st.session_state.pop("_last_auto_update_report", None)
+    if report:
+        with st.expander("🔄 Auto-update summary (re-uploaded data)", expanded=True):
+            for kind, msg in report:
+                (st.success if kind == "success" else st.warning)(msg)
+
     _save_upload_snapshot(df, file_name)
     st.markdown("---")
     _n_rows = df.shape[0]
@@ -304,7 +504,7 @@ def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
     @st.fragment(run_every=None)
     def _render_upload_preview():
         with st.expander("📋 Data Preview", expanded=True):
-            _pb1, _pb2, _pb3, _pb4 = st.columns([1, 1, 1, 4])
+            _pb1, _pb2, _pb3, _pb4, _pb5 = st.columns([1, 1, 1, 1, 3])
             with _pb1:
                 if st.button("⬆ Top 10",    key="ul_prev_top",  use_container_width=True):
                     st.session_state["_ul_preview_mode"] = "top"
@@ -321,6 +521,10 @@ def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
                     )
                     st.rerun()
             with _pb4:
+                if st.button("📊 Full Table", key="ul_prev_full", use_container_width=True):
+                    st.session_state["_ul_preview_mode"] = "full"
+                    st.rerun()
+            with _pb5:
                 # Cache expensive DataFrame stats by _df_version — avoids
                 # O(rows×cols) isnull().sum().sum() on every rerun.
                 _df_ver = st.session_state.get("_df_version", 0)
@@ -347,6 +551,41 @@ def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
 
 
             _ul_mode = st.session_state.get("_ul_preview_mode", "top")
+
+            if _ul_mode == "full":
+                st.markdown("---")
+                filtered = _render_full_table_filters(df)
+                _n_filtered = len(filtered)
+
+                pg1, pg2, pg3 = st.columns([1, 1, 2])
+                with pg1:
+                    page_size = st.selectbox("Rows per page", [25, 50, 100, 250, 500],
+                                              index=1, key="_ul_full_page_size")
+                total_pages = max(1, -(-_n_filtered // page_size))
+                if st.session_state.get("_ul_full_page", 1) > total_pages:
+                    st.session_state["_ul_full_page"] = total_pages
+                with pg2:
+                    page = st.number_input("Page", min_value=1, max_value=total_pages,
+                                            step=1, key="_ul_full_page")
+                with pg3:
+                    st.caption(
+                        f"Showing rows {min((page-1)*page_size+1, _n_filtered)}–"
+                        f"{min(page*page_size, _n_filtered)} of {_n_filtered:,} filtered "
+                        f"(of {_n_rows:,} total) · page {page}/{total_pages}"
+                    )
+
+                page_df = filtered.iloc[(page-1)*page_size : page*page_size]
+                st.dataframe(page_df, use_container_width=True, height=min(600, 38 + len(page_df) * 35))
+
+                st.download_button(
+                    "⬇️ Download filtered rows as CSV",
+                    data=filtered.to_csv(index=False).encode("utf-8"),
+                    file_name=f"filtered_{file_name.rsplit('.', 1)[0]}.csv",
+                    mime="text/csv",
+                    key="_ul_full_download",
+                )
+                return
+
             _ul_rand_seed = st.session_state.get("_ul_random_seed", 0) if _ul_mode == "random" else 0
             _df_version = st.session_state.get("_df_version", 0)
             _cache_key = ("ul_preview", _n_rows, _n_cols, _ul_mode, _ul_rand_seed, _df_version, tuple(df.columns))

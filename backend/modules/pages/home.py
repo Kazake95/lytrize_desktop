@@ -16,6 +16,7 @@ from modules.database import (
 )
 from modules.ui.css import inject_footer, lru_cache, render_logo
 from modules.analysis import ANALYSIS_OPTIONS
+from modules.utils.transform_log import set_transform_log_from_json
 
 
 RIGHT_IMAGE_PATH = Path(__file__).resolve().parents[2] / "assets" / "welcome-banner.png"
@@ -181,6 +182,7 @@ def page_home():
                             st.session_state.kpis = json.loads(sm.get("kpis_json", "[]"))
                         except Exception:
                             st.session_state.kpis = []
+                        set_transform_log_from_json(sm.get("transform_log_json", "[]"))
                     st.session_state.pop("df", None)
                     st.session_state.pop("file_signature", None)
                     st.session_state._edit_needs_reupload = True

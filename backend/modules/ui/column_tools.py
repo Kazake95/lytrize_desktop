@@ -41,76 +41,69 @@ def _parse_datetime_robust(series: pd.Series) -> pd.Series:
     return result
 
 
+def convert_series_dtype(series: pd.Series, new_dtype: str) -> pd.Series:
+    """Pure dtype-conversion switch, shared by the preview panel, the Apply
+    button, and modules/utils/transform_log.py's replay-on-reupload logic.
+    Raises on failure -- callers decide how to surface that."""
+    total = len(series)
+    if new_dtype == "datetime64[ns]":
+        return _parse_datetime_robust(series)
+
+    if new_dtype == "date":
+        return _parse_datetime_robust(series).dt.date
+
+    if new_dtype == "time":
+        src = series.astype(str).str.strip()
+        parsed = pd.to_datetime("1970-01-01 " + src, errors="coerce")
+        mask_failed = parsed.isna()
+        if mask_failed.any():
+            parsed[mask_failed] = pd.to_datetime(src[mask_failed], errors="coerce")
+        still_failed = parsed.isna()
+        if still_failed.any():
+            for fmt in ("%I:%M %p", "%I:%M:%S %p", "%I %p"):
+                remaining = still_failed & parsed.isna()
+                if not remaining.any():
+                    break
+                parsed[remaining] = pd.to_datetime(
+                    "1970-01-01 " + src[remaining], format=f"1970-01-01 {fmt}",
+                    errors="coerce"
+                )
+        return parsed.dt.strftime("%H:%M:%S").where(parsed.notna(), other=None)
+
+    if new_dtype == "timedelta64[ns]":
+        src = series
+        if total > 0 and isinstance(series.iloc[0], datetime.time):
+            src = series.apply(
+                lambda v: f"{v.hour}:{v.minute:02d}:{v.second:02d}"
+                if isinstance(v, datetime.time) else str(v)
+            )
+        return pd.to_timedelta(src.astype(str), errors="coerce")
+
+    if new_dtype in ("string", "object"):
+        return series.astype(str)
+
+    if new_dtype == "category":
+        return series.astype("category")
+
+    if new_dtype == "bool":
+        src = series.astype(str).str.strip().str.lower()
+        return src.map({
+            "true": True, "1": True, "yes": True,
+            "false": False, "0": False, "no": False,
+        })
+
+    if new_dtype in ("int64", "float64"):
+        return pd.to_numeric(series, errors="coerce").astype(new_dtype)
+
+    return series.astype(new_dtype)
+
+
 def _preview_conversion(series: pd.Series, new_dtype: str) -> dict:
-    import datetime
-
-
     total = len(series)
     n_null_before = int(series.isna().sum())
 
-
     try:
-        if new_dtype == "datetime64[ns]":
-            converted = _parse_datetime_robust(series)
-
-
-        elif new_dtype == "date":
-            converted = _parse_datetime_robust(series).dt.date
-
-
-        elif new_dtype == "time":
-            src = series.astype(str).str.strip()
-            parsed = pd.to_datetime("1970-01-01 " + src, errors="coerce")
-            mask_failed = parsed.isna()
-            if mask_failed.any():
-                parsed[mask_failed] = pd.to_datetime(src[mask_failed], errors="coerce")
-            still_failed = parsed.isna()
-            if still_failed.any():
-                for fmt in ("%I:%M %p", "%I:%M:%S %p", "%I %p"):
-                    remaining = still_failed & parsed.isna()
-                    if not remaining.any():
-                        break
-                    parsed[remaining] = pd.to_datetime(
-                        "1970-01-01 " + src[remaining], format=f"1970-01-01 {fmt}",
-                        errors="coerce"
-                    )
-            converted = parsed.dt.strftime("%H:%M:%S").where(parsed.notna(), other=None)
-
-
-        elif new_dtype == "timedelta64[ns]":
-            src = series
-            if total > 0 and isinstance(series.iloc[0], datetime.time):
-                src = series.apply(
-                    lambda v: f"{v.hour}:{v.minute:02d}:{v.second:02d}"
-                    if isinstance(v, datetime.time) else str(v)
-                )
-            converted = pd.to_timedelta(src.astype(str), errors="coerce")
-
-
-        elif new_dtype in ("string", "object"):
-            converted = series.astype(str)
-
-
-        elif new_dtype == "category":
-            converted = series.astype("category")
-
-
-        elif new_dtype == "bool":
-            src = series.astype(str).str.strip().str.lower()
-            converted = src.map({
-                "true": True, "1": True, "yes": True,
-                "false": False, "0": False, "no": False,
-            })
-
-
-        elif new_dtype in ("int64", "float64"):
-            converted = pd.to_numeric(series, errors="coerce").astype(new_dtype)
-
-
-        else:
-            converted = series.astype(new_dtype)
-
-
+        converted = convert_series_dtype(series, new_dtype)
     except Exception as exc:
         return {"error": str(exc)}
 
@@ -250,63 +243,16 @@ def show_dtype_transformer(df):
         if st.button("🔄 Apply Transformation", key=f"apply_dtype_{col_to_convert}"):
             with st.spinner(f"Converting `{col_to_convert}` to {new_dtype}…"):
                 try:
-                    if new_dtype == "datetime64[ns]":
-                        converted = _parse_datetime_robust(df[col_to_convert])
-
-
-                    elif new_dtype == "date":
-                        converted = _parse_datetime_robust(df[col_to_convert]).dt.date
-
-
-                    elif new_dtype == "time":
-                        src = df[col_to_convert].astype(str).str.strip()
-                        parsed = pd.to_datetime("1970-01-01 " + src, errors='coerce')
-                        mask_failed = parsed.isna()
-                        if mask_failed.any():
-                            parsed[mask_failed] = pd.to_datetime(
-                                src[mask_failed], errors='coerce')
-                        converted = parsed.dt.strftime('%H:%M:%S').where(
-                            parsed.notna(), other=None)
-
-
-                    elif new_dtype == "timedelta64[ns]":
-                        src = df[col_to_convert]
-                        if len(src) > 0 and isinstance(src.iloc[0], datetime.time):
-                            src = src.apply(
-                                lambda v: f"{v.hour}:{v.minute:02d}:{v.second:02d}"
-                                if isinstance(v, datetime.time) else str(v))
-                        converted = pd.to_timedelta(src.astype(str), errors='coerce')
-
-
-                    elif new_dtype in ["string", "object"]:
-                        converted = df[col_to_convert].astype(str)
-
-
-                    elif new_dtype == "category":
-                        converted = df[col_to_convert].astype('category')
-
-
-                    elif new_dtype == "bool":
-                        src = df[col_to_convert].astype(str).str.strip().str.lower()
-                        converted = src.map({"true": True, "1": True, "yes": True,
-                                             "false": False, "0": False, "no": False})
-                        if converted.isna().all():
-                            raise ValueError(
-                                "No recognisable boolean values (expected true/false/1/0/yes/no).")
-
-
-                    elif new_dtype in ["int64", "float64"]:
-                        converted = pd.to_numeric(
-                            df[col_to_convert], errors='coerce').astype(new_dtype)
-
-
-                    else:
-                        converted = df[col_to_convert].astype(new_dtype)
-
+                    converted = convert_series_dtype(df[col_to_convert], new_dtype)
+                    if new_dtype == "bool" and converted.isna().all():
+                        raise ValueError(
+                            "No recognisable boolean values (expected true/false/1/0/yes/no).")
 
                     n_null_before = int(df[col_to_convert].isna().sum())
                     df[col_to_convert] = converted
                     update_df(df)
+                    from modules.utils.transform_log import log_transform
+                    log_transform("convert_dtype", col=col_to_convert, new_dtype=new_dtype)
                     st.session_state.pop(prev_key, None)
                     n_null_after = int(df[col_to_convert].isna().sum())
                     new_nulls = max(0, n_null_after - n_null_before)

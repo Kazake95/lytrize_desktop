@@ -218,6 +218,7 @@ def init_db() -> None:
             grid_fullwidth_json TEXT DEFAULT '{}',
             export_text_json    TEXT DEFAULT '{}',
             export_colours_json TEXT DEFAULT '{}',
+            transform_log_json  TEXT DEFAULT '[]',
             source              TEXT DEFAULT 'local',
             created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -247,6 +248,7 @@ def init_db() -> None:
             kpis_json            TEXT DEFAULT '[]',
             chart_meta_json      TEXT DEFAULT '{}',
             layout_mode           TEXT DEFAULT 'portrait',
+            transform_log_json    TEXT DEFAULT '[]',
             updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id)
         )""")
@@ -280,6 +282,10 @@ def init_db() -> None:
                 ("updated_at",          "TIMESTAMP"),
                 ("export_text_json",    "TEXT DEFAULT '{}'"),
                 ("export_colours_json", "TEXT DEFAULT '{}'"),
+                ("transform_log_json",  "TEXT DEFAULT '[]'"),
+            ],
+            "draft_sessions": [
+                ("transform_log_json",  "TEXT DEFAULT '[]'"),
             ],
         }
 
@@ -508,6 +514,7 @@ def save_draft(
     kpis_json: str = "[]",
     chart_meta_json: str = "{}",
     layout_mode: str = "portrait",
+    transform_log_json: str = "[]",
 ) -> None:
     """Upsert the user's current in-progress state to draft_sessions."""
     try:
@@ -516,11 +523,12 @@ def save_draft(
                     INSERT OR REPLACE INTO draft_sessions
                         (user_id, page, charts_json, file_name, editing_session_id,
                          editing_session_name, editing_file_name, dashboard_title,
-                         kpis_json, chart_meta_json, layout_mode, updated_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)""",
+                         kpis_json, chart_meta_json, layout_mode, transform_log_json, updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)""",
                     (user_id, page, charts_json, file_name,
                      editing_session_id, editing_session_name, editing_file_name,
-                     dashboard_title, kpis_json, chart_meta_json, layout_mode),
+                     dashboard_title, kpis_json, chart_meta_json, layout_mode,
+                     transform_log_json),
                 )
     except Exception as exc:
         logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
@@ -576,6 +584,7 @@ def save_session_db(
     export_colours_json: str = "{}",
     session_uuid: Optional[str] = None,
     source: str = "local",
+    transform_log_json: str = "[]",
 ) -> int:
     """Insert a new saved session and return its DB row ID."""
     session_uuid = session_uuid or uuid.uuid4().hex
@@ -585,12 +594,14 @@ def save_session_db(
             _ph("""INSERT INTO sessions
                (user_id, session_uuid, session_name, file_name, rows_count, cols_count,
                 analysis_types, charts_json, dashboard_title, kpis_json, layout_mode,
-                grid_order_json, grid_fullwidth_json, export_text_json, export_colours_json, source, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)"""),
+                grid_order_json, grid_fullwidth_json, export_text_json, export_colours_json,
+                transform_log_json, source, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)"""),
             (user_id, session_uuid, session_name, file_name, rows, cols,
              json.dumps(analysis_types), charts_json,
              dashboard_title, kpis_json, layout_mode,
-             grid_order_json, grid_fullwidth_json, export_text_json, export_colours_json, source),
+             grid_order_json, grid_fullwidth_json, export_text_json, export_colours_json,
+             transform_log_json, source),
         )
         sid = _last_id(c)
     log_activity(user_id, "dashboard_saved",
@@ -747,8 +758,13 @@ def update_session_db(
     export_text_json: str = "{}",
     export_colours_json: str = "{}",
     session_uuid: Optional[str] = None,
+    transform_log_json: Optional[str] = None,
 ) -> None:
-    """Overwrite a saved session in-place. user_id guard enforces ownership."""
+    """Overwrite a saved session in-place. user_id guard enforces ownership.
+
+    transform_log_json defaults to None (not "[]") so a caller that doesn't
+    pass it (e.g. the quick KPI-add update) never wipes an existing log.
+    """
     with _db() as conn:
         if session_uuid is not None:
             _execute(conn, _ph(
@@ -756,18 +772,34 @@ def update_session_db(
                 "WHERE id=? AND user_id=? AND (session_uuid IS NULL OR session_uuid='')"),
                 (session_uuid, session_id, user_id),
             )
-        _execute(conn, _ph(
-            "UPDATE sessions "
-            "SET session_name=?, charts_json=?, analysis_types=?, "
-            "    dashboard_title=?, kpis_json=?, layout_mode=?, "
-            "    grid_order_json=?, grid_fullwidth_json=?, export_text_json=?, export_colours_json=?, "
-            "    updated_at=CURRENT_TIMESTAMP "
-            "WHERE id=? AND user_id=?"),
-            (session_name, charts_json, json.dumps(analysis_types),
-             dashboard_title, kpis_json, layout_mode,
-             grid_order_json, grid_fullwidth_json, export_text_json, export_colours_json,
-             session_id, user_id),
-        )
+        if transform_log_json is not None:
+            _execute(conn, _ph(
+                "UPDATE sessions "
+                "SET session_name=?, charts_json=?, analysis_types=?, "
+                "    dashboard_title=?, kpis_json=?, layout_mode=?, "
+                "    grid_order_json=?, grid_fullwidth_json=?, export_text_json=?, export_colours_json=?, "
+                "    transform_log_json=?, "
+                "    updated_at=CURRENT_TIMESTAMP "
+                "WHERE id=? AND user_id=?"),
+                (session_name, charts_json, json.dumps(analysis_types),
+                 dashboard_title, kpis_json, layout_mode,
+                 grid_order_json, grid_fullwidth_json, export_text_json, export_colours_json,
+                 transform_log_json,
+                 session_id, user_id),
+            )
+        else:
+            _execute(conn, _ph(
+                "UPDATE sessions "
+                "SET session_name=?, charts_json=?, analysis_types=?, "
+                "    dashboard_title=?, kpis_json=?, layout_mode=?, "
+                "    grid_order_json=?, grid_fullwidth_json=?, export_text_json=?, export_colours_json=?, "
+                "    updated_at=CURRENT_TIMESTAMP "
+                "WHERE id=? AND user_id=?"),
+                (session_name, charts_json, json.dumps(analysis_types),
+                 dashboard_title, kpis_json, layout_mode,
+                 grid_order_json, grid_fullwidth_json, export_text_json, export_colours_json,
+                 session_id, user_id),
+            )
     log_activity(user_id, "session_updated",
                  f"session_id={session_id} name='{session_name}'")
     get_user_sessions.clear()
@@ -825,12 +857,12 @@ def get_session_meta(session_id: int, user_id=None) -> Optional[dict]:
             c = conn.cursor()
             if user_id is None:
                 c.execute(
-                    _ph("SELECT dashboard_title, kpis_json, layout_mode, grid_order_json, grid_fullwidth_json, export_text_json, export_colours_json FROM sessions WHERE id=?"),
+                    _ph("SELECT dashboard_title, kpis_json, layout_mode, grid_order_json, grid_fullwidth_json, export_text_json, export_colours_json, transform_log_json FROM sessions WHERE id=?"),
                     (session_id,),
                 )
             else:
                 c.execute(
-                    _ph("SELECT dashboard_title, kpis_json, layout_mode, grid_order_json, grid_fullwidth_json, export_text_json, export_colours_json "
+                    _ph("SELECT dashboard_title, kpis_json, layout_mode, grid_order_json, grid_fullwidth_json, export_text_json, export_colours_json, transform_log_json "
                         "FROM sessions WHERE id=? AND user_id=?"),
                     (session_id, user_id),
                 )
@@ -844,6 +876,7 @@ def get_session_meta(session_id: int, user_id=None) -> Optional[dict]:
                     "grid_fullwidth_json": row[4] or "{}",
                     "export_text_json":   row[5] or "{}",
                     "export_colours_json": row[6] or "{}",
+                    "transform_log_json": row[7] or "[]",
                 }
     except Exception as exc:
         logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)

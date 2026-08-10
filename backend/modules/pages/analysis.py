@@ -7,6 +7,7 @@ import streamlit as st
 import streamlit.components.v1 as _comp
 from modules.database import log_activity, save_draft, update_session_db, get_session_meta
 from modules.utils.session_cache import make_json_safe
+from modules.utils.transform_log import get_transform_log_json
 from modules.analysis import (
     ANALYSIS_OPTIONS, _NEEDS_AXES, _NO_FORM,
     render_config_panel, _collect_kwargs, _run,
@@ -214,6 +215,7 @@ def _persist_draft(page="analysis"):
         kpis_json            = json.dumps(st.session_state.get("kpis", [])),
         chart_meta_json      = chart_meta_json,
         layout_mode           = st.session_state.get("layout_mode", "portrait"),
+        transform_log_json   = get_transform_log_json(),
     )
 
 

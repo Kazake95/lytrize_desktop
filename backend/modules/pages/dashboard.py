@@ -14,6 +14,7 @@ from modules.database import (
     clear_draft, save_draft,
 )
 from modules.charts import charts_to_json, _fmt_num, apply_hover_format
+from modules.utils.transform_log import get_transform_log_json, set_transform_log_from_json
 from modules.export import generate_html_report
 from modules.ui.css import inject_footer, render_logo
 from modules.ui.chart_settings import (
@@ -113,6 +114,7 @@ def _persist():
         kpis_json            = json.dumps(st.session_state.get("kpis", [])),
         chart_meta_json      = chart_meta_json,
         layout_mode          = st.session_state.get("layout_mode", "portrait"),
+        transform_log_json   = get_transform_log_json(),
     )
 
 
@@ -262,12 +264,23 @@ _KPI_ICONS = {
 
 def _calc_kpi(df, kpi_type, col=None, group_col=None, metric_col=None,
               filter_col=None, filter_val=None, label=None):
-    """Calculate a single KPI value from the DataFrame."""
+    """Calculate a single KPI value from the DataFrame.
+
+    The returned dict includes a "_recipe" of the exact params used, so
+    modules/utils/regenerate.py can recompute this KPI later against a
+    freshly re-uploaded DataFrame without the caller needing to remember
+    the original selectbox values.
+    """
     num_c = df.select_dtypes(include="number").columns.tolist()
     icon  = _KPI_ICONS.get(kpi_type, "📊")
     val   = "--"
     lbl   = label or kpi_type
     pfx   = sfx = ""
+    _recipe = {
+        "kpi_type": kpi_type, "col": col, "group_col": group_col,
+        "metric_col": metric_col, "filter_col": filter_col,
+        "filter_val": filter_val, "label": label,
+    }
     try:
         if kpi_type == "Total (Sum)" and col in num_c:
             v = df[col].sum()
@@ -312,7 +325,7 @@ def _calc_kpi(df, kpi_type, col=None, group_col=None, metric_col=None,
             val = f"{'+' if pct >= 0 else ''}{pct:.1f}"; sfx = "%"
             lbl = label or f"MoM {col}"
             return {"icon": icon, "label": lbl, "value": val, "prefix": pfx, "suffix": sfx,
-                    "change_pct": float(pct)}
+                    "change_pct": float(pct), "_recipe": _recipe}
         elif kpi_type == "% Change (Latest Year vs Prev Year)" and col in num_c and filter_col:
             dates = pd.to_datetime(df[filter_col], errors="coerce")
             df2 = df.copy(); df2["_dt"] = dates; df2 = df2.dropna(subset=["_dt"])
@@ -323,10 +336,10 @@ def _calc_kpi(df, kpi_type, col=None, group_col=None, metric_col=None,
             val = f"{'+' if pct >= 0 else ''}{pct:.1f}"; sfx = "%"
             lbl = label or f"YoY {col}"
             return {"icon": icon, "label": lbl, "value": val, "prefix": pfx, "suffix": sfx,
-                    "change_pct": float(pct)}
+                    "change_pct": float(pct), "_recipe": _recipe}
     except Exception as e:
         val = f"Err: {e}"
-    return {"icon":icon,"label":lbl,"value":val,"prefix":pfx,"suffix":sfx}
+    return {"icon": icon, "label": lbl, "value": val, "prefix": pfx, "suffix": sfx, "_recipe": _recipe}
 
 
 
@@ -826,6 +839,8 @@ def page_dashboard():
                 st.session_state.kpis = json.loads(sm.get("kpis_json", "[]"))
             except Exception:
                 st.session_state.kpis = []
+            if "transform_log" not in st.session_state:
+                set_transform_log_from_json(sm.get("transform_log_json", "[]"))
             if "layout_mode" not in st.session_state:
                 st.session_state.layout_mode = sm.get("layout_mode", "portrait")
             if "dashboard_title" not in st.session_state:
@@ -1558,6 +1573,7 @@ def _do_save(sname_in, charts, df):
         grid_fullwidth_json = json.dumps(st.session_state.get("grid_fullwidth", {})),
         export_text_json  = _collect_export_text_json(),
         export_colours_json = _collect_export_colours_json(),
+        transform_log_json = get_transform_log_json(),
     )
     clear_draft(st.session_state.user_id)
     st.session_state.editing_session_id   = sid
@@ -1591,6 +1607,7 @@ def _do_update(sname_in, charts, clear_editing=False):
         grid_fullwidth_json = json.dumps(st.session_state.get("grid_fullwidth", {})),
         export_text_json  = _collect_export_text_json(),
         export_colours_json = _collect_export_colours_json(),
+        transform_log_json = get_transform_log_json(),
     )
     clear_draft(st.session_state.user_id)
     st.toast(f"✅ Updated '{sname_in}'!", icon="✅")

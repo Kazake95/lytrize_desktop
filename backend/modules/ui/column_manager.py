@@ -8,6 +8,7 @@ import pandas as pd
 import ast
 import operator
 import re
+from typing import Optional
 
 from modules.utils.session_cache import set_df, update_df
 
@@ -79,6 +80,89 @@ def _safe_formula_eval(df: pd.DataFrame, formula: str) -> pd.Series:
     return result
 
 
+# ---------------------------------------------------------------------------
+# Pure computation helpers, factored out of the interactive handlers below
+# so modules/utils/transform_log.py can replay the exact same logic against
+# a freshly re-uploaded DataFrame without going through Streamlit widgets.
+# ---------------------------------------------------------------------------
+def compute_date_diff(df: pd.DataFrame, col_a: str, col_b: Optional[str],
+                       use_today: bool, unit: str) -> pd.Series:
+    """Compute a date-difference derived column. Mirrors the 'Date
+    Difference' branch of show_column_manager()'s Add Column tab."""
+
+    def _parse_series(series: pd.Series) -> pd.Series:
+        return pd.to_datetime(series.astype(str).str.strip(), errors="coerce")
+
+    series_a = _parse_series(df[col_a])
+    if use_today or not col_b:
+        series_b = pd.Series([pd.Timestamp.today()] * len(df), index=df.index)
+    else:
+        series_b = _parse_series(df[col_b])
+
+    if unit == "Days":
+        return (series_b - series_a).dt.days
+    if unit == "Months":
+        result = (series_b.dt.year - series_a.dt.year) * 12 + (series_b.dt.month - series_a.dt.month)
+        adj = (series_b.dt.day < series_a.dt.day).astype(int)
+        return result - adj
+    if unit in ("Years", "Age (Years from DOB vs Today)"):
+        if unit == "Age (Years from DOB vs Today)":
+            series_b = pd.Series([pd.Timestamp.today()] * len(df), index=df.index)
+        return (series_b.dt.year - series_a.dt.year) + \
+               ((series_b.dt.month - series_a.dt.month) / 12.0) + \
+               ((series_b.dt.day - series_a.dt.day) / 365.0)
+    if unit == "Previous Year (subtract 1 year)":
+        return series_a - pd.DateOffset(years=1)
+    if unit == "Previous Month (subtract 1 month)":
+        return series_a - pd.DateOffset(months=1)
+    return (series_b - series_a).dt.days
+
+
+def compute_date_extract(df: pd.DataFrame, source_col: str, part: str) -> pd.Series:
+    """Compute an extracted date/time part column. Mirrors the 'Extract
+    Date/Time Part' branch of show_column_manager()'s Add Column tab."""
+
+    def _parse_datetime_robust(series: pd.Series) -> pd.Series:
+        s = series.astype(str).str.strip()
+        result = pd.to_datetime(s, errors="coerce")
+        remaining = result.isna() & series.notna()
+        if not remaining.any():
+            return result
+        normalised = (
+            s[remaining].str.upper()
+            .str.replace(r"([AP]M)$", r" \1", regex=True)
+            .str.replace(r"\s{2,}", " ", regex=True)
+        )
+        result[remaining] = pd.to_datetime("1970-01-01 " + normalised, errors="coerce")
+        remaining = result.isna() & series.notna()
+        if not remaining.any():
+            return result
+        for fmt in ("%I:%M %p", "%I:%M:%S %p", "%I:%M%p", "%I:%M:%S%p", "%I %p",
+                    "%m/%d/%Y %I:%M %p", "%d/%m/%Y %I:%M %p",
+                    "%m/%d/%Y %H:%M", "%d/%m/%Y %H:%M"):
+            still = result.isna() & series.notna()
+            if not still.any():
+                break
+            try:
+                result[still] = pd.to_datetime(s[still], format=fmt, errors="coerce")
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+        return result
+
+    temp_dates = _parse_datetime_robust(df[source_col])
+    mapping = {
+        "Date (YYYY-MM-DD)": temp_dates.dt.date,
+        "Year":              temp_dates.dt.year,
+        "Quarter":           temp_dates.dt.quarter,
+        "Month (Number)":    temp_dates.dt.month,
+        "Month Name":        temp_dates.dt.month_name(),
+        "Week Number":       temp_dates.dt.isocalendar().week.astype("Int64"),
+        "Day":               temp_dates.dt.day,
+        "Weekday Name":      temp_dates.dt.day_name(),
+        "Hour (12h AM/PM)":  temp_dates.dt.strftime("%-I %p"),
+        "Hour (24h)":        temp_dates.dt.hour,
+    }
+    return mapping[part]
 
 
 def show_column_manager(df):
@@ -177,151 +261,60 @@ def show_column_manager(df):
                 st.error("Fill all fields.")
             else:
                 try:
+                    from modules.utils.transform_log import log_transform
+                    target_col = new_col_name.strip()
+
                     if calc_type == "Date Difference":
-                        def _parse_series(series: pd.Series) -> pd.Series:
-                            """Parse a Series to datetime, coercing errors to NaT."""
-                            return pd.to_datetime(series.astype(str).str.strip(), errors="coerce")
+                        use_today = (dd_target == "Today's date")
+                        col_b = None if use_today else date_col_b
 
-                        series_a = _parse_series(df[date_col_a])
-
-                        if dd_target == "Today's date":
-                            end = pd.Timestamp.today()
-                            series_b = pd.Series([end] * len(df), index=df.index)
+                        null_count_a = int(pd.to_datetime(
+                            df[date_col_a].astype(str).str.strip(), errors="coerce"
+                        ).isna().sum())
+                        if col_b:
+                            null_count_b = int(pd.to_datetime(
+                                df[col_b].astype(str).str.strip(), errors="coerce"
+                            ).isna().sum())
                         else:
-                            series_b = _parse_series(df[date_col_b])
-
-                        null_count_a = int(series_a.isna().sum())
-                        null_count_b = int(series_b.isna().sum())
-                        total_null = null_count_a + null_count_b
-                        if total_null:
+                            null_count_b = 0
+                        if null_count_a + null_count_b:
                             st.warning(
                                 f"⚠️ {null_count_a} value(s) in `{date_col_a}` and "
                                 f"{null_count_b} in end date could not be parsed "
                                 f"and will produce NaN in the new column."
                             )
 
-                        if diff_unit == "Days":
-                            result = (series_b - series_a).dt.days
-                        elif diff_unit == "Months":
-                            result = (series_b.dt.year - series_a.dt.year) * 12 + (
-                                series_b.dt.month - series_a.dt.month
-                            )
-                            # Day-of-month adjustment: subtract 1 if end day < start day
-                            adj = (series_b.dt.day < series_a.dt.day).astype(int)
-                            result = result - adj
-                        elif diff_unit == "Years":
-                            raw_years = (series_b.dt.year - series_a.dt.year) + (
-                                (series_b.dt.month - series_a.dt.month) / 12.0
-                            ) + (
-                                (series_b.dt.day - series_a.dt.day) / 365.0
-                            )
-                            result = raw_years
-                            # For display, keep as float (round to 2dp) — user can see fractional years
-                        elif diff_unit == "Age (Years from DOB vs Today)":
-                            # Age uses today as end date
-                            end = pd.Timestamp.today()
-                            series_b = pd.Series([end] * len(df), index=df.index)
-                            raw_years = (series_b.dt.year - series_a.dt.year) + (
-                                (series_b.dt.month - series_a.dt.month) / 12.0
-                            ) + (
-                                (series_b.dt.day - series_a.dt.day) / 365.0
-                            )
-                            result = raw_years
-                        elif diff_unit == "Previous Year (subtract 1 year)":
-                            result = series_a - pd.DateOffset(years=1)
-                        elif diff_unit == "Previous Month (subtract 1 month)":
-                            result = series_a - pd.DateOffset(months=1)
-                        else:
-                            result = (series_b - series_a).dt.days
-
-                        df[new_col_name.strip()] = result
+                        df[target_col] = compute_date_diff(df, date_col_a, col_b, use_today, diff_unit)
+                        log_transform(
+                            "add_date_diff", new_col=target_col, col_a=date_col_a,
+                            col_b=col_b, use_today=use_today, unit=diff_unit,
+                        )
 
                     elif calc_type == "Extract Date/Time Part":
                         _params = st.session_state.get("_date_extract_params", {})
                         _date_col = _params.get("date_col") or date_col
                         _part = _params.get("part") or part_to_extract
-                        raw = df[_date_col]
 
-
-                        def _parse_datetime_robust(series: pd.Series) -> pd.Series:
-                            s = series.astype(str).str.strip()
-                            result = pd.to_datetime(s, errors="coerce")
-
-
-                            remaining = result.isna() & series.notna()
-                            if not remaining.any():
-                                return result
-
-
-                            normalised = (
-                                s[remaining]
-                                .str.upper()
-                                .str.replace(r"([AP]M)$", r" \1", regex=True)
-                                .str.replace(r"\s{2,}", " ", regex=True)
-                            )
-                            result[remaining] = pd.to_datetime(
-                                "1970-01-01 " + normalised, errors="coerce"
-                            )
-
-
-                            remaining = result.isna() & series.notna()
-                            if not remaining.any():
-                                return result
-
-
-                            for fmt in (
-                                "%I:%M %p", "%I:%M:%S %p",
-                                "%I:%M%p",  "%I:%M:%S%p",
-                                "%I %p",
-                                "%m/%d/%Y %I:%M %p", "%d/%m/%Y %I:%M %p",
-                                "%m/%d/%Y %H:%M",    "%d/%m/%Y %H:%M",
-                            ):
-                                still = result.isna() & series.notna()
-                                if not still.any():
-                                    break
-                                try:
-                                    attempt = pd.to_datetime(
-                                        s[still], format=fmt, errors="coerce"
-                                    )
-                                    result[still] = attempt
-                                except Exception as exc:
-                                    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                                    pass
-
-
-                            return result
-
-
-                        temp_dates = _parse_datetime_robust(raw)
-
-
-                        null_count = int(temp_dates.isna().sum())
+                        computed = compute_date_extract(df, _date_col, _part)
+                        null_count = int(computed.isna().sum())
                         if null_count:
                             st.warning(
-                                f"⚠️ {null_count} value(s) in `{date_col}` could not be parsed "
+                                f"⚠️ {null_count} value(s) in `{_date_col}` could not be parsed "
                                 f"as a date/time and will produce NaN in the new column."
                             )
-
-
-                        mapping = {
-                            "Date (YYYY-MM-DD)": temp_dates.dt.date,
-                            "Year":              temp_dates.dt.year,
-                            "Quarter":           temp_dates.dt.quarter,
-                            "Month (Number)":    temp_dates.dt.month,
-                            "Month Name":        temp_dates.dt.month_name(),
-                            "Week Number":       temp_dates.dt.isocalendar().week.astype("Int64"),
-                            "Day":               temp_dates.dt.day,
-                            "Weekday Name":      temp_dates.dt.day_name(),
-                            "Hour (12h AM/PM)":  temp_dates.dt.strftime("%-I %p"),
-                            "Hour (24h)":        temp_dates.dt.hour,
-                        }
-                        df[new_col_name.strip()] = mapping[_part]
+                        df[target_col] = computed
+                        log_transform(
+                            "add_date_extract", new_col=target_col,
+                            source_col=_date_col, part=_part,
+                        )
                     else:
-                        df[new_col_name.strip()] = _safe_formula_eval(df, formula_str)
+                        df[target_col] = _safe_formula_eval(df, formula_str)
+                        log_transform("add_formula_col", new_col=target_col, formula=formula_str)
+
                     update_df(df)
                     if "_date_extract_params" in st.session_state:
                         del st.session_state["_date_extract_params"]
-                    st.success(f"✅ Added {new_col_name.strip()}")
+                    st.success(f"✅ Added {target_col}")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error: {e}")
@@ -331,11 +324,13 @@ def show_column_manager(df):
         col_to_del = st.selectbox("Select column to remove", df.columns.tolist(), key="col_to_del")
         confirm = st.checkbox(f"Confirm removal of **{col_to_del}**", key="confirm_del")
         if st.button("🗑️ Remove", key="btn_del_col", disabled=not confirm):
+            from modules.utils.transform_log import log_transform
             df = df.drop(columns=[col_to_del])
             set_df(df)
             for k in ["num_cols", "cat_cols"]:
                 if k in st.session_state:
                     st.session_state[k] = [c for c in st.session_state[k] if c != col_to_del]
+            log_transform("remove_column", col=col_to_del)
             st.success(f"✅ Removed {col_to_del}")
             st.rerun()
 
@@ -354,8 +349,10 @@ def show_column_manager(df):
                 st.error(f"Error: A column named '{new_name_clean}' already exists in your dataset.")
             else:
                 try:
+                    from modules.utils.transform_log import log_transform
                     df = df.rename(columns={col_to_rename: new_name_clean})
                     set_df(df)
+                    log_transform("rename_column", **{"from": col_to_rename, "to": new_name_clean})
 
 
                     if "num_cols" in st.session_state:
