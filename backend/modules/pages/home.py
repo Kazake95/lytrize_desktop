@@ -13,6 +13,7 @@ from modules.database import (
     log_activity,
     get_user_sessions, get_session_charts, get_session_meta,
     rename_session_db, delete_session_db,
+    count_datasets_analysed,
 )
 from modules.ui.css import inject_footer, lru_cache, render_logo
 from modules.analysis import ANALYSIS_OPTIONS
@@ -82,7 +83,7 @@ def page_home():
 
 
         sessions     = get_user_sessions(st.session_state["user_id"])
-        unique_files = len(set(s[2] for s in sessions)) if sessions else 0
+        unique_files = count_datasets_analysed(st.session_state["user_id"])
 
 
         m1, m2, m3 = st.columns(3, gap="medium")

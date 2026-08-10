@@ -143,7 +143,8 @@ def page_upload():
             if st.button("🗑 Start fresh (clear dataset)", key="_clear_dataset",
                          use_container_width=True):
                 for k in ["df", "file_name", "file_signature", "_dq_charts", "_dq_sig",
-                          "_ul_preview_mode", "_resume_upload", "_df_snapshot_sig", "_last_draft_upload_cache"]:
+                          "_ul_preview_mode", "_resume_upload", "_df_snapshot_sig",
+                          "_last_draft_upload_cache", "_raw_upload_shape"]:
                     st.session_state.pop(k, None)
                 st.rerun()
         inject_footer()
@@ -174,6 +175,9 @@ def page_upload():
             st.session_state.file_name      = uploaded.name
             st.session_state.file_signature = file_sig
             st.session_state["_resume_upload"] = True
+            # Capture the RAW upload shape (before any cleaning/transformation)
+            # so "Datasets Analysed" counts distinct raw datasets.
+            st.session_state["_raw_upload_shape"] = (int(df.shape[0]), int(df.shape[1]))
             _clear_excel_state()
             # Clear notes shadow only if NOT in edit mode (edit mode needs to preserve notes)
             if "editing_session_id" not in st.session_state:
@@ -183,6 +187,7 @@ def page_upload():
                 st.caption(f"📊 Loaded {df.shape[0]:,} rows — memory footprint: {mb:.0f} MB")
         else:
             df = st.session_state.df
+            st.session_state["_raw_upload_shape"] = (int(df.shape[0]), int(df.shape[1]))
         _show_analysis_pipeline(df, uploaded.name)
     else:
         if file_changed:
@@ -200,6 +205,8 @@ def page_upload():
             if df is not None:
                 set_df(df.copy())
                 st.session_state["_resume_upload"] = True
+                # Capture the RAW upload shape before the rerun so it isn't lost.
+                st.session_state["_raw_upload_shape"] = (int(df.shape[0]), int(df.shape[1]))
                 st.rerun()
         else:
             if st.button("⚙️ Edit Excel Configuration", key="_xl_edit_config"):

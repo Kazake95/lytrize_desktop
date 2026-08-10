@@ -183,6 +183,26 @@ def _guest_row_id(conn) -> Optional[int]:
 
 
 
+def _backfill_analysed_datasets(conn) -> None:
+    """One-time backfill: seed analysed_datasets from saved sessions.
+
+    Only captures datasets that were both analysed AND saved. Datasets that
+    were analysed but never saved are not recoverable historically.
+    """
+    try:
+        c = conn.cursor()
+        c.execute(
+            "INSERT OR IGNORE INTO analysed_datasets "
+            "(user_id, file_name, rows_count, cols_count) "
+            "SELECT user_id, file_name, rows_count, cols_count "
+            "FROM sessions "
+            "WHERE file_name IS NOT NULL AND file_name != '' "
+            "  AND rows_count IS NOT NULL AND cols_count IS NOT NULL"
+        )
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+
+
 def init_db() -> None:
     """Create all required tables. Safe to call every startup (IF NOT EXISTS)."""
     conn = _connect()
@@ -252,6 +272,29 @@ def init_db() -> None:
             updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id)
         )""")
+
+        c.execute("""CREATE TABLE IF NOT EXISTS analysed_datasets (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id     INTEGER NOT NULL,
+            file_name   TEXT NOT NULL,
+            rows_count  INTEGER NOT NULL,
+            cols_count  INTEGER NOT NULL,
+            analysed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, file_name, rows_count, cols_count),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )""")
+        c.execute("""CREATE INDEX IF NOT EXISTS idx_analysed_user
+                     ON analysed_datasets(user_id)""")
+
+
+        # One-time backfill: seed analysed_datasets from existing saved
+        # sessions only when the table is empty (so it never re-runs).
+        try:
+            c.execute("SELECT COUNT(*) FROM analysed_datasets")
+            if c.fetchone()[0] == 0:
+                _backfill_analysed_datasets(conn)
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
 
 
         # Legacy columns that may be missing on older installs. Each entry is
@@ -491,8 +534,29 @@ def merge_user_data(source_user_id: int, target_user_id: int) -> None:
                 raise
 
 
+            # Merge analysed_datasets safely -- INSERT OR IGNORE avoids
+            # UNIQUE(user_id, file_name, rows_count, cols_count) conflicts
+            # when the target account already has the same raw dataset.
+            cur.execute(
+                "INSERT OR IGNORE INTO analysed_datasets "
+                "(user_id, file_name, rows_count, cols_count, analysed_at) "
+                "SELECT ?, file_name, rows_count, cols_count, analysed_at "
+                "FROM analysed_datasets WHERE user_id=?",
+                (target_user_id, source_user_id),
+            )
+            cur.execute(
+                "DELETE FROM analysed_datasets WHERE user_id=?",
+                (source_user_id,),
+            )
+
+
         try:
             get_user_sessions.clear()
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+            pass
+        try:
+            count_datasets_analysed.clear()
         except Exception as exc:
             logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
@@ -846,6 +910,53 @@ def get_user_sessions(user_id: int) -> list:
         return []
     finally:
         conn.close()
+
+
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def count_datasets_analysed(user_id: int) -> int:
+    """Return the number of distinct raw datasets that reached the analysis page."""
+    if user_id is None:
+        return 0
+    try:
+        with _db() as conn:
+            row = _execute_fetchone(
+                conn,
+                "SELECT COUNT(*) FROM analysed_datasets WHERE user_id=?",
+                (user_id,),
+            )
+            return int(row[0]) if row else 0
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+        return 0
+
+
+
+
+def record_dataset_analysed(user_id, file_name, rows, cols) -> None:
+    """Record that a raw dataset reached the analysis page.
+
+    Idempotent: the same (user_id, file_name, rows_count, cols_count) is
+    only counted once, even if the user proceeds to analysis multiple times
+    with the same raw upload.
+    """
+    if user_id is None:
+        return
+    try:
+        with _db() as conn:
+            _execute(
+                conn,
+                "INSERT OR IGNORE INTO analysed_datasets "
+                "(user_id, file_name, rows_count, cols_count) VALUES (?,?,?,?)",
+                (user_id, str(file_name or ""), int(rows), int(cols)),
+            )
+        try:
+            count_datasets_analysed.clear()
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
 
 
 

@@ -465,4 +465,18 @@ def show_column_classifier(df):
             if "editing_session_id" not in st.session_state:
                 st.session_state.charts   = []
                 st.session_state.selected_analyses = []
+
+            # Record this dataset as "analysed" using the RAW upload shape
+            # (captured before any cleaning/transformation). The same raw
+            # dataset is only counted once.
+            raw_shape = st.session_state.get("_raw_upload_shape")
+            if raw_shape:
+                from modules.database import record_dataset_analysed
+                record_dataset_analysed(
+                    st.session_state.get("user_id"),
+                    st.session_state.get("file_name", ""),
+                    raw_shape[0],
+                    raw_shape[1],
+                )
+
             st.rerun(scope="app")
