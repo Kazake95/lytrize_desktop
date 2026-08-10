@@ -41,6 +41,7 @@ Lytrize is a **local-first, offline desktop analytics application** for Linux. I
 | **No account required** | A permanent local guest user is created automatically on first launch. |
 | **Crash recovery** | The desktop launcher detects Streamlit crashes and shows a recoverable error. Sessions auto-save to drafts on every chart mutation. |
 | **Fast** | Chunked CSV reader, dtype optimization, smart sampling, and Streamlit fragment isolation for per-chart interactivity. |
+| **Auto-update on re-upload** | Saved charts and KPIs can be automatically regenerated when re-uploading updated versions of the same dataset, preserving column renames and calculated columns via a transform log. |
 
 ### Technology Stack
 
@@ -67,11 +68,11 @@ lytrize_desktop/
 │   │   └── fonts/              # 40+ bundled TTF fonts for offline use
 │   └── modules/
 │       ├── __init__.py
-│       ├── charts.py           # Palettes, chart layout, insight engine, JSON serialization
-│       ├── database.py         # SQLite schema, all DB I/O, backup/restore
-│       ├── export.py           # HTML export engine, theme system
+│       ├── charts.py           # Palettes, chart layout, insight engine, JSON serialization, downsampling
+│       ├── database.py         # SQLite schema, all DB I/O, backup/restore, migration logic
+│       ├── export.py           # HTML export engine, theme system, PDF-safe text cleaning
 │       ├── analysis/           # Chart runners and configuration registry
-│       │   ├── __init__.py     # ANALYSIS_OPTIONS, _RUNNERS, _WIDGET_SPEC, config panels
+│       │   ├── __init__.py     # ANALYSIS_OPTIONS, _RUNNERS, _WIDGET_SPEC, config panels, kwargs collection
 │       │   ├── apply_lytrize_standard.py  # Shared chart styling helpers
 │       │   ├── descriptive.py
 │       │   ├── statistical.py
@@ -88,16 +89,16 @@ lytrize_desktop/
 │       ├── pages/              # Streamlit page implementations
 │       │   ├── __init__.py
 │       │   ├── home.py         # Home page + saved sessions browser
-│       │   ├── upload.py       # File upload, column classification, data cleaning
+│       │   ├── upload.py       # File upload, column classification, data cleaning, auto-update on re-upload
 │       │   ├── analysis.py     # Analysis selection and chart generation
-│       │   ├── dashboard.py    # Dashboard builder, KPI cards, export
-│       │   └── auth.py         # Guest profile, backup/restore
+│       │   ├── dashboard.py    # Dashboard builder, KPI cards, export, layout grid
+│       │   ├── auth.py         # Guest profile, backup/restore
 │       ├── ui/                 # UI components and styling
 │       │   ├── __init__.py
 │       │   ├── css.py          # Global CSS injection, theme tokens, fonts
 │       │   ├── chart_card.py   # Per-chart card in isolated @st.fragment
-│       │   ├── chart_settings.py  # Display options, typography, font stacks
-│       │   ├── column_manager.py  # Column rename UI
+│       │   ├── chart_settings.py  # Display options, typography, font stacks, meta hashing
+│       │   ├── column_manager.py  # Column rename UI, formula evaluation, date operations
 │       │   ├── column_tools.py    # Column type classifier, dtype transformer
 │       │   ├── data_cleaner.py    # Missing value and outlier handling
 │       │   ├── excel_loader.py    # Multi-sheet Excel loader
@@ -106,17 +107,19 @@ lytrize_desktop/
 │       └── utils/
 │           ├── __init__.py
 │           ├── perf.py         # Fast readers, dtype optimization, sampling
-│           └── session_cache.py  # Parquet snapshots, session_state memo decorator
+│           ├── session_cache.py  # Parquet snapshots, session_state memo decorator, set_df/update_df
+│           ├── transform_log.py # Records structural column transforms (rename, remove, dtype, calculated columns)
+│           └── regenerate.py    # Rebuilds charts/KPIs on re-upload using saved generation recipes
 ├── desktop/                   # PySide6 desktop launcher
-│   ├── gui.py                 # Main launcher window, browser selection, crash recovery
+│   ├── gui.py                 # Main launcher window, browser selection, crash recovery, progress animation
 │   └── launcher.py            # CLI entry point (called by /usr/local/bin/lytrize)
 ├── packaging/                 # Package build definitions
 │   ├── deb/                   # .deb package structure (DEBIAN/, usr/)
 │   └── rpm/                   # .rpm spec file and structure
 ├── service/                   # systemd user service
 │   └── lytrize.service
-├── build.sh                   # .deb build script (dependencies hardcoded for seemless build)
-├── build_rpm.sh               # .rpm build script (dependencies hardcoded for seemless build)
+├── build.sh                   # .deb build script
+├── build_rpm.sh               # .rpm build script
 ├── requirements.txt           # Python dependencies for dev purpose
 ├── .gitignore
 ├── LICENSE                    # MIT
@@ -134,12 +137,13 @@ Lytrize has a **two-layer architecture**: a PySide6 desktop launcher that manage
 ┌─────────────────────────────────────────────────────────────────────┐
 │                    desktop/ (Launcher Layer)                        │
 │  gui.py       — PySide6 window: browser selection, Streamlit         │
-│                 subprocess management, system tray, crash recovery   │
+│                 subprocess management, system tray, crash recovery,  │
+│                 progress animation, isolated browser profiles        │
 │  launcher.py  — CLI entry point called by /usr/local/bin/lytrize    │
 │                 (resolves the venv Python and launches gui.py)       │
 └──────────────────────────┬──────────────────────────────────────────┘
-                           │ subprocess (python -m streamlit run)
-                           ▼
+                            │ subprocess (python -m streamlit run)
+                            ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                   backend/ (Streamlit Application)                   │
 │  app.py        — Entry point: routing, session restore, CSS inject  │
@@ -147,9 +151,10 @@ Lytrize has a **two-layer architecture**: a PySide6 desktop launcher that manage
 │                                                                     │
 │  modules/                                                           │
 │    charts.py     — Palettes, chart_layout(), insight engine,        │
-│                    charts_to_json(), charts_json_cached()             │
+│                    charts_to_json(), charts_json_cached(),          │
+│                    _fig_json_cached(), _downsample_fig_for_persist() │
 │    database.py   — SQLite schema, init_db(), CRUD, backup/restore,  │
-│                    session management                              │
+│                    session management, migration logic              │
 │    export.py     — generate_html_report(), theme system,            │
 │                    _merge_theme(), _apply_axes(), _apply_legend_names()│
 │                                                                     │
@@ -165,25 +170,28 @@ Lytrize has a **two-layer architecture**: a PySide6 desktop launcher that manage
 │                                                                     │
 │    pages/         — Streamlit page implementations                    │
 │      home.py         — Home page + saved sessions browser            │
-│      upload.py       — File upload, column classification, cleaning  │
+│      upload.py       — File upload, column classification, cleaning, │
+│                         auto-update on re-upload, transform log      │
 │      analysis.py     — Analysis selection and chart generation       │
-│      dashboard.py    — Dashboard builder, KPI cards, export          │
+│      dashboard.py    — Dashboard builder, KPI cards, export, layout  │
 │      auth.py         — Guest profile, backup/restore                 │
 │                                                                     │
 │    ui/            — UI components and styling                        │
 │      css.py            — Global CSS, theme tokens, font injection   │
 │      chart_card.py     — Per-chart card in isolated @st.fragment      │
 │      chart_settings.py — Display options, typography, font stacks    │
-│      column_manager.py — Column rename UI                            │
+│      column_manager.py — Column rename UI, formula eval, date ops   │
 │      column_tools.py   — Column type classifier, dtype transformer  │
 │      data_cleaner.py   — Missing value and outlier handling          │
 │      excel_loader.py   — Multi-sheet Excel loader                    │
 │      font_manager.py   — Font picker, preview CSS                    │
 │      theme_tokens.py   — Design token definitions                    │
 │                                                                     │
-│    utils/         — Performance and caching utilities               │
+│    utils/         — Performance, caching, and transform utilities   │
 │      perf.py          — Fast readers, dtype optimization, sampling  │
-│      session_cache.py — Parquet snapshots, session_state memo        │
+│      session_cache.py — Parquet snapshots, session_state memo, set_df│
+│      transform_log.py — Structural transform recording & replay     │
+│      regenerate.py    — Chart/KPI auto-regeneration on re-upload    │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -191,8 +199,8 @@ Lytrize has a **two-layer architecture**: a PySide6 desktop launcher that manage
 
 1. **Launch** — `lytrize` → `/usr/local/bin/lytrize` → `desktop/launcher.py` → `desktop/gui.py`
 2. **Browser detection** — `_detect_browsers()` scans for Chrome, Chromium, Brave, Edge, Vivaldi, Opera, Firefox, Firefox ESR, Zen, LibreWolf. Deduplicates by resolved binary path.
-3. **Streamlit start** — `Launcher._start()` spawns `python -m streamlit run backend/app.py` as a subprocess in a new process group (`start_new_session=True`).
-4. **Wait** — `_WaitThread` polls TCP port 8501 until Streamlit accepts connections (30s timeout).
+3. **Streamlit start** — `Launcher._start()` spawns `python -m streamlit run backend/app.py` as a subprocess in a new process group (`start_new_session=True`). Reads `backend/.env` for environment variables. Sets `LYTRIZE_DB_PATH` and optionally prepends `/opt/lytrize/venv/lib/python*/site-packages` to `PYTHONPATH`.
+4. **Wait** — `_WaitThread` polls TCP port 8501 until Streamlit accepts connections (30s timeout, 0.5s interval).
 5. **Watch** — `_WatchThread` blocks on `proc.wait()` to detect unexpected exits. `cancel()` must be called before intentional termination to suppress false crash reports.
 6. **Browser open** — On ready, the launcher opens the app URL in the selected browser:
    - **Chromium-based**: `--app=<url>` (strips browser chrome, isolated profile)
@@ -200,6 +208,7 @@ Lytrize has a **two-layer architecture**: a PySide6 desktop launcher that manage
    - **xdg-open** (fallback): delegates to system default
 7. **System tray** — The launcher minimizes to the system tray with "Open App" and "Stop & Quit" actions.
 8. **Crash recovery** — If Streamlit exits with a non-zero code (and not cancelled), the launcher shows "Crashed (exit N) — click Start to retry" and enables the Start button.
+9. **Progress animation** — During startup, a progress bar animates with eased deceleration toward 92%, then snaps to 100% when ready.
 
 ### Browser Isolation
 
@@ -214,11 +223,12 @@ Lytrize has a **two-layer architecture**: a PySide6 desktop launcher that manage
 1. **Launcher starts Streamlit** — `desktop/gui.py` spawns `python -m streamlit run backend/app.py --server.port 8501 --server.address 127.0.0.1`.
 2. **App bootstrap** — `app.py:main()` calls `_init_db_once()` (creates SQLite tables), `inject_css()` (loads fonts + stylesheet), creates a guest user if needed, and restores any saved draft.
 3. **Routing** — `app.py` reads `st.session_state.page` (or the `p` URL parameter) and dispatches to `page_home()`, `page_upload()`, `page_analysis()`, `page_dashboard()`, or `page_profile()`.
-4. **Upload** — `page_upload()` uses `read_csv_fast()` or `read_excel_sheet()` from `perf.py` to load the file, runs `optimize_dtypes()`, and stores the DataFrame in `st.session_state.df`. The column classifier (`column_tools.py`) auto-detects numeric, categorical, and datetime columns.
-5. **Analysis** — `page_analysis()` renders chart-type cards from `ANALYSIS_OPTIONS`. When the user clicks **Generate**, `_collect_kwargs()` reads widget values from `session_state`, `_run()` dispatches to the appropriate chart runner, and `generate_chart_insights()` produces plain-English observations.
+4. **Upload** — `page_upload()` uses `read_csv_fast()` or `read_excel_sheet()` from `perf.py` to load the file, runs `optimize_dtypes()`, and stores the DataFrame in `st.session_state.df` via `set_df()`. The column classifier (`column_tools.py`) auto-detects numeric, categorical, and datetime columns. A parquet snapshot is saved for tab-refresh recovery. The transform log is initialised to track structural column changes.
+5. **Analysis** — `page_analysis()` renders chart-type cards from `ANALYSIS_OPTIONS`. When the user clicks **Generate**, `_collect_kwargs()` reads widget values from `session_state`, `_run()` dispatches to the appropriate chart runner, and `generate_chart_insights()` produces plain-English observations. Each chart's generation kwargs are stored in `chart_meta_{uid}["_generation_kwargs"]` for later regeneration.
 6. **Chart display** — Each chart is rendered in an isolated `@st.fragment` (`chart_card.py`) so that adjusting one chart's settings only reruns that chart, not the entire page.
-7. **Dashboard** — `page_dashboard()` arranges charts in a grid, calculates KPI cards, and renders the export button. `generate_html_report()` from `export.py` produces a self-contained HTML file with inline Plotly.js.
+7. **Dashboard** — `page_dashboard()` arranges charts in a grid, calculates KPI cards (each KPI stores a `_recipe` for regeneration), and renders the export button. `generate_html_report()` from `export.py` produces a self-contained HTML file with inline Plotly.js.
 8. **Persistence** — Drafts auto-save on every chart mutation via `save_draft()`. Saved sessions are stored in the `sessions` table via `save_session_db()`. The DataFrame is snapshotted to parquet via `save_df_snapshot()` for tab-refresh recovery.
+9. **Re-upload / Auto-update** — When a user re-uploads a file for an editing session, `_auto_update_on_reupload()` replays the saved `transform_log` to reapply column renames/dtype changes, then calls `regenerate_charts()` and `regenerate_kpis()` to refresh all visualisations against the new data. Missing columns are reported as warnings.
 
 ---
 
@@ -286,8 +296,8 @@ The main Streamlit application. Key responsibilities:
 
 - **`main()`** — Orchestrates app startup: initializes the database, injects CSS, creates/restores the guest user, restores drafts, and dispatches to the active page.
 - **`_init_db_once()`** — Cached function that calls `init_db()` exactly once per process.
-- **`_restore_draft(user_id)`** — Reloads an in-progress analysis session from `draft_sessions` into `session_state`: charts (deserialized from Plotly JSON), KPIs, dashboard title, layout mode, and the DataFrame snapshot.
-- **Routing** — Reads `st.session_state.page` (or the `p` URL parameter) and calls the corresponding page function. URL parameters `p` (page) and `sid` (session ID) are kept in sync.
+- **`_restore_draft(user_id)`** — Reloads an in-progress analysis session from `draft_sessions` into `session_state`: charts (deserialized from Plotly JSON), KPIs, dashboard title, layout mode, transform log, and the DataFrame snapshot. The draft is cleared after restore so the next restart starts fresh.
+- **Routing** — Reads `st.session_state.page` (or the `p` URL parameter) and calls the corresponding page function. URL parameters `p` (page) and `sid` (session ID) are kept in sync. The `nav=home` URL parameter forces navigation to the home page and clears view-mode state.
 
 ### `backend/config.py` — Constants
 
@@ -301,49 +311,69 @@ Shared configuration constants:
 
 - **`PALETTES`** — 16 named color palettes (Default Blue-Purple, Vibrant, Nature Green, Warm Sunset, etc.)
 - **`chart_layout(height)`** — Returns a dict of Plotly layout kwargs used by every chart (transparent background, no gridlines, dark hover labels).
+- **`apply_hover_format(fig)`** — Applies K/M/B-formatted hovertemplates to every trace in a Plotly figure.
 - **`generate_chart_insights(chart_type, title, fig)`** — Produces plain-English observations from a Plotly figure. Handles distributions, correlations, outliers, time series, categorical/pie, scatter, statistical, data quality, and matrix charts.
-- **`charts_to_json(charts)`** — Serializes the active chart list to JSON for database storage.
+- **`charts_to_json(charts)`** — Serializes the active chart list to JSON for database storage. Uses per-chart memoized `_fig_json_cached()` so unchanged figures are never re-serialized, and downsamples large line/scatter traces via `_downsample_fig_for_persist()` so the persisted payload stays small.
 - **`charts_json_cached()`** — Memoized version that only re-serializes when the chart set or notes actually change (debounced autosave).
 - **`clean_insights(insights)`** — Strips markdown bold markers and normalizes spacing from insight text.
+- **`_json_safe(obj)`** — Recursively converts non-JSON-safe dict keys (e.g., tuple keys from Plotly meta) to strings.
+- **`_downsample_fig_for_persist(fig)`** — Returns a deep-copied figure with large line/scatter traces downsampled to at most 10,000 points for database storage. The live figure is never mutated.
+- **`_fig_json_cached(uid, fig)`** — Memoized per-chart JSON serialization keyed by `id(fig)`. Unchanged charts are never re-serialized.
+- **`_cached_col_types()`** — Cached column-type lookup keyed on `_df_version` to avoid repeated `st.session_state.get()` calls.
+- **`num_cols()`, `cat_cols()`, `dt_cols()`** — Return confirmed numeric, categorical, and datetime column lists.
 - **Helper functions** — `_fmt_num()` (K/M/B formatting), `_fmt_pct()`, `_fmt_label()`, `_as_number_series()`, `_as_list()`, `_plural()`.
 
 ### `backend/modules/database.py` — Database Layer
 
 All SQLite operations. Key functions:
 
-- **`init_db()`** — Creates all tables (`users`, `sessions`, `user_activity`, `draft_sessions`). Safe to call every startup (`CREATE TABLE IF NOT EXISTS`). Includes migration logic via `ALTER TABLE ... ADD COLUMN` wrapped in `try/except`.
-- **`_connect()`** — Returns a SQLite connection with WAL mode, NORMAL synchronous, 8MB cache, MEMORY temp store, and 128MB mmap.
+- **`init_db()`** — Creates all tables (`users`, `sessions`, `user_activity`, `draft_sessions`, `analysed_datasets`). Safe to call every startup (`CREATE TABLE IF NOT EXISTS`). Includes migration logic via `ALTER TABLE ... ADD COLUMN` wrapped in `try/except`, but only fires when `PRAGMA table_info` confirms the column is actually missing (avoids the old pattern of speculatively firing every ALTER and swallowing 17+ OperationalErrors per launch). Seeds the permanent guest user and backfills `session_uuid` for legacy rows.
+- **`_connect()`** — Returns a SQLite connection with WAL mode, NORMAL synchronous, 8MB cache (-8000 pages), MEMORY temp store, and 128MB mmap. Creates parent directories if missing. Removes stale directory at DB_PATH if present.
 - **`_db()`** — Context manager that commits on success and rolls back on error.
-- **`get_or_create_guest_user()`** — Returns the permanent local guest user, creating it if needed.
-- **`save_draft(...)`** / **`get_draft(user_id)`** / **`clear_draft(user_id)`** — Draft session management (auto-save during analysis).
-- **`save_session_db(...)`** / **`update_session_db(...)`** / **`delete_session_db(...)`** — Saved session CRUD.
-- **`get_user_sessions(user_id)`** — Returns the 20 most recent sessions (cached with `@st.cache_data`, 30s TTL).
+- **`get_or_create_guest_user()`** — Returns the permanent local guest user, creating it if needed. Has multiple fallback paths for robustness.
+- **`save_draft(...)`** / **`get_draft(user_id)`** / **`clear_draft(user_id)`** — Draft session management (auto-save during analysis and dashboard).
+- **`save_session_db(...)`** / **`update_session_db(...)`** / **`delete_session_db(...)`** — Saved session CRUD. `update_session_db` supports partial updates (e.g., KPI-only updates don't wipe the transform log).
+- **`get_user_sessions(user_id)`** — Returns the 20 most recent sessions (cached with `@st.cache_data`, 30s TTL). Dynamically selects available columns to handle schema evolution.
 - **`get_session_charts(session_id, user_id)`** — Loads and deserializes charts from a saved session (Plotly JSON → Figure objects).
-- **`get_session_meta(session_id, user_id)`** — Fetches dashboard metadata (title, KPIs, layout, grid order, export settings).
+- **`get_session_meta(session_id, user_id)`** — Fetches dashboard metadata (title, KPIs, layout, grid order, export settings, transform log).
 - **`export_sessions_to_dict(...)`** / **`import_sessions_from_dict(...)`** — Backup/restore as JSON.
-- **`merge_user_data(source_user_id, target_user_id)`** — Reassigns local data from a guest account to a newly signed-in account.
+- **`merge_user_data(source_user_id, target_user_id)`** — Reassigns local data from a guest account to a newly signed-in account. Uses SAVEPOINT for draft merge safety. Clears caches after merge.
 - **`log_activity(user_id, action_type, detail, session_id)`** — Appends to the audit log (never raises).
+- **`sanitize_restored_session(session_data, current_user_id)`** — Normalizes imported backup sessions before inserting into the local DB. Strips remote-only keys.
+- **`rename_session_db(session_id, new_name, user_id)`** — Renames a saved session with user_id guard.
+- **`_backfill_analysed_datasets(conn)`** — One-time backfill that seeds `analysed_datasets` from existing saved sessions.
+- **`_guest_row_id(conn)`** — Returns the permanent local guest user ID, checking both `is_guest` flag and legacy `username` lookup.
+- **`_hash(pw, salt)`** — Hashes a password with PBKDF2-HMAC-SHA256, 260,000 iterations, random salt.
 
 ### `backend/modules/export.py` — HTML Export Engine
 
-- **`generate_html_report(charts, session_name, orientation, kpis, dashboard_title, grid_cols_n, theme)`** — Generates a fully self-contained HTML dashboard file with inline Plotly.js, embedded fonts, KPI cards, insights, notes, and print-optimized CSS.
+- **`generate_html_report(charts, session_name, orientation, kpis, dashboard_title, grid_cols_n, theme)`** — Generates a fully self-contained HTML dashboard file with inline Plotly.js, embedded fonts, KPI cards, insights, notes, and print-optimized CSS. The first chart includes Plotly.js inline; subsequent charts reuse it.
 - **`DEFAULT_THEME`** — 25+ theme keys (background colors, card colors, typography, layout, etc.).
 - **`_merge_theme(user_theme)`** — Merges user overrides over defaults.
 - **`_apply_axes(fig, x_lbl, y_lbl, text_style)`** — Applies axis titles and tick fonts to a figure copy.
 - **`_apply_legend_names(fig, legend_names, legend_title, text_style)`** — Renames traces and styles the legend.
 - **`_h(text)`** — HTML-escapes a value (use for all user-controlled text in HTML strings).
+- **`_clean_pdf(text)`** — Strips emojis and replaces known icons for PDF-safe text (used in export).
+- **`_default_text_style()`** — Returns the default typography settings (family, sizes, colors).
+- **`_merge_text_style(raw)`** — Merges a stored text-style dict over the defaults.
 
 ### `backend/modules/analysis/__init__.py` — Analysis Registry
 
 The central registry that connects chart types to their runners and configuration widgets.
 
 - **`ANALYSIS_OPTIONS`** — List of 11 chart-type cards shown on the Analysis page. Each has `id`, `icon`, `name`, `desc`.
-- **`_RUNNERS`** — Dict mapping `aid → runner_function`. Each runner returns a list of `(title, fig)` tuples.
+- **`_RUNNERS`** — Dict mapping `aid → runner_function`. Each runner returns a list of `(title, fig)` tuples. Includes `data_quality` and `outlier` runners even though they don't appear as selectable analysis cards.
 - **`_WIDGET_SPEC`** — Dict mapping `aid → list of (key, kwarg, kind)` tuples defining the configuration widgets for each chart type. Kinds: `scalar`, `list`, `palette`, `scalar_map`, `number`, `bool`.
 - **`render_config_panel(aid, df)`** — Renders the configuration widgets for a chart type (non-scoped, used on the main analysis page).
 - **`render_config_panel_scoped(uid, aid, df)`** — Renders uid-scoped configuration widgets (used in the regenerate panel).
 - **`_collect_kwargs(aid, df)`** / **`_collect_kwargs_scoped(uid, aid, df)`** — Reads widget values from `session_state` and returns a kwargs dict for the runner.
-- **`_run(aid, df, **kwargs)`** — Dispatches to the correct runner and returns a list of `(uid, title, fig)` tuples.
+- **`_run(aid, df, **kwargs)`** — Dispatches to the correct runner and returns a list of `(uid, title, fig)` tuples. Descriptive and data_quality runners take no kwargs.
+- **`_sk(aid, key)`** / **`_sk_uid(uid, aid, key)`** — Build namespaced session_state keys for widgets.
+- **`_g(aid, key, default)`** / **`_g_uid(uid, aid, key, default)`** — Read widget values from session_state.
+- **`_ensure_single_choice_state(key, options, default)`** — Normalizes legacy list state so a selectbox can safely reuse the key.
+- **`_single_choice_value(value, default)`** — Return a scalar value or None from selectbox/multiselect-compatible state.
+- **`_AGG_FUNCS`** — Maps display names to pandas aggregation functions: Avg→mean, Sum→sum, Median→median, Count→count, Min→min, Max→max.
+- **`_DATE_PARTS`** — Maps display names to pandas date-part codes: Year→Y, Quarter→Q, Month (number)→M, Month Name→month_name, Weekday Name→weekday_name, Day→D, Hour→H.
 
 ### `backend/modules/analysis/*.py` — Chart Runners
 
@@ -377,15 +407,17 @@ Each runner module implements a `run_<type>(df, **kwargs)` function that returns
 
 #### `upload.py` — Upload & Data Preparation
 - File uploader for CSV and Excel (up to 300 MB).
-- Data preview (top/bottom/random 10 rows).
-- Data quality summary (missing values, duplicates).
-- Outlier detection.
-- Column Manager (rename columns).
-- Data-type Transformer (change dtypes).
-- Data Cleaner (handle missing values and outliers).
-- CSV download (export cleaned data).
+- Data preview (top/bottom/random 10 rows, full table with pagination and filters).
+- Data quality summary (missing values, duplicates) — fragment-isolated.
+- Outlier detection — fragment-isolated.
+- Column Manager (rename columns, add calculated columns via formula, date diff/date extract) — fragment-isolated.
+- Data-type Transformer (change dtypes) — fragment-isolated.
+- Data Cleaner (handle missing values and outliers) — fragment-isolated.
+- CSV download (export cleaned data) — fragment-isolated with button-triggered generation.
 - Column Classifier (auto-detect numeric/categorical/datetime columns).
 - Parquet snapshot saved immediately after upload for tab-refresh recovery.
+- **Auto-update on re-upload**: When re-uploading a file for an editing session, `_auto_update_on_reupload()` replays the saved `transform_log` to reapply column renames/dtype changes/calculated columns, then regenerates all charts and KPIs against the refreshed data. Reports success/warning messages.
+- **Full table filters**: Text search across all text columns, per-column filters (numeric range, categorical multiselect, date range, boolean, text contains). Filtered rows can be downloaded as CSV.
 
 #### `analysis.py` — Analysis & Chart Generation
 - Renders chart-type cards from `ANALYSIS_OPTIONS` in a 5-column grid.
@@ -403,6 +435,8 @@ Each runner module implements a `run_<type>(df, **kwargs)` function that returns
 - Visual layout builder (drag-and-drop grid arrangement with full-width support).
 - Chart rendering with per-chart settings (Chart Settings + Typography expanders).
 - HTML export via `generate_html_report()`.
+- **Notes shadow system**: `_dash_sync_notes()` bidirectionally syncs `desc_{uid}` keys with `_notes_shadow` dict to ensure notes survive reruns and are authoritative for user edits.
+- **View mode**: When viewing a saved session, charts are rendered read-only without settings controls.
 
 #### `auth.py` — Guest Profile & Backup
 - Guest profile page with local data information.
@@ -439,18 +473,22 @@ Each runner module implements a `run_<type>(df, **kwargs)` function that returns
 - **`merge_text_style(raw)`** — Merges stored text-style dict over defaults.
 - **`compute_meta_hash(meta)`** — Hashes the full meta dict for cache invalidation.
 
-#### `column_manager.py` — Column Rename
+#### `column_manager.py` — Column Rename & Calculated Columns
 - `show_column_manager(df)` — UI for renaming columns with a table of old/new names.
+- Supports **calculated columns** via formula evaluation (Python expressions with `df` context).
+- Supports **date difference** (`compute_date_diff`) and **date part extraction** (`compute_date_extract`) operations.
+- `_safe_formula_eval()` — Safely evaluates user-provided formulas with restricted builtins.
 
 #### `column_tools.py` — Column Classification & Type Transformation
 - `show_column_classifier(df)` — Auto-detects numeric, categorical, and datetime columns. Sets `st.session_state.num_cols`, `cat_cols`, `dt_cols`.
 - `show_dtype_transformer(df)` — UI for changing column data types (e.g., string → datetime, int → float).
+- `convert_series_dtype()` — Performs the actual dtype conversion with error handling.
 
 #### `data_cleaner.py` — Missing Values & Outliers
-- `show_data_cleaner(df)` — UI for handling missing values (drop, fill with mean/median/mode/constant) and outlier treatment.
+- `show_data_cleaner(df)` — UI for handling missing values (drop, fill with mean/median/mode/constant) and outlier treatment (cap, remove, none).
 
 #### `excel_loader.py` — Excel Loader
-- `show_excel_loader(uploaded)` — UI for selecting sheets from multi-sheet Excel files.
+- `show_excel_loader(uploaded)` — UI for selecting sheets from multi-sheet Excel files. Shows sheet names and row counts.
 
 #### `font_manager.py` — Font Picker
 - `font_select(label, key, ...)` — Streamlit selectbox for font selection.
@@ -475,27 +513,47 @@ Each runner module implements a `run_<type>(df, **kwargs)` function that returns
 - **`mem_mb(df)`** — Returns total DataFrame memory usage in MB.
 - **`RENDER_LIMITS`** — Per-chart-type render budgets (scatter: 8K, histogram: 50K, map: 10K, line: 50K, bar: 5K, heatmap: 500).
 
-#### `session_cache.py` — Session Cache
-- **`set_df(df)`** — Replaces `st.session_state.df`, bumps the `_df_version` counter, and invalidates all derived caches.
-- **`update_df(df)`** — Shallow-copies df then stores via `set_df()` (for in-place mutations).
-- **`save_df_snapshot(user_id, df)`** — Persists a DataFrame to a parquet snapshot for tab-refresh recovery.
-- **`load_df_snapshot(user_id)`** — Restores the DataFrame from parquet. Enforces a 512 MB limit.
+#### `session_cache.py` — Session Cache & DataFrame Management
+- **`set_df(df)`** — Replaces `st.session_state.df`, bumps the `_df_version` counter, and invalidates all derived caches listed in `_CACHES_TO_CLEAR`. This is the **single source of truth** for mutating the DataFrame — never assign `st.session_state.df` directly.
+- **`update_df(df)`** — Shallow-copies df then stores via `set_df()` (for in-place mutations where you need a new object identity).
+- **`save_df_snapshot(user_id, df)`** — Persists a DataFrame to a parquet snapshot for tab-refresh recovery. Enforces a 512 MB limit.
+- **`load_df_snapshot(user_id)`** — Restores the DataFrame from parquet.
 - **`df_cache_path(user_id)`** — Returns the parquet snapshot path (`$XDG_RUNTIME_DIR/lytrize/df_<id>.parquet` or `~/.cache/lytrize/`).
 - **`session_cached(fn)`** — Decorator that caches a function's return value in `session_state`, keyed by function name and arguments.
 - **`make_json_safe(value)`** — Returns a JSON-serializable version of a value.
+
+#### `transform_log.py` — Structural Transform Recording & Replay
+- **`log_transform(op, **params)`** — Appends a structural transform op to `st.session_state.transform_log`. Supported ops: `rename_column`, `remove_column`, `convert_dtype`, `add_calculated_column`, `add_date_diff`, `add_date_extract`.
+- **`get_transform_log_json()`** — Serialise the current transform log for DB persistence.
+- **`set_transform_log_from_json(raw_json)`** — Load a stored transform log JSON string into session_state.
+- **`replay_transform_log(df, transform_log)`** — Re-apply a saved list of structural transforms to a freshly uploaded raw DataFrame. Returns `(new_df, warnings)`. Each op is best-effort: a failed op is skipped with a warning rather than aborting the whole replay.
+
+#### `regenerate.py` — Chart & KPI Auto-Regeneration
+- **`validate_columns(df)`** — Check every saved chart's and KPI's referenced columns against the current DataFrame. Returns `{"charts": {uid: [missing cols]}, "kpis": {label: [missing cols]}}`.
+- **`_columns_referenced_by_kwargs(kwargs)`** — Best-effort extraction of column names from a generation kwargs dict (keys ending in `_col`/`_cols`).
+- **`regenerate_charts(df)`** — Re-run every saved chart's generation recipe against `df`, replacing its figure in place (same uid). Returns `{"updated": [uid, ...], "skipped": {uid: reason}}`. Groups charts by identical `(chart_type, generation_kwargs)` signature to avoid redundant recomputation.
+- **`regenerate_kpis(df)`** — Recompute every saved KPI's value against `df` using its stored `_recipe`. Returns `{"updated": [label,...], "skipped": [label,...]}`. KPIs without a `_recipe` (created before auto-update existed) are left untouched.
 
 ### `desktop/gui.py` — Desktop Launcher
 
 The PySide6 launcher window. Key components:
 
-- **`Launcher`** — Main window class. Manages the UI (header, status, browser picker, Start/Open/Stop buttons, system tray) and the Streamlit subprocess lifecycle.
-- **`_WaitThread`** — QThread that polls TCP port 8501 until Streamlit is ready (30s timeout).
-- **`_WatchThread`** — QThread that monitors the Streamlit subprocess for unexpected exits.
-- **`_PulseDot`** — Animated status indicator (green pulse when running, grey when stopped).
-- **`_ensure_firefox_profile(profile_dir)`** — Creates a minimal Firefox profile with `user.js` and `userChrome.css` to suppress first-run dialogs and hide browser chrome.
-- **`_detect_browsers()`** — Scans for installed browsers and returns a deduplicated list.
+- **`Launcher`** — Main window class. Manages the UI (header, status, browser picker, Start/Open/Stop buttons, system tray, progress bar) and the Streamlit subprocess lifecycle.
+- **`_QSS`** — Embedded Qt stylesheet defining the modern dark theme with gradient buttons, rounded corners, and smooth hover/pressed states.
+- **`_WaitThread`** — QThread that polls TCP port 8501 until Streamlit is ready (30s timeout, 0.5s interval).
+- **`_WatchThread`** — QThread that monitors the Streamlit subprocess for unexpected exits. `cancel()` must be called before intentional termination.
+- **`_PulseDot`** — Animated status indicator (green pulse when running, grey when stopped). Uses `QPropertyAnimation` on a custom Qt Property.
+- **`_ensure_firefox_profile(profile_dir)`** — Creates a minimal Firefox profile with `user.js` (suppresses first-run dialogs, telemetry, crash reporter, tab warnings) and `userChrome.css` (hides URL bar, tab strip, bookmarks toolbar).
+- **`_detect_browsers()`** — Scans for installed browsers and returns a deduplicated list of dicts with `name`, `binary`, `chromium` keys. Falls back to `xdg-open` if nothing is found.
 - **`_find_icon()`** — Returns the first existing icon file from `backend/assets/`.
-- **`_load_prefs()` / `_save_prefs()`** — Persists launcher preferences (browser choice) atomically.
+- **`_load_prefs()`** / **`_save_prefs()`** — Persists launcher preferences (browser choice) atomically to `launcher_prefs.json` via temp-file-then-rename.
+- **`_start()`** — Launches the Streamlit subprocess. Reads `backend/.env` for environment variables. Sets `LYTRIZE_DB_PATH`. Optionally prepends `/opt/lytrize/venv/lib/python*/site-packages` to `PYTHONPATH`. Writes stdout/stderr to `~/.local/share/lytrize/streamlit.log`. Starts `_WaitThread` and `_WatchThread`.
+- **`_on_ready()`** — Slot: Streamlit is accepting connections. Finishes progress animation, updates status, opens browser.
+- **`_on_timeout()`** — Slot: Streamlit did not start within the polling timeout.
+- **`_on_crashed()`** — Slot: Streamlit subprocess exited unexpectedly. Increments crash count, updates status.
+- **`_open_app()`** — Opens the app URL in the selected browser with appropriate isolation flags.
+- **`_stop_and_quit()`** — Stops the Streamlit subprocess (cancels watch thread, sends SIGTERM to process group), hides tray, and quits the app.
+- **`_tray_activated()`** — Handles system tray icon clicks (toggle window visibility).
 
 ### `desktop/launcher.py` — CLI Entry Point
 
@@ -508,29 +566,31 @@ Called by `/usr/local/bin/lytrize`. Resolves the venv Python (`/opt/lytrize/venv
 1. **Create the runner** — Create `backend/modules/analysis/<new_type>.py` with a `run_<new_type>(df, **kwargs)` function that returns a list of `(title, fig)` tuples. Use `chart_layout()` from `charts.py` for consistent styling and `apply_hover_format()` for hover templates.
 
 2. **Register it** — In `backend/modules/analysis/__init__.py`:
-   - Import the runner: `from modules.analysis.<new_type> import run_<new_type>`
-   - Add to `ANALYSIS_OPTIONS`:
-     ```python
-     {"id": "<new_type>", "icon": "📈", "name": "New Type", "desc": "Brief description"},
-     ```
-   - Add to `_RUNNERS`:
-     ```python
-     "<new_type>": run_<new_type>,
-     ```
+    - Import the runner: `from modules.analysis.<new_type> import run_<new_type>`
+    - Add to `ANALYSIS_OPTIONS`:
+      ```python
+      {"id": "<new_type>", "icon": "📈", "name": "New Type", "desc": "Brief description"},
+      ```
+    - Add to `_RUNNERS`:
+      ```python
+      "<new_type>": run_<new_type>,
+      ```
 
 3. **Add widget spec** (if your chart needs configuration controls) — Add to `_WIDGET_SPEC`:
-   ```python
-   "<new_type>": [
-       ("x", "x_cols", "scalar"),
-       ("y", "y_cols", "list"),
-       ("palette", "palette", "palette"),
-   ],
-   ```
-   Widget kinds: `scalar` (selectbox), `list` (multiselect), `palette` (palette selectbox), `scalar_map` (selectbox with custom options), `number` (number_input), `bool` (checkbox).
+    ```python
+    "<new_type>": [
+        ("x", "x_cols", "scalar"),
+        ("y", "y_cols", "list"),
+        ("palette", "palette", "palette"),
+    ],
+    ```
+    Widget kinds: `scalar` (selectbox), `list` (multiselect), `palette` (palette selectbox), `scalar_map` (selectbox with custom options), `number` (number_input), `bool` (checkbox).
 
-4. **Add config panel** — In `render_config_panel()` and `render_config_panel_scoped()`, add an `elif aid == "<new_type>":` branch that renders the appropriate Streamlit widgets using `st.columns()`, `st.selectbox()`, `st.multiselect()`, etc. Use `_sk(aid, key)` for non-scoped keys and `_sk_uid(uid, aid, key)` for scoped keys.
+4. **Add config panel** — In `_render_config_panel_body()`, add an `elif aid == "<new_type>":` branch that renders the appropriate Streamlit widgets using `st.columns()`, `st.selectbox()`, `st.multiselect()`, etc. Use `_sk(aid, key)` for non-scoped keys and `_sk_uid(uid, aid, key)` for scoped keys.
 
 5. **Add kwargs collection** — In `_collect_kwargs()` and `_collect_kwargs_scoped()`, add an `elif aid == "<new_type>":` branch that reads widget values and builds the kwargs dict for the runner.
+
+6. **Add insight support** (optional) — If your chart type produces insights, add a handler in `generate_chart_insights()` in `charts.py`.
 
 That's it — no other files need changes.
 
@@ -541,21 +601,21 @@ That's it — no other files need changes.
 1. **Create the page** — Create `backend/modules/pages/<new_page>.py` with a `page_<new_page>()` function. Call `render_logo()` at the top and `inject_footer()` at the bottom.
 
 2. **Import it** — In `backend/app.py`:
-   ```python
-   from modules.pages.<new_page> import page_<new_page>
-   ```
+    ```python
+    from modules.pages.<new_page> import page_<new_page>
+    ```
 
 3. **Add routing** — In `main()`, add:
-   ```python
-   elif p == "<new_page>": page_<new_page>()
-   ```
+    ```python
+    elif p == "<new_page>": page_<new_page>()
+    ```
 
 4. **Add navigation** — Add a button to switch to the new page:
-   ```python
-   if st.button("New Page"):
-       st.session_state.page = "<new_page>"
-       st.rerun()
-   ```
+    ```python
+    if st.button("New Page"):
+        st.session_state.page = "<new_page>"
+        st.rerun()
+    ```
 
 ---
 
@@ -588,11 +648,18 @@ That's it — no other files need changes.
 - `CHART_TYPE_SETTINGS` in `chart_settings.py` defines which controls are available per chart type.
 - The display-figure cache (`get_display_fig()`) only rebuilds when `compute_meta_hash(meta)` or the figure signature changes.
 
+### Notes Shadow System
+
+- The `_notes_shadow` dict in `session_state` is the authoritative source for chart notes during editing.
+- `_dash_sync_notes()` bidirectionally syncs `desc_{uid}` keys with `_notes_shadow`.
+- When loading a session for editing or viewing, notes are loaded from shadow first, then from DB.
+- This ensures notes survive reruns and are preserved across navigation.
+
 ---
 
 ## Database Schema
 
-All tables are created in `init_db()` with `CREATE TABLE IF NOT EXISTS`. Migrations use `ALTER TABLE ... ADD COLUMN` wrapped in `try/except`.
+All tables are created in `init_db()` with `CREATE TABLE IF NOT EXISTS`. Migrations use `ALTER TABLE ... ADD COLUMN` wrapped in `try/except`, but only when `PRAGMA table_info` confirms the column is actually missing.
 
 ### `users`
 | Column | Type | Description |
@@ -611,20 +678,21 @@ All tables are created in `init_db()` with `CREATE TABLE IF NOT EXISTS`. Migrati
 | `id` | INTEGER PK | Auto-increment primary key |
 | `user_id` | INTEGER FK | References `users(id)` |
 | `session_uuid` | TEXT UNIQUE | UUID for backup/restore |
-| `session_name` | TEXT | User-friendly name |
+| `session_name` | TEXT NOT NULL DEFAULT '' | User-friendly name |
 | `file_name` | TEXT | Original uploaded file name |
 | `rows_count` | INTEGER | Row count of the dataset |
 | `cols_count` | INTEGER | Column count |
 | `analysis_types` | TEXT | JSON list of analysis types used |
 | `charts_json` | TEXT | JSON array of charts (fig_json, title, desc, meta) |
-| `dashboard_title` | TEXT | Dashboard title |
-| `kpis_json` | TEXT | JSON array of KPI cards |
-| `layout_mode` | TEXT | "portrait" or "landscape" |
-| `grid_order_json` | TEXT | JSON array of chart UIDs in grid order |
-| `grid_fullwidth_json` | TEXT | JSON object of chart UID → full_width bool |
-| `export_text_json` | TEXT | JSON object of text export settings |
-| `export_colours_json` | TEXT | JSON object of color export settings |
-| `source` | TEXT | "local" or "restored" |
+| `dashboard_title` | TEXT DEFAULT '' | Dashboard title |
+| `kpis_json` | TEXT DEFAULT '[]' | JSON array of KPI cards |
+| `layout_mode` | TEXT DEFAULT 'portrait' | "portrait" or "landscape" |
+| `grid_order_json` | TEXT DEFAULT '[]' | JSON array of chart UIDs in grid order |
+| `grid_fullwidth_json` | TEXT DEFAULT '{}' | JSON object of chart UID → full_width bool |
+| `export_text_json` | TEXT DEFAULT '{}' | JSON object of text export settings |
+| `export_colours_json` | TEXT DEFAULT '{}' | JSON object of color export settings |
+| `transform_log_json` | TEXT DEFAULT '[]' | JSON array of structural column transforms |
+| `source` | TEXT DEFAULT 'local' | "local" or "restored" |
 | `created_at` | TIMESTAMP | Default `CURRENT_TIMESTAMP` |
 | `updated_at` | TIMESTAMP | Updated on each save |
 
@@ -632,16 +700,17 @@ All tables are created in `init_db()` with `CREATE TABLE IF NOT EXISTS`. Migrati
 | Column | Type | Description |
 |---|---|---|
 | `user_id` | INTEGER PK | References `users(id)` (one draft per user) |
-| `page` | TEXT | Current page ("home", "upload", "analysis", "dashboard") |
-| `charts_json` | TEXT | JSON array of in-progress charts |
-| `file_name` | TEXT | Current file name |
+| `page` | TEXT DEFAULT 'home' | Current page ("home", "upload", "analysis", "dashboard") |
+| `charts_json` | TEXT DEFAULT '[]' | JSON array of in-progress charts |
+| `file_name` | TEXT DEFAULT '' | Current file name |
 | `editing_session_id` | INTEGER | Session being edited (if in edit mode) |
 | `editing_session_name` | TEXT | Name of session being edited |
-| `editing_file_name` | TEXT | File name of session being edited |
-| `dashboard_title` | TEXT | In-progress dashboard title |
-| `kpis_json` | TEXT | In-progress KPIs |
-| `chart_meta_json` | TEXT | JSON object of chart metadata |
-| `layout_mode` | TEXT | "portrait" or "landscape" |
+| `editing_file_name` | TEXT DEFAULT '' | File name of session being edited |
+| `dashboard_title` | TEXT DEFAULT '' | In-progress dashboard title |
+| `kpis_json` | TEXT DEFAULT '[]' | In-progress KPIs |
+| `chart_meta_json` | TEXT DEFAULT '{}' | JSON object of chart metadata |
+| `layout_mode` | TEXT DEFAULT 'portrait' | "portrait" or "landscape" |
+| `transform_log_json` | TEXT DEFAULT '[]' | JSON array of structural column transforms |
 | `updated_at` | TIMESTAMP | Default `CURRENT_TIMESTAMP` |
 
 ### `user_activity`
@@ -653,6 +722,18 @@ All tables are created in `init_db()` with `CREATE TABLE IF NOT EXISTS`. Migrati
 | `action_type` | TEXT | e.g., "analysis_run", "dashboard_saved", "session_updated" |
 | `action_detail` | TEXT | JSON or text detail |
 | `ts` | TIMESTAMP | Default `CURRENT_TIMESTAMP` |
+
+### `analysed_datasets`
+| Column | Type | Description |
+|---|---|---|
+| `id` | INTEGER PK | Auto-increment primary key |
+| `user_id` | INTEGER FK | References `users(id)` |
+| `file_name` | TEXT NOT NULL | Original uploaded file name |
+| `rows_count` | INTEGER NOT NULL | Row count of the dataset |
+| `cols_count` | INTEGER NOT NULL | Column count |
+| `analysed_at` | TIMESTAMP | Default `CURRENT_TIMESTAMP` |
+
+Unique constraint: `(user_id, file_name, rows_count, cols_count)`. This table tracks distinct raw datasets that reached the analysis page, used for the "Datasets Analysed" KPI on the home page. Backfilled from existing saved sessions on first run.
 
 ---
 
@@ -668,7 +749,7 @@ The application uses `st.session_state` extensively. Keys are prefixed to avoid 
 | `username` | app bootstrap | Display name |
 | `is_guest` | app bootstrap | Boolean guest flag |
 | `page` | app routing | Current page: "home", "upload", "analysis", "dashboard", "profile" |
-| `df` | upload page | Active DataFrame |
+| `df` | upload page | Active DataFrame (always mutate via `set_df()` or `update_df()`) |
 | `file_name` | upload page | Original file name |
 | `file_signature` | upload page | Stable signature of the uploaded file |
 | `num_cols` | upload page | Confirmed numeric column names |
@@ -682,6 +763,7 @@ The application uses `st.session_state` extensively. Keys are prefixed to avoid 
 | `grid_order` | dashboard page | List of chart UIDs in grid order |
 | `grid_fullwidth` | dashboard page | Dict of chart UID → full_width bool |
 | `grid_cols_n` | dashboard page | 2 or 3 (grid columns) |
+| `transform_log` | upload/dashboard | List of structural transform ops (rename, remove, dtype, calculated columns) |
 
 ### Session Restore / Edit Mode
 
@@ -690,18 +772,24 @@ The application uses `st.session_state` extensively. Keys are prefixed to avoid 
 | `editing_session_id` | home (edit) | Integer session being edited |
 | `editing_session_name` | home (edit) | Name of session being edited |
 | `editing_file_name` | home (edit) | File name of session being edited |
+| `_edit_needs_reupload` | home (edit) | Flag: original file needs re-upload |
+| `_edit_notes_loaded` | dashboard (edit) | Flag: edit-mode notes restored |
+| `_auto_regen_done_{eid}_{sig}` | upload (edit) | Guard: auto-update already ran for this session+file |
+| `_last_auto_update_report` | upload (edit) | List of (kind, msg) tuples from last auto-update |
 | `view_session_id` | home (view) | Integer session being viewed |
 | `view_session_name` | home (view) | Name of session being viewed |
 | `_view_charts` | dashboard (view) | Loaded charts from saved session |
 | `_vsid` | dashboard (view) | View session ID (cache invalidation) |
+| `_view_session_meta` | dashboard (view) | Cached session metadata |
 
-### Chart Metadata
+### Chart Metadata & Notes
 
 | Key | Description |
 |---|---|
 | `chart_type_{uid}` | Analysis type ID for the chart |
 | `desc_{uid}` | User-written notes for the chart |
-| `chart_meta_{uid}` | Dict of display options, text style, custom title, subtitle, etc. |
+| `chart_meta_{uid}` | Dict of display options, text style, custom title, subtitle, `_generation_kwargs`, etc. |
+| `_notes_shadow` | Dict of `{uid: note}` — authoritative source for notes during editing, synced bidirectionally with `desc_{uid}` |
 
 ### Internal / Cache Keys
 
@@ -709,16 +797,32 @@ The application uses `st.session_state` extensively. Keys are prefixed to avoid 
 |---|---|
 | `_df_version` | Incremented on every `set_df()` call (cache invalidation) |
 | `_df_snapshot_sig` | Signature of the last saved DataFrame snapshot |
-| `_notes_shadow` | Dict of `{uid: note}` synced from `desc_{uid}` keys |
+| `_df_snapshot_version` | Version checked against for snapshot saving (avoids redundant signature computation) |
+| `_df_snapshot_inflight_sig` | Signature of an in-flight snapshot save (prevents concurrent writers) |
+| `_last_draft_upload_cache` | Cache key for last draft/upload snapshot |
+| `_raw_upload_shape` | `(rows, cols)` of the raw uploaded file before any cleaning |
+| `_current_rendered_page` | Tracks the currently rendered page for navigation |
+| `_last_page_navigated_from` | Previous page (for back-button logic) |
+| `_restore_to_page` | Page to restore to after draft restore |
 | `_active_analysis` | Currently selected analysis type on the analysis page |
 | `_regen_uid` / `_regen_type` / `_regen_restore` | Regenerate mode state |
 | `_display_fig_{uid}` / `_display_fig_hash_{uid}` | Display-figure cache |
 | `_charts_json_cache_val` / `_charts_json_cache_sig` | Charts JSON cache |
 | `_ul_preview_cache` / `_ul_preview_cache_key` | Upload page preview cache |
+| `_ul_df_stats` / `_ul_df_stats_ver` | Upload page DataFrame stats cache |
 | `_dq_charts` / `_dq_sig` | Data quality chart cache |
 | `_analysis_notes_loaded` | Flag: analysis notes restored |
-| `_edit_notes_loaded` | Flag: edit-mode notes restored |
 | `_analysis_page_ready` | Flag: analysis page initialized |
+| `_fig_json_cache` | Per-chart memoized JSON serialization cache |
+| `_session_cache_{fn}` / `_session_cache_sig_{fn}` | Generic session_state-backed memo cache |
+| `_cached_col_types` / `_cached_col_types_ver` | Cached column type lookup |
+| `_ul_full_filter_cache` / `_ul_full_filter_cache_key` | Full table filter cache |
+| `_csv_export_cache_key` / `_csv_export_bytes` / `_csv_export_size` | CSV export cache |
+| `_xl_sheets_{filename}` | Excel sheet names cache |
+| `_unified_table_info` | Excel unified table info cache |
+| `_preview_stats_cache` / `_preview_stats_cache_ver` | Preview stats cache |
+| `_desc_stats_cache` / `_desc_stats_cache_ver` | Descriptive stats cache |
+| `_cls_auto_cache` / `_cls_auto_cache_ver` | Column classifier auto-detect cache |
 
 ### Widget Keys
 
@@ -741,12 +845,20 @@ Configuration widgets use namespaced keys:
 | CSV reading | `@st.cache_resource(max_entries=1)` | `_read_csv_cached()` — cached by file signature |
 | Pivot tables | `@st.cache_data(ttl=300)` | `_pivot_impl()` — 5-minute TTL |
 | Session cache | Custom `session_cached` decorator | Any pure function, keyed by args |
+| Upload preview | `session_state` dict | `_ul_preview_cache` — versioned by `_df_version` |
+| Upload stats | `session_state` dict | `_ul_df_stats` — versioned by `_df_version` |
+| Data quality | `session_state` dict | `_dq_charts` — versioned by `_dq_sig` |
+| Full table filters | `session_state` dict | `_ul_full_filter_cache` — versioned by filter signature |
+| CSV export | `session_state` dict | `_csv_export_bytes` — versioned by filename, index, df version |
+| Column classifier | `session_state` dict | `_cls_auto_cache` — versioned by `_df_version` |
 
 ### DataFrame Optimization
 
+- **`set_df(df)`** — The single source of truth for replacing the DataFrame. Bumps `_df_version` and clears all derived caches.
+- **`update_df(df)`** — Shallow-copies df then stores via `set_df()` (for in-place mutations).
 - **`optimize_dtypes(df)`** — Downcasts integers (int64 → int8/16/32), floats (float64 → float32), and converts low-cardinality object columns to `category` dtype. Can reduce memory by 50-70%.
 - **Chunked reading** — CSVs over 30 MB are read in 200K-row chunks with dtype optimization applied per chunk.
-- **Parquet snapshots** — The DataFrame is saved to parquet after upload for tab-refresh recovery. Stored on tmpfs (`$XDG_RUNTIME_DIR`) if available, falling back to `~/.cache/lytrize/`.
+- **Parquet snapshots** — The DataFrame is saved to parquet after upload for tab-refresh recovery. Stored on tmpfs (`$XDG_RUNTIME_DIR`) if available, falling back to `~/.cache/lytrize/`. Enforces a 512 MB limit.
 
 ### Sampling
 
@@ -759,15 +871,26 @@ Configuration widgets use namespaced keys:
 
 - Each chart card is rendered inside an `@st.fragment` (`chart_card.py`).
 - Adjusting one chart's settings (typography, display options) only reruns that chart's fragment — the rest of the page (nav, preview, KPIs, other charts) stays inert.
+- Upload page sections (preview, data quality, outlier, column manager, dtype transformer, data cleaner, CSV export) are each in their own fragment.
 - This is the single largest performance win for interactivity.
+
+### Persistence Optimisations
+
+- **`_fig_json_cached(uid, fig)`** — Memoized per-chart JSON serialization keyed by `id(fig)`. Unchanged charts are never re-serialized.
+- **`_downsample_fig_for_persist(fig)`** — Downsamples large line/scatter traces to at most 10,000 points before database storage. The live figure is never mutated.
+- **`charts_json_cached()`** — Debounced autosave: only re-serializes when the chart set or notes actually change.
+- **`_save_upload_snapshot()`** — Fast-path skips snapshot/draft save if `_df_version` hasn't changed since last save. Uses a background thread for parquet I/O.
 
 ### Common Pitfalls
 
 - **Streamlit reruns are expensive** — Avoid heavy computation at module top-level. Use `@st.cache_data` or `@st.cache_resource`.
-- **Session state key collisions** — Always prefix keys (`_cfg_`, `desc_`, `chart_meta_`).
+- **Session state key collisions** — Always prefix keys (`_cfg_`, `desc_`, `chart_meta_`, `_edit_`).
 - **Circular imports** — Keep chart runners in `modules/analysis/` and UI helpers in `modules/ui/`. Shared constants go in `charts.py` or `config.py`.
 - **Plotly figure mutability** — Deep-copy figures before mutating them in export or display helpers. Plotly figures are mutable and shared across reruns.
 - **Cache invalidation** — `compute_meta_hash()` hashes the full meta dict so any future key auto-invalidates the display cache.
+- **DataFrame mutation** — Never assign `st.session_state.df` directly. Use `set_df()` or `update_df()` to ensure caches are invalidated.
+- **Fragment scope** — `st.rerun()` inside an `@st.fragment` only reruns that fragment. Use `st.rerun(scope="app")` to rerun the entire app (e.g., when navigating pages from within a chart card).
+- **Thread safety** — `st.session_state` is bound to the main Streamlit script-run thread. Never touch it from a background thread (e.g., the parquet snapshot writer).
 
 ---
 
@@ -850,6 +973,8 @@ Currently, the project does not include an automated test suite. When adding new
 5. **Check the insight engine** — If you add a new chart runner, confirm that the insight engine produces at least one insight and does not crash on degenerate data.
 6. **Check export** — Verify the HTML export is self-contained (no external CDN dependencies) and renders correctly in Chrome and Firefox.
 7. **Check cross-platform** — If possible, test on both Ubuntu and Fedora.
+8. **Check re-upload auto-update** — If you modify chart runners or KPIs, verify that saved charts/KPIs regenerate correctly when re-uploading a modified version of the same dataset. Check that missing columns are reported as warnings.
+9. **Check notes persistence** — Verify that chart notes survive page navigation, reruns, and session saves/loads.
 
 ---
 
@@ -860,7 +985,7 @@ Currently, the project does not include an automated test suite. When adding new
 - Run with `streamlit run backend/app.py --server.port 8501 --server.address 127.0.0.1` to see live logs in the terminal.
 - Use `st.write()` or `st.json()` to inspect `st.session_state` during development.
 - The launcher writes backend logs to `~/.local/share/lytrize/streamlit.log` when launched from the desktop entry.
-- Use `LYTRIZE_DB_PATH=/tmp/lytrize_test.db` to use a throwaway database for debugging.
+- Use `LYTRIZE_DB_PATH=/tmp/lytrize_test.db` to use a throwaway database.
 
 ### Desktop Launcher
 
@@ -879,6 +1004,16 @@ Currently, the project does not include an automated test suite. When adding new
 - Set `LYTRIZE_DB_PATH=/tmp/lytrize_test.db` to use a throwaway database.
 - Drafts are stored in `draft_sessions`. If the app feels slow, verify that draft cleanup is happening after saves.
 - The database uses WAL mode for concurrent read/write access.
+- The `analysed_datasets` table is backfilled from existing sessions on first run. If you need to reset it, delete the row and restart.
+
+### Transform Log & Regenerate
+
+- The `transform_log` is stored in both `draft_sessions` and `sessions` tables as `transform_log_json`.
+- To inspect the transform log for a session:
+  ```bash
+  sqlite3 ~/.local/share/lytrize/lytrize.db "SELECT transform_log_json FROM sessions WHERE id=1;"
+  ```
+- The `regenerate.py` module logs warnings when charts/KPIs can't be regenerated (missing columns, count mismatch). Check the terminal output for details.
 
 ### Common Pitfalls
 
@@ -888,6 +1023,8 @@ Currently, the project does not include an automated test suite. When adding new
 - **Plotly figure mutability** — Deep-copy figures before mutating them in export or display helpers.
 - **Duplicate widget IDs** — When rendering the same widget in a loop, use unique keys derived from the loop variable.
 - **Fragment scope** — `st.rerun()` inside an `@st.fragment` only reruns that fragment. Use `st.rerun(scope="app")` to rerun the entire app (e.g., when navigating pages from within a chart card).
+- **DataFrame mutation** — Never assign `st.session_state.df` directly. Use `set_df()` or `update_df()` to ensure caches are invalidated.
+- **Thread safety** — `st.session_state` is bound to the main Streamlit script-run thread. Never touch it from a background thread.
 
 ---
 
@@ -897,12 +1034,14 @@ Currently, the project does not include an automated test suite. When adding new
 - **Docstrings:** Use Google-style docstrings (`Args`, `Returns`, `Raises`).
 - **Naming:** `snake_case` for functions and variables, `PascalCase` for classes, `UPPER_SNAKE` for constants.
 - **Streamlit session state keys:** Prefix keys to avoid collisions (`_cfg_{aid}_{key}`, `desc_{uid}`, `chart_meta_{uid}`).
-- **Error handling:** Catch and log errors; do not crash the UI. Use `try/except` around user-facing operations.
+- **Error handling:** Catch and log errors; do not crash the UI. Use `try/except` around user-facing operations. Never raise from a function that handles user input.
 - **Performance:** Use `@st.cache_resource` for one-per-process assets and `@st.cache_data` for computed data. Avoid unnecessary disk I/O on reruns.
 - **HTML escaping:** Use the `_h()` helper from `modules/export.py` when injecting user-controlled text into HTML strings.
 - **Imports:** Use absolute imports (e.g., `from modules.database import init_db`). Local imports (inside functions) are acceptable for avoiding circular dependencies.
 - **Line length:** 100 characters (soft limit).
 - **Type hints:** Use type hints for function signatures. `Optional[T]`, `list[T]`, `dict[str, T]` are preferred over `Union` and `List`/`Dict`.
+- **Logging:** Use `logging.getLogger(__name__)` for module-level loggers. Use `debug()` for suppressed errors, `warning()` for recoverable issues, `error()` for unrecoverable failures.
+- **Database:** Use the `_db()` context manager for transactions. Use `_ph()` for SQL queries (placeholder passthrough, allows future DB abstraction). Always use parameterized queries.
 
 ---
 
@@ -939,6 +1078,7 @@ Currently, the project does not include an automated test suite. When adding new
 7. **Light mode is partially implemented** — Dark mode is the primary theme. Light mode overrides exist in `css.py` but may have visual inconsistencies on some components.
 8. **Session restore after reboot** — If the parquet snapshot is stored on tmpfs (`$XDG_RUNTIME_DIR`), it is lost across reboots. The user will be asked to re-upload the file.
 9. **Firefox kiosk mode** — Firefox's `--kiosk` mode is the closest equivalent to Chromium's `--app=` mode, but it may still show a tab bar or address bar on some Firefox versions.
+10. **Transform log scope** — The transform log only tracks structural column operations (rename, remove, dtype, calculated columns). Row-value cleaning (text clean, find & replace, numeric clean) is not logged because it doesn't affect whether a chart's referenced column still exists.
 
 ---
 

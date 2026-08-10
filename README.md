@@ -51,7 +51,8 @@ Upload a CSV or Excel file and get interactive charts, dashboards, and insights 
 | **📊 11 chart types** | Bar, pie/donut, scatter, histogram, time series, correlation, pivot table, matrix heatmap, geographic map, outlier, and data quality |
 | **🗂️ Dashboard builder** | Arrange charts in a portrait (2-column) or landscape (3-column) grid, add KPI summary cards, set a title |
 | **📤 Export** | Download as a self-contained HTML file — then use your browser's DevTools to save as PNG |
-| **🧹 Data tools** | Rename columns, change data types, flag outliers, and handle missing values before analysis |
+| **🧹 Data tools** | Rename columns, add calculated columns, change data types, flag outliers, and handle missing values before analysis |
+| **🔄 Auto-update** | Re-upload updated datasets and automatically regenerate all charts and KPIs — column renames and calculated columns are preserved |
 | **💾 Session backup & restore** | Save local session backups and restore any compatible JSON backup, including ones shared by other users |
 | **🔒 Fully offline** | No telemetry, no analytics, no outbound network requests |
 | **🚀 Fast** | Chunked CSV reader, dtype optimization, and smart sampling handle files up to 300 MB |
@@ -68,10 +69,11 @@ Built for people who work with data often and want answers fast — without open
 
 Lytrize includes a native desktop launcher (PySide6) that manages the backend and opens the app in an isolated browser window. The launcher provides:
 
-- **Browser selection** — choose Chrome, Chromium, Firefox, Brave, Edge, or your default browser
+- **Browser selection** — choose Chrome, Chromium, Firefox, Brave, Edge, Vivaldi, Opera, or your default browser
 - **Isolated profiles** — Chromium-based browsers launch in app mode (`--app=`) with a separate profile; Firefox gets a clean isolated profile with `--kiosk`
 - **System tray integration** — the app lives in the tray while running
 - **Crash recovery** — if the backend crashes, the launcher shows a recoverable error instead of going blank
+- **Progress indicator** — animated status dot and progress bar during startup
 
 ---
 
@@ -130,7 +132,7 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md#development-setup) for the full develope
 Launch Lytrize from your application menu or run `lytrize` in a terminal. A launcher window appears while the Streamlit backend starts, then your browser opens automatically.
 
 ### 2. Upload a file
-Click **Start New Analysis** on the home screen and choose a CSV or Excel file. Lytrize shows a preview and lets you rename columns, fix data types, and flag outliers before proceeding.
+Click **Start New Analysis** on the home screen and choose a CSV or Excel file. Lytrize shows a preview and lets you rename columns, add calculated columns, fix data types, and flag outliers before proceeding.
 
 ### 3. Run an analysis
 On the Analysis page, click any chart-type card — bar chart, time series, scatter plot, correlation heatmap, and so on. Choose your columns and options, then click **Generate**. Charts appear right away.
@@ -140,6 +142,9 @@ Charts you generate collect in your session. Click **Proceed to Dashboard** to a
 
 ### 5. Save, back up, and export
 Your session saves automatically as you work. Use **Save Session** to make a named checkpoint you can see on the home screen. Use **Restore Backup** to import any compatible JSON backup from another user or from your own archive. Use **Download HTML** to get a standalone file you can open in any browser or share with someone else. Save the HTML page as PNG using your browser's DevTools screenshot tool.
+
+### 6. Update your data
+If you need to update your dataset, go to the Home page, click **Edit** on a saved session, and re-upload the modified file. Lytrize automatically reapplies your column renames and calculated columns, then regenerates all charts and KPIs with the new data.
 
 ---
 
@@ -227,11 +232,11 @@ Restart the app — a fresh database will be created automatically. Your saved s
 ---
 ## Upcoming development plan
 
-**1. Official chromium extension for one click full page screenshot**
+**1. Official Chromium extension for one-click full page screenshot**
 
 **2. Light mode theme**
 
-**3. Dynamic flter/slicer per chart**
+**3. Dynamic filter/slicer per chart**
 
 **4. UI improvements & minor bug fixes**
 
