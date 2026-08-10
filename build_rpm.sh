@@ -95,17 +95,18 @@ python3 -m venv "$VENV"
 # ── [4/7] Install Python dependencies ────────────────────────────────────────
 echo "[4/7] Installing Python dependencies..."
 "$VENV/bin/pip" install --upgrade pip setuptools wheel --quiet
-# Hardcoded Fedora dependencies (Python 3.14)
+# Install dependencies matching requirements.txt (Fedora/RHEL, Python 3.14)
 "$VENV/bin/pip" install \
-    "streamlit>=1.40.0,<2.0.0" \
-    "pandas>=2.2.0,<3.0.0" \
-    "plotly>=5.22.0,<6.0.0" \
-    "openpyxl>=3.1.0,<4.0.0" \
-    "scipy>=1.12.0,<2.0.0" \
-    "statsmodels>=0.14.0,<0.15.0" \
-    "pycountry>=23.12.11,<25.0.0" \
-    "PySide6>=6.11.0,<7.0.0" \
-    "starlette>=0.21.0,<0.36.0" \
+    "pyarrow>=18.0.0" \
+    "streamlit>=1.40.0" \
+    "pandas>=2.2.0" \
+    "plotly>=5.22.0" \
+    "openpyxl>=3.1.0" \
+    "scipy>=1.12.0" \
+    "statsmodels>=0.14.0" \
+    "pycountry>=23.12.11" \
+    "PySide6>=6.11.0" \
+    "starlette>=0.21.0" \
     --quiet
 # Pin pyarrow to 24.0.0 for Fedora (Python 3.14) — 18.1.0 has no 3.14 wheels
 "$VENV/bin/pip" install "pyarrow==24.0.0" --quiet --only-binary pyarrow

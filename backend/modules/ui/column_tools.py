@@ -11,6 +11,36 @@ from modules.utils.session_cache import set_df, update_df
 
 
 
+def _parse_datetime_robust(series: pd.Series) -> pd.Series:
+    """Parse datetime with support for multiple date formats (US and European)."""
+    s = series.astype(str).str.strip()
+    result = pd.to_datetime(s, errors="coerce")
+
+    # If already parsed everything, return early
+    remaining = result.isna() & series.notna()
+    if not remaining.any():
+        return result
+
+    # Try specific date formats for remaining unparsed values
+    for fmt in (
+        "%d/%m/%Y", "%m/%d/%Y",
+        "%d/%m/%Y %I:%M %p", "%m/%d/%Y %I:%M %p",
+        "%d/%m/%Y %H:%M",    "%m/%d/%Y %H:%M",
+        "%d-%m-%Y", "%m-%d-%Y",
+        "%d.%m.%Y", "%m.%d.%Y",
+    ):
+        still = result.isna() & series.notna()
+        if not still.any():
+            break
+        try:
+            attempt = pd.to_datetime(s[still], format=fmt, errors="coerce")
+            result[still] = attempt
+        except Exception:
+            pass
+
+    return result
+
+
 def _preview_conversion(series: pd.Series, new_dtype: str) -> dict:
     import datetime
 
@@ -21,11 +51,11 @@ def _preview_conversion(series: pd.Series, new_dtype: str) -> dict:
 
     try:
         if new_dtype == "datetime64[ns]":
-            converted = pd.to_datetime(series, errors="coerce")
+            converted = _parse_datetime_robust(series)
 
 
         elif new_dtype == "date":
-            converted = pd.to_datetime(series, errors="coerce").dt.date
+            converted = _parse_datetime_robust(series).dt.date
 
 
         elif new_dtype == "time":
@@ -221,11 +251,11 @@ def show_dtype_transformer(df):
             with st.spinner(f"Converting `{col_to_convert}` to {new_dtype}…"):
                 try:
                     if new_dtype == "datetime64[ns]":
-                        converted = pd.to_datetime(df[col_to_convert], errors='coerce')
+                        converted = _parse_datetime_robust(df[col_to_convert])
 
 
                     elif new_dtype == "date":
-                        converted = pd.to_datetime(df[col_to_convert], errors='coerce').dt.date
+                        converted = _parse_datetime_robust(df[col_to_convert]).dt.date
 
 
                     elif new_dtype == "time":

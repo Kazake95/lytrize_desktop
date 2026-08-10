@@ -21,9 +21,6 @@ Requires:       xcb-util-cursor
 Requires:       dbus-libs
 Recommends:     chromium-browser
 Recommends:     firefox
-Recommends:     google-noto-sans-fonts google-noto-serif-fonts dejavu-fonts
-Recommends:     source-sans-pro lato oswald barlow eb-garamond fira-code-fonts
-Recommends:     jetbrains-mono-fonts
 
 %description
 Lytrize is a local-first Linux desktop analytics app.

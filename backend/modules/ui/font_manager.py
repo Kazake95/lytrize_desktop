@@ -221,6 +221,9 @@ _FONT_FILE_META: dict[str, tuple[str, str, str]] = {
     # Inter variable font
     "Inter-Variable.ttf": ("Inter-Variable", "100 900", "normal"),
 
+    # Sora (brand font)
+    "Sora.ttf": ("Sora", "100 900", "normal"),
+
     # Andale Mono
     "andalemo.ttf": ("Andale Mono", "400", "normal"),
 
@@ -230,6 +233,10 @@ _FONT_FILE_META: dict[str, tuple[str, str, str]] = {
     "arialbi.ttf": ("Arial", "700", "italic"),
     "ariali.ttf": ("Arial", "400", "italic"),
     "ariblk.ttf": ("Arial Black", "900", "normal"),
+
+    # Barlow Condensed
+    "barlowcondensed-regular.ttf": ("Barlow Condensed", "400", "normal"),
+    "barlowcondensed-bold.ttf": ("Barlow Condensed", "700", "normal"),
 
     # Calibri
     "calibri.ttf": ("Calibri", "400", "normal"),
@@ -276,6 +283,14 @@ _FONT_FILE_META: dict[str, tuple[str, str, str]] = {
     "courbi.ttf": ("Courier New", "700", "italic"),
     "couri.ttf": ("Courier New", "400", "italic"),
 
+    # EB Garamond
+    "ebgaramond-regular.ttf": ("EB Garamond", "400", "normal"),
+    "ebgaramond-italic.ttf": ("EB Garamond", "400", "italic"),
+
+    # Fira Code
+    "firacode-regular.ttf": ("Fira Code", "400", "normal"),
+    "firacode-bold.ttf": ("Fira Code", "700", "normal"),
+
     # Georgia
     "georgia.ttf": ("Georgia", "400", "normal"),
     "georgiab.ttf": ("Georgia", "700", "normal"),
@@ -284,6 +299,21 @@ _FONT_FILE_META: dict[str, tuple[str, str, str]] = {
 
     # Impact
     "impact.ttf": ("Impact", "400", "normal"),
+
+    # JetBrains Mono
+    "JetBrainsMono.ttf": ("JetBrains Mono", "100 900", "normal"),
+
+    # Lato
+    "lato-regular.ttf": ("Lato", "400", "normal"),
+    "lato-bold.ttf": ("Lato", "700", "normal"),
+
+    # Oswald
+    "oswald-regular.ttf": ("Oswald", "400", "normal"),
+    "oswald-bold.ttf": ("Oswald", "700", "normal"),
+
+    # Source Sans 3
+    "sourcesans3-regular.ttf": ("Source Sans 3", "400", "normal"),
+    "sourcesans3-bold.ttf": ("Source Sans 3", "700", "normal"),
 
     # Tahoma
     "tahoma.ttf": ("Tahoma", "400", "normal"),
@@ -373,34 +403,77 @@ def _build_all_faces_css() -> str:
     return "\n".join(lines)
 
 
-def inject_bundled_font_css() -> None:
+def inject_bundled_font_css(font_names: list[str] | None = None) -> None:
     """
-    Inject @font-face rules so every bundled font is available in the
-    browser / WebView rendering context via base64 data URIs.
-
+    Inject @font-face rules for specific bundled fonts into the browser.
+    
+    Args:
+        font_names: List of font display names to inject. If None, injects
+                    only the essential fonts (Inter, Sora) for app chrome.
+                    Pass specific font names when user selects them.
+    
     All TTF files shipped under backend/assets/fonts/ are embedded
     directly, guaranteeing correct rendering regardless of system font
     installation.  Font stacks from FONT_ENTRIES still include fallback
     (metric-compatible) families for graceful degradation.
-
-    CSS is built once per process and injected once per session to avoid
-    re-sending ~17 MB of base64-encoded font data on every Streamlit rerun.
     """
     global _ALL_FACES_CSS_CACHE
-
+    
+    # Build full CSS cache once per process (lazy)
     if _ALL_FACES_CSS_CACHE is None:
         _ALL_FACES_CSS_CACHE = _build_all_faces_css()
-
-    # Skip re-injection if already done this session
-    if st.session_state.get("_lytrize_bundled_fonts_injected"):
+    
+    # Determine which fonts to inject
+    if font_names is None:
+        # Default: only inject essential branding fonts
+        font_names = ["Inter", "Sora"]
+    
+    # Extract unique family names from requested fonts
+    families_to_inject: set[str] = set()
+    for name in font_names:
+        stack = get_font_stack(name)
+        # Extract primary font family from stack (first quoted or unquoted name)
+        import re
+        match = re.match(r"'([^']+)'|([^,\s]+)", stack)
+        if match:
+            family = match.group(1) or match.group(2)
+            families_to_inject.add(family)
+    
+    if not families_to_inject:
         return
-
-    if _ALL_FACES_CSS_CACHE:
-        st.markdown(
-            f'<style id="lytrize_bundled_fonts">{_ALL_FACES_CSS_CACHE}</style>',
-            unsafe_allow_html=True,
+    
+    # Build minimal CSS for only requested fonts
+    lines: list[str] = []
+    font_dir = _fonts_dir()
+    if not font_dir:
+        return
+    
+    for filename, (family, weight, style) in _FONT_FILE_META.items():
+        if family not in families_to_inject:
+            continue
+        filepath = os.path.join(font_dir, filename)
+        if not os.path.isfile(filepath):
+            continue
+        uri = _file_data_uri(filepath)
+        if not uri:
+            continue
+        lines.append(
+            f"@font-face {{\n"
+            f"  font-family: '{family}';\n"
+            f"  font-style: {style};\n"
+            f"  font-weight: {weight};\n"
+            f"  src: url('{uri}');\n"
+            f"}}\n"
         )
-    st.session_state["_lytrize_bundled_fonts_injected"] = True
+    
+    if not lines:
+        return
+    
+    css = "\n".join(lines)
+    st.markdown(
+        f'<style id="lytrize_bundled_fonts">{css}</style>',
+        unsafe_allow_html=True,
+    )
 
 
 def get_font_stack(name: str) -> str:
@@ -423,7 +496,8 @@ def _css_class(font_name: str) -> str:
 
 def inject_font_preview_css() -> None:
     """Inject a <style> block with font-family classes for every registered font."""
-    inject_bundled_font_css()
+    # Inject all fonts for preview (this is called when user opens font picker)
+    inject_bundled_font_css(get_all_font_names())
 
     if st.session_state.get("_lytrize_font_preview_injected"):
         return
@@ -441,7 +515,8 @@ def inject_font_preview_css() -> None:
 
 def font_select(label: str, default: str, key: str) -> str:
     """Render a font-family selector with a live preview line."""
-    inject_bundled_font_css()
+    # Inject all fonts when font picker is opened
+    inject_bundled_font_css(get_all_font_names())
 
     options = get_all_font_names()
     if default not in options:

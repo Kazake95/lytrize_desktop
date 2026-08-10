@@ -72,26 +72,13 @@ def logo_data_uri() -> str:
 
 @lru_cache(maxsize=1)
 def _font_link() -> str:
-    return (
-        "<link rel='stylesheet'"
-        " href='https://fonts.googleapis.com/css2?"
-        "family=Inter:wght@300;400;500;600;700;800"
-        "&family=Sora:wght@600;700;800"
-        "&family=JetBrains+Mono:wght@400;500&display=swap'"
-        " media='print'"
-        " onload=\"this.media='all'\">"
-        "<noscript><link rel='stylesheet'"
-        " href='https://fonts.googleapis.com/css2?"
-        "family=Inter:wght@300;400;500;600;700;800"
-        "&family=Sora:wght@600;700;800"
-        "&family=JetBrains+Mono:wght@400;500&display=swap'></noscript>"
-    )
-
+    # All fonts are now bundled locally — no external CDN dependency
+    return ""
 
 
 def inject_css() -> None:
     """Inject fonts + full stylesheet into the Streamlit page."""
-    st.markdown(_font_link(), unsafe_allow_html=True)
+    # Bundled fonts are injected by font_manager.inject_bundled_font_css()
     st.markdown(_css_block(get_theme_mode()), unsafe_allow_html=True)
 
 
