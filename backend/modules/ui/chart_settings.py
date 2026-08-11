@@ -1439,8 +1439,7 @@ def render_typography_controls(uid: str, fig, chart_type: str,
     Per-element (axis, legend, pie) in an Advanced popover.
     """
     text_style = dict(meta.get("text_style", {}))
-    # Only inject essential fonts by default - full font list loaded when user opens font picker
-    inject_font_preview_css(["Inter", "Sora"])
+    inject_font_preview_css()
     caps = get_chart_type_capabilities(chart_type)
     typo = caps.get("typography", [])
 

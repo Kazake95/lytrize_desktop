@@ -351,7 +351,7 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
                     from modules.ui.font_manager import inject_font_preview_css
                     # Only inject the fonts actually in use to avoid browser crash
                     _current_font = text_style.get("family", "Inter")
-                    inject_font_preview_css([_current_font])  # session-guarded; idempotent
+                    inject_font_preview_css()  # session-guarded; idempotent
                     _meta_for_typo = st.session_state.get(f"chart_meta_{uid}", meta)
                     text_updates = render_typography_controls(
                         uid, fig, _stype, _meta_for_typo, key_prefix=key_prefix,

@@ -403,77 +403,34 @@ def _build_all_faces_css() -> str:
     return "\n".join(lines)
 
 
-def inject_bundled_font_css(font_names: list[str] | None = None) -> None:
+def inject_bundled_font_css() -> None:
     """
-    Inject @font-face rules for specific bundled fonts into the browser.
-    
-    Args:
-        font_names: List of font display names to inject. If None, injects
-                    only the essential fonts (Inter, Sora) for app chrome.
-                    Pass specific font names when user selects them.
-    
+    Inject @font-face rules so every bundled font is available in the
+    browser / WebView rendering context via base64 data URIs.
+
     All TTF files shipped under backend/assets/fonts/ are embedded
     directly, guaranteeing correct rendering regardless of system font
     installation.  Font stacks from FONT_ENTRIES still include fallback
     (metric-compatible) families for graceful degradation.
+
+    CSS is built once per process and injected once per session to avoid
+    re-sending ~17 MB of base64-encoded font data on every Streamlit rerun.
     """
     global _ALL_FACES_CSS_CACHE
-    
-    # Build full CSS cache once per process (lazy)
+
     if _ALL_FACES_CSS_CACHE is None:
         _ALL_FACES_CSS_CACHE = _build_all_faces_css()
-    
-    # Determine which fonts to inject
-    if font_names is None:
-        # Default: only inject essential branding fonts
-        font_names = ["Inter", "Sora"]
-    
-    # Extract unique family names from requested fonts
-    families_to_inject: set[str] = set()
-    for name in font_names:
-        stack = get_font_stack(name)
-        # Extract primary font family from stack (first quoted or unquoted name)
-        import re
-        match = re.match(r"'([^']+)'|([^,\s]+)", stack)
-        if match:
-            family = match.group(1) or match.group(2)
-            families_to_inject.add(family)
-    
-    if not families_to_inject:
+
+    # Skip re-injection if already done this session
+    if st.session_state.get("_lytrize_bundled_fonts_injected"):
         return
-    
-    # Build minimal CSS for only requested fonts
-    lines: list[str] = []
-    font_dir = _fonts_dir()
-    if not font_dir:
-        return
-    
-    for filename, (family, weight, style) in _FONT_FILE_META.items():
-        if family not in families_to_inject:
-            continue
-        filepath = os.path.join(font_dir, filename)
-        if not os.path.isfile(filepath):
-            continue
-        uri = _file_data_uri(filepath)
-        if not uri:
-            continue
-        lines.append(
-            f"@font-face {{\n"
-            f"  font-family: '{family}';\n"
-            f"  font-style: {style};\n"
-            f"  font-weight: {weight};\n"
-            f"  src: url('{uri}');\n"
-            f"}}\n"
+
+    if _ALL_FACES_CSS_CACHE:
+        st.markdown(
+            f'<style id="lytrize_bundled_fonts">{_ALL_FACES_CSS_CACHE}</style>',
+            unsafe_allow_html=True,
         )
-    
-    if not lines:
-        return
-    
-    css = "\n".join(lines)
-    st.markdown(
-        f'<style id="lytrize_bundled_fonts">{css}</style>',
-        unsafe_allow_html=True,
-    )
+    st.session_state["_lytrize_bundled_fonts_injected"] = True
 
 
 def get_font_stack(name: str) -> str:
@@ -494,29 +451,15 @@ def _css_class(font_name: str) -> str:
     return "lytrize_font_" + font_name.lower().replace(" ", "_").replace("-", "_")
 
 
-def inject_font_preview_css(font_names: list[str] | None = None) -> None:
-    """Inject a <style> block with font-family classes for preview.
-    
-    Args:
-        font_names: List of font display names to inject. If None, injects
-                    only the essential fonts (Inter, Sora) for app chrome.
-                    Pass specific font names when user opens font picker.
-    """
-    # Determine which fonts to inject
-    if font_names is None:
-        # Default: only inject essential branding fonts to avoid browser crash
-        font_names = ["Inter", "Sora"]
-    
-    # Inject the actual font files (base64 data URIs) for requested fonts
-    inject_bundled_font_css(font_names)
+def inject_font_preview_css() -> None:
+    """Inject a <style> block with font-family classes for every registered font."""
+    inject_bundled_font_css()
 
     if st.session_state.get("_lytrize_font_preview_injected"):
         return
 
     css_rules = ""
     for entry in FONT_ENTRIES:
-        if entry["name"] not in font_names:
-            continue
         cls = _css_class(entry["name"])
         css_rules += f".{cls} {{ font-family: {entry['stack']}; }}\n"
     st.markdown(
@@ -528,18 +471,13 @@ def inject_font_preview_css(font_names: list[str] | None = None) -> None:
 
 def font_select(label: str, default: str, key: str) -> str:
     """Render a font-family selector with a live preview line."""
-    # Only inject the default font initially - selected font injected on change
-    inject_bundled_font_css([default] if default else ["Inter"])
+    inject_bundled_font_css()
 
     options = get_all_font_names()
     if default not in options:
         options = [default] + options
 
     selected = st.selectbox(label, options, index=_index_of(options, default), key=key)
-
-    # Inject the selected font if it's different from default
-    if selected != default:
-        inject_bundled_font_css([selected])
 
     preview_class = _css_class(selected)
     st.markdown(
