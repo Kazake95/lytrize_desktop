@@ -16,8 +16,8 @@ FEATURES
 
 STARTUP BEHAVIOUR
 -----------------
-First launch → opens the app in guest / profile mode.
-Subsequent launches → opens the app in the same local guest profile.
+There are no accounts, sign-up, or login — the app opens straight into the
+single local workspace tied to the current OS user, every launch.
 
 BROWSER MODES
 -------------
@@ -944,7 +944,7 @@ class Launcher(QWidget):
                 "--server.fileWatcherType",      "none",
                 "--server.runOnSave",            "false",
                 "--server.enableCORS",           "false",
-                "--server.enableXsrfProtection", "false",
+                "--server.enableXsrfProtection", "true",
                 "--browser.gatherUsageStats",    "false",
                 "--browser.serverAddress",       APP_HOST,
                 "--client.toolbarMode",          "minimal",

@@ -855,22 +855,28 @@ def page_dashboard():
                     st.session_state.grid_fullwidth = json.loads(sm.get("grid_fullwidth_json", "{}"))
                 except Exception:
                     st.session_state.grid_fullwidth = {}
+
+    # Force-load the saved export theme (colours/text) on first entry into
+    # edit mode for a given session.  The ex_* keys persist in session_state
+    # across sessions, so without this override a stale/default theme would
+    # win over the saved one.
+    if is_editing and st.session_state.get("_edit_theme_loaded_for") != st.session_state.editing_session_id:
+        eid = st.session_state.editing_session_id
+        sm  = get_session_meta(eid, st.session_state.get("user_id"))
+        if sm:
             try:
                 export_text = json.loads(sm.get("export_text_json", "{}"))
             except Exception:
                 export_text = {}
             for key, val in export_text.items():
-                session_key = f"ex_{key}"
-                if session_key not in st.session_state:
-                    st.session_state[session_key] = val
+                st.session_state[f"ex_{key}"] = val
             try:
                 export_colours = json.loads(sm.get("export_colours_json", "{}"))
             except Exception:
                 export_colours = {}
             for key, val in export_colours.items():
-                session_key = f"ex_{key}"
-                if session_key not in st.session_state:
-                    st.session_state[session_key] = val
+                st.session_state[f"ex_{key}"] = val
+        st.session_state._edit_theme_loaded_for = eid
 
 
     if is_editing and not st.session_state.get("_edit_notes_loaded"):
@@ -923,6 +929,23 @@ def page_dashboard():
         if _session_just_loaded:
             sm = get_session_meta(sid, st.session_state.get("user_id"))
             st.session_state["_view_session_meta"] = sm
+            # Force-load the saved export theme (colours/text) when first
+            # viewing this session.  The ex_* keys persist in session_state
+            # across sessions, so without this override a stale/default theme
+            # would win over the saved one.
+            if sm:
+                try:
+                    export_text = json.loads(sm.get("export_text_json", "{}"))
+                except Exception:
+                    export_text = {}
+                for key, val in export_text.items():
+                    st.session_state[f"ex_{key}"] = val
+                try:
+                    export_colours = json.loads(sm.get("export_colours_json", "{}"))
+                except Exception:
+                    export_colours = {}
+                for key, val in export_colours.items():
+                    st.session_state[f"ex_{key}"] = val
         else:
             sm = st.session_state.get("_view_session_meta")
         if sm is None:
@@ -947,22 +970,6 @@ def page_dashboard():
                 st.session_state.grid_fullwidth = json.loads(sm.get("grid_fullwidth_json", "{}"))
             except Exception:
                 st.session_state.grid_fullwidth = {}
-        try:
-            export_text = json.loads(sm.get("export_text_json", "{}"))
-        except Exception:
-            export_text = {}
-        for key, val in export_text.items():
-            session_key = f"ex_{key}"
-            if session_key not in st.session_state:
-                st.session_state[session_key] = val
-        try:
-            export_colours = json.loads(sm.get("export_colours_json", "{}"))
-        except Exception:
-            export_colours = {}
-        for key, val in export_colours.items():
-            session_key = f"ex_{key}"
-            if session_key not in st.session_state:
-                st.session_state[session_key] = val
         df = None
     else:
         sname = f"Analysis -- {st.session_state.get('file_name','')}"
@@ -1580,6 +1587,7 @@ def _do_save(sname_in, charts, df):
     st.session_state.editing_session_name = sname_in
     st.session_state.pop("_edit_notes_loaded",    None)
     st.session_state.pop("_analysis_notes_loaded", None)
+    st.session_state.pop("_edit_theme_loaded_for", None)
     # DON'T clear _notes_shadow - it's needed to restore notes after reruns
     # st.session_state.pop("_notes_shadow",          None)
     st.toast(f"✅ Saved as '{sname_in}'!", icon="✅")
@@ -1592,6 +1600,7 @@ def _do_update(sname_in, charts, clear_editing=False):
     """Update the currently edited session with the current dashboard state."""
     st.session_state.pop("_edit_notes_loaded",      None)
     st.session_state.pop("_analysis_notes_loaded",  None)
+    st.session_state.pop("_edit_theme_loaded_for",  None)
     # DON'T clear _notes_shadow - it's needed to restore notes after reruns
     # st.session_state.pop("_notes_shadow",           None)
     eid = st.session_state.editing_session_id

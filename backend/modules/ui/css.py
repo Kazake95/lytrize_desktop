@@ -848,7 +848,6 @@ def render_logo() -> None:
         unsafe_allow_html=True,
     )
 
-    is_guest   = st.session_state.get("is_guest", False)
     theme_mode = st.session_state.get("theme", "dark")
 
     with st.container():
@@ -872,12 +871,6 @@ def render_logo() -> None:
             st.session_state.page = "profile"
             st.rerun()
 
-        # Profile is always available, sign-out is not used in the guest-only flow.
-        # If a future account feature is restored, this branch can be reintroduced.
-
-
-
-
 def inject_footer() -> None:
     """Render the fixed bottom footer bar."""
     st.markdown(
@@ -886,7 +879,7 @@ def inject_footer() -> None:
         f'  <span>|</span>'
         f'  <span style="color:var(--text-secondary);">Light-weight &amp; Offline</span>'
         f'  <span>|</span>'
-        f'  <a href="https://github.com/VidalNat/Lytrize/discussions/categories/q-a" style="color:var(--text-secondary); text-decoration: none;">Feedback 🗒️</a>'
+        f'  <a href="https://github.com/Kazake95/lytrize_desktop/discussions/categories/q-a" style="color:var(--text-secondary); text-decoration: none;">Feedback 🗒️</a>'
         f'</div>',
         unsafe_allow_html=True,
     )

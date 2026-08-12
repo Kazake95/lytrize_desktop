@@ -37,8 +37,8 @@ Lytrize is a **local-first, offline desktop analytics application** for Linux. I
 | Principle | How it's implemented |
 |---|---|
 | **Local-first** | All data stays on the user's machine. SQLite database at `~/.local/share/lytrize/lytrize.db`. No server, no cloud. |
-| **Offline** | No outbound network requests. Plotly.js is bundled inline in exports. Fonts are loaded via Google Fonts with a `noscript` fallback (or system fonts). |
-| **No account required** | A permanent local guest user is created automatically on first launch. |
+| **Offline** | No outbound network requests. Plotly.js is bundled inline in exports. Fonts (Inter, Sora, JetBrains Mono, and system fonts) are bundled as local TTF files and injected as base64 `@font-face` data URIs — nothing is fetched from Google Fonts or any CDN. |
+| **No accounts** | There is no sign-up, login, or password anywhere in the app. A single local user row keyed by the OS username is created automatically on first launch, purely so the database tables can keep a `user_id` foreign key. |
 | **Crash recovery** | The desktop launcher detects Streamlit crashes and shows a recoverable error. Sessions auto-save to drafts on every chart mutation. |
 | **Fast** | Chunked CSV reader, dtype optimization, smart sampling, and Streamlit fragment isolation for per-chart interactivity. |
 | **Auto-update on re-upload** | Saved charts and KPIs can be automatically regenerated when re-uploading updated versions of the same dataset, preserving column renames and calculated columns via a transform log. |
@@ -92,7 +92,7 @@ lytrize_desktop/
 │       │   ├── upload.py       # File upload, column classification, data cleaning, auto-update on re-upload
 │       │   ├── analysis.py     # Analysis selection and chart generation
 │       │   ├── dashboard.py    # Dashboard builder, KPI cards, export, layout grid
-│       │   ├── auth.py         # Guest profile, backup/restore
+│       │   ├── auth.py         # Local data page: backup/restore
 │       ├── ui/                 # UI components and styling
 │       │   ├── __init__.py
 │       │   ├── css.py          # Global CSS injection, theme tokens, fonts
@@ -174,7 +174,7 @@ Lytrize has a **two-layer architecture**: a PySide6 desktop launcher that manage
 │                         auto-update on re-upload, transform log      │
 │      analysis.py     — Analysis selection and chart generation       │
 │      dashboard.py    — Dashboard builder, KPI cards, export, layout  │
-│      auth.py         — Guest profile, backup/restore                 │
+│      auth.py         — Local data page: backup/restore               │
 │                                                                     │
 │    ui/            — UI components and styling                        │
 │      css.py            — Global CSS, theme tokens, font injection   │
@@ -221,7 +221,7 @@ Lytrize has a **two-layer architecture**: a PySide6 desktop launcher that manage
 ## Data Flow
 
 1. **Launcher starts Streamlit** — `desktop/gui.py` spawns `python -m streamlit run backend/app.py --server.port 8501 --server.address 127.0.0.1`.
-2. **App bootstrap** — `app.py:main()` calls `_init_db_once()` (creates SQLite tables), `inject_css()` (loads fonts + stylesheet), creates a guest user if needed, and restores any saved draft.
+2. **App bootstrap** — `app.py:main()` calls `_init_db_once()` (creates SQLite tables), `inject_css()` (loads fonts + stylesheet), gets or creates the local user row for the current OS user, and restores any saved draft.
 3. **Routing** — `app.py` reads `st.session_state.page` (or the `p` URL parameter) and dispatches to `page_home()`, `page_upload()`, `page_analysis()`, `page_dashboard()`, or `page_profile()`.
 4. **Upload** — `page_upload()` uses `read_csv_fast()` or `read_excel_sheet()` from `perf.py` to load the file, runs `optimize_dtypes()`, and stores the DataFrame in `st.session_state.df` via `set_df()`. The column classifier (`column_tools.py`) auto-detects numeric, categorical, and datetime columns. A parquet snapshot is saved for tab-refresh recovery. The transform log is initialised to track structural column changes.
 5. **Analysis** — `page_analysis()` renders chart-type cards from `ANALYSIS_OPTIONS`. When the user clicks **Generate**, `_collect_kwargs()` reads widget values from `session_state`, `_run()` dispatches to the appropriate chart runner, and `generate_chart_insights()` produces plain-English observations. Each chart's generation kwargs are stored in `chart_meta_{uid}["_generation_kwargs"]` for later regeneration.
@@ -294,7 +294,7 @@ This will use the source tree's `backend/app.py` directly (no `/opt/lytrize` nee
 
 The main Streamlit application. Key responsibilities:
 
-- **`main()`** — Orchestrates app startup: initializes the database, injects CSS, creates/restores the guest user, restores drafts, and dispatches to the active page.
+- **`main()`** — Orchestrates app startup: initializes the database, injects CSS, gets/creates the local user row, restores drafts, and dispatches to the active page.
 - **`_init_db_once()`** — Cached function that calls `init_db()` exactly once per process.
 - **`_restore_draft(user_id)`** — Reloads an in-progress analysis session from `draft_sessions` into `session_state`: charts (deserialized from Plotly JSON), KPIs, dashboard title, layout mode, transform log, and the DataFrame snapshot. The draft is cleared after restore so the next restart starts fresh.
 - **Routing** — Reads `st.session_state.page` (or the `p` URL parameter) and calls the corresponding page function. URL parameters `p` (page) and `sid` (session ID) are kept in sync. The `nav=home` URL parameter forces navigation to the home page and clears view-mode state.
@@ -327,23 +327,22 @@ Shared configuration constants:
 
 All SQLite operations. Key functions:
 
-- **`init_db()`** — Creates all tables (`users`, `sessions`, `user_activity`, `draft_sessions`, `analysed_datasets`). Safe to call every startup (`CREATE TABLE IF NOT EXISTS`). Includes migration logic via `ALTER TABLE ... ADD COLUMN` wrapped in `try/except`, but only fires when `PRAGMA table_info` confirms the column is actually missing (avoids the old pattern of speculatively firing every ALTER and swallowing 17+ OperationalErrors per launch). Seeds the permanent guest user and backfills `session_uuid` for legacy rows.
+- **`init_db()`** — Creates all tables (`users`, `sessions`, `user_activity`, `draft_sessions`, `analysed_datasets`). Safe to call every startup (`CREATE TABLE IF NOT EXISTS`). Includes migration logic via `ALTER TABLE ... ADD COLUMN` wrapped in `try/except`, but only fires when `PRAGMA table_info` confirms the column is actually missing (avoids the old pattern of speculatively firing every ALTER and swallowing 17+ OperationalErrors per launch). Seeds the local user row (keyed by OS username) and backfills `session_uuid` for legacy rows.
 - **`_connect()`** — Returns a SQLite connection with WAL mode, NORMAL synchronous, 8MB cache (-8000 pages), MEMORY temp store, and 128MB mmap. Creates parent directories if missing. Removes stale directory at DB_PATH if present.
 - **`_db()`** — Context manager that commits on success and rolls back on error.
-- **`get_or_create_guest_user()`** — Returns the permanent local guest user, creating it if needed. Has multiple fallback paths for robustness.
+- **`get_or_create_local_user()`** — Returns the single local user row for the current OS account, creating it if needed. There are no accounts, passwords, or sign-in — this just gives the existing tables a `user_id` to key off of. Has multiple fallback paths for robustness.
 - **`save_draft(...)`** / **`get_draft(user_id)`** / **`clear_draft(user_id)`** — Draft session management (auto-save during analysis and dashboard).
 - **`save_session_db(...)`** / **`update_session_db(...)`** / **`delete_session_db(...)`** — Saved session CRUD. `update_session_db` supports partial updates (e.g., KPI-only updates don't wipe the transform log).
 - **`get_user_sessions(user_id)`** — Returns the 20 most recent sessions (cached with `@st.cache_data`, 30s TTL). Dynamically selects available columns to handle schema evolution.
 - **`get_session_charts(session_id, user_id)`** — Loads and deserializes charts from a saved session (Plotly JSON → Figure objects).
 - **`get_session_meta(session_id, user_id)`** — Fetches dashboard metadata (title, KPIs, layout, grid order, export settings, transform log).
 - **`export_sessions_to_dict(...)`** / **`import_sessions_from_dict(...)`** — Backup/restore as JSON.
-- **`merge_user_data(source_user_id, target_user_id)`** — Reassigns local data from a guest account to a newly signed-in account. Uses SAVEPOINT for draft merge safety. Clears caches after merge.
 - **`log_activity(user_id, action_type, detail, session_id)`** — Appends to the audit log (never raises).
 - **`sanitize_restored_session(session_data, current_user_id)`** — Normalizes imported backup sessions before inserting into the local DB. Strips remote-only keys.
 - **`rename_session_db(session_id, new_name, user_id)`** — Renames a saved session with user_id guard.
 - **`_backfill_analysed_datasets(conn)`** — One-time backfill that seeds `analysed_datasets` from existing saved sessions.
-- **`_guest_row_id(conn)`** — Returns the permanent local guest user ID, checking both `is_guest` flag and legacy `username` lookup.
-- **`_hash(pw, salt)`** — Hashes a password with PBKDF2-HMAC-SHA256, 260,000 iterations, random salt.
+- **`_local_user_row_id(conn)`** — Returns the local user's row ID by looking up their OS username.
+- **`_os_username()`** — Returns the current OS account's username via `getpass.getuser()`, with a safe fallback.
 
 ### `backend/modules/export.py` — HTML Export Engine
 
@@ -406,7 +405,7 @@ Each runner module implements a `run_<type>(df, **kwargs)` function that returns
 - "Start New Analysis" button clears all session state and navigates to the upload page.
 
 #### `upload.py` — Upload & Data Preparation
-- File uploader for CSV and Excel (up to 300 MB).
+- File uploader for CSV and Excel (up to 400 MB).
 - Data preview (top/bottom/random 10 rows, full table with pagination and filters).
 - Data quality summary (missing values, duplicates) — fragment-isolated.
 - Outlier detection — fragment-isolated.
@@ -438,8 +437,8 @@ Each runner module implements a `run_<type>(df, **kwargs)` function that returns
 - **Notes shadow system**: `_dash_sync_notes()` bidirectionally syncs `desc_{uid}` keys with `_notes_shadow` dict to ensure notes survive reruns and are authoritative for user edits.
 - **View mode**: When viewing a saved session, charts are rendered read-only without settings controls.
 
-#### `auth.py` — Guest Profile & Backup
-- Guest profile page with local data information.
+#### `auth.py` — Local Data: Backup & Restore
+- No accounts, sign-up, or login — just local data management for the single local user.
 - **Backup** — Exports all saved sessions as a portable JSON file (select which sessions to include).
 - **Restore** — Imports sessions from a Lytrize backup JSON file.
 
@@ -447,7 +446,7 @@ Each runner module implements a `run_<type>(df, **kwargs)` function that returns
 
 #### `css.py` — Global CSS
 - Hides all Streamlit chrome (toolbar, header, deploy button).
-- Injects Google Fonts (Inter, Sora, JetBrains Mono) with `noscript` fallback.
+- Injects bundled fonts (Inter, Sora, JetBrains Mono, and others) as base64-encoded `@font-face` rules — no external font requests.
 - Defines CSS custom properties for dark and light themes.
 - Styles all Streamlit components: buttons, inputs, selectboxes, multiselects, expanders, sliders, checkboxes, tabs, file uploader, tooltips, color picker, dataframe toolbar.
 - `inject_css()` — Call once per page to load fonts + stylesheet.
@@ -662,15 +661,16 @@ That's it — no other files need changes.
 All tables are created in `init_db()` with `CREATE TABLE IF NOT EXISTS`. Migrations use `ALTER TABLE ... ADD COLUMN` wrapped in `try/except`, but only when `PRAGMA table_info` confirms the column is actually missing.
 
 ### `users`
+There are no accounts, sign-up, login, or passwords — this table exists only so
+`sessions`, `draft_sessions`, `user_activity`, and `analysed_datasets` have a
+`user_id` foreign key to reference. Exactly one row is created, keyed by the
+current OS username.
+
 | Column | Type | Description |
 |---|---|---|
 | `id` | INTEGER PK | Auto-increment primary key |
-| `username` | TEXT UNIQUE | Username (3-40 chars, alphanumeric + `_.-`) |
-| `email` | TEXT UNIQUE | Email address |
-| `password_hash` | TEXT | Hashed placeholder password for the local guest user. |
+| `username` | TEXT UNIQUE | The OS account username (`getpass.getuser()`) running the app |
 | `created_at` | TIMESTAMP | Default `CURRENT_TIMESTAMP` |
-| `is_guest` | INTEGER | 1 for guest users, 0 for registered |
-| `uuid` | TEXT UNIQUE | Unique identifier for backup/restore |
 
 ### `sessions`
 | Column | Type | Description |
@@ -746,8 +746,7 @@ The application uses `st.session_state` extensively. Keys are prefixed to avoid 
 | Key | Set when | Description |
 |---|---|---|
 | `user_id` | app bootstrap | Integer local identity ID |
-| `username` | app bootstrap | Display name |
-| `is_guest` | app bootstrap | Boolean guest flag |
+| `username` | app bootstrap | OS username, used for display |
 | `page` | app routing | Current page: "home", "upload", "analysis", "dashboard", "profile" |
 | `df` | upload page | Active DataFrame (always mutate via `set_df()` or `update_df()`) |
 | `file_name` | upload page | Original file name |
@@ -774,6 +773,7 @@ The application uses `st.session_state` extensively. Keys are prefixed to avoid 
 | `editing_file_name` | home (edit) | File name of session being edited |
 | `_edit_needs_reupload` | home (edit) | Flag: original file needs re-upload |
 | `_edit_notes_loaded` | dashboard (edit) | Flag: edit-mode notes restored |
+| `_edit_theme_loaded_for` | dashboard (edit) | Session ID whose export theme (colours/text) was last force-loaded into `ex_*` keys; reset on save/update so re-entering edit mode re-loads the saved theme |
 | `_auto_regen_done_{eid}_{sig}` | upload (edit) | Guard: auto-update already ran for this session+file |
 | `_last_auto_update_report` | upload (edit) | List of (kind, msg) tuples from last auto-update |
 | `view_session_id` | home (view) | Integer session being viewed |
@@ -1073,7 +1073,7 @@ Currently, the project does not include an automated test suite. When adding new
 2. **Some CSS color values in the HTML export lack fallback values** when a theme key is missing. The `_merge_theme()` function provides defaults, but edge cases may still produce unstyled elements.
 3. **Streamlit reruns trigger full-page refreshes**, which can be slow for larger datasets. Fragment isolation (`chart_card.py`) mitigates this for per-chart interactions, but page-level changes still trigger a full rerun.
 4. **No automated test suite** — Testing is currently manual. Contributions adding tests are highly welcome.
-5. **Excel files larger than 300 MB are not supported** — The Streamlit file uploader has a default size limit.
+5. **Files larger than 400 MB are not supported** — this is set via `maxUploadSize` in `backend/.streamlit/config.toml`, overriding Streamlit's 200 MB default.
 6. **Map plots require `pycountry`** — Geographic scatter and choropleth maps depend on the `pycountry` package for country/region name resolution.
 7. **Light mode is partially implemented** — Dark mode is the primary theme. Light mode overrides exist in `css.py` but may have visual inconsistencies on some components.
 8. **Session restore after reboot** — If the parquet snapshot is stored on tmpfs (`$XDG_RUNTIME_DIR`), it is lost across reboots. The user will be asked to re-upload the file.

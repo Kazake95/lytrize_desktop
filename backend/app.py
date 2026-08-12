@@ -36,7 +36,7 @@ st.set_page_config(
 )
 
 
-from modules.database              import init_db, get_draft, get_or_create_guest_user
+from modules.database              import init_db, get_draft, get_or_create_local_user
 from modules.ui.css                import inject_css
 from modules.pages.auth            import page_profile
 from modules.pages.home            import page_home
@@ -153,16 +153,13 @@ def main() -> None:
 
 
     if "user_id" not in st.session_state:
-        guest = get_or_create_guest_user()
-        if guest["id"] is None:
+        local_user = get_or_create_local_user()
+        if local_user["id"] is None:
             st.info("⏳ Setting up your workspace… please wait.", icon="🔧")
             st.rerun()
-        st.session_state.user_id  = guest["id"]
-        st.session_state.username = guest["username"]
-        st.session_state.is_guest = True
-        _restore_draft(guest["id"])
-    elif "is_guest" not in st.session_state:
-        st.session_state.is_guest = False
+        st.session_state.user_id  = local_user["id"]
+        st.session_state.username = local_user["username"]
+        _restore_draft(local_user["id"])
 
 
     if "page" not in st.session_state:

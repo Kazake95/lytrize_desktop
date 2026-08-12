@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 
+import logging
 import re
 import unicodedata
 from functools import lru_cache
@@ -15,6 +16,8 @@ import plotly.express as px
 
 from modules.charts import chart_layout, COLORS
 from modules.utils.perf import sample_for_plot
+
+log = logging.getLogger(__name__)
 
 
 _MAP_SAMPLE = 5_000
@@ -751,9 +754,8 @@ def _run_scatter_map(
             fig.update_layout(map=dict(style=map_style))
         except AttributeError:
             fig = px.scatter_mapbox(plot_df, **map_kwargs, mapbox_style=map_style)
-    except Exception as e:
-        import traceback
-        print(f"[Lytrize] scatter map error: {e}\n{traceback.format_exc()}")
+    except Exception:
+        log.exception("scatter map error")
         return []
 
 
@@ -926,9 +928,8 @@ def _run_choropleth(
             title=title,
             labels={value_col: f"{agg_label}({value_col})"},
         )
-    except Exception as e:
-        import traceback
-        print(f"[Lytrize] choropleth error: {e}\n{traceback.format_exc()}")
+    except Exception:
+        log.exception("choropleth error")
         return []
 
 
@@ -1013,9 +1014,8 @@ def _render_scatter_geo(
             title=title,
             size_max=40,
         )
-    except Exception as e:
-        import traceback
-        print(f"[Lytrize] scatter_geo error: {e}\n{traceback.format_exc()}")
+    except Exception:
+        log.exception("scatter_geo error")
         return []
 
 

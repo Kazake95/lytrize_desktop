@@ -51,19 +51,10 @@ python3 -m venv "$VENV_BUILD"
 # ── [4/7] Install Python dependencies ────────────────────────────────────────
 echo "[4/7] Installing Python dependencies..."
 "$VENV_BUILD/bin/pip" install --upgrade pip setuptools wheel --quiet
-# Install dependencies matching requirements.txt (Debian/Ubuntu, Python 3.13)
-"$VENV_BUILD/bin/pip" install \
-    "pyarrow>=18.0.0" \
-    "streamlit>=1.40.0" \
-    "pandas>=2.2.0" \
-    "plotly>=5.22.0" \
-    "openpyxl>=3.1.0" \
-    "scipy>=1.12.0" \
-    "statsmodels>=0.14.0" \
-    "pycountry>=23.12.11" \
-    "PySide6>=6.11.0" \
-    "starlette>=0.21.0" \
-    --quiet
+# Install from requirements.txt (single source of truth for version bounds)
+# so build.sh can't silently drift from what `pip install -r requirements.txt`
+# would give a developer.
+"$VENV_BUILD/bin/pip" install -r requirements.txt --quiet
 # Pin pyarrow to 18.1.0 for Debian (Python 3.13) to avoid segfault in 25.x
 "$VENV_BUILD/bin/pip" install "pyarrow==18.1.0" --quiet --only-binary pyarrow
 

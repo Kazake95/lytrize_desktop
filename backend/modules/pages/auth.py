@@ -1,17 +1,18 @@
 """
-modules/pages/auth.py — .
+modules/pages/auth.py — Local data page: backup and restore.
 
-This page keeps the independent backup/restore experience and guest-mode
-information.
+Lytrize has no accounts, sign-up, or login. This page just lets the single
+local user back up their saved sessions to a JSON file and restore them.
 """
 
 import datetime
+import getpass
 import json
 import os
 import pathlib
 import streamlit as st
 
-from modules.database import export_sessions_to_dict, import_sessions_from_dict, get_or_create_guest_user
+from modules.database import export_sessions_to_dict, import_sessions_from_dict, get_or_create_local_user
 from modules.ui.css import APP_NAME, inject_footer, render_logo
 
 
@@ -21,14 +22,13 @@ def _db_path() -> str:
 
 
 def page_profile() -> None:
-    """Render the guest profile page with backup and restore."""
+    """Render the local data page with backup and restore."""
     render_logo()
 
     if "user_id" not in st.session_state:
-        guest = get_or_create_guest_user()
-        st.session_state.user_id = guest.get("id")
-        st.session_state.username = guest.get("username")
-        st.session_state.is_guest = True
+        local_user = get_or_create_local_user()
+        st.session_state.user_id = local_user.get("id")
+        st.session_state.username = local_user.get("username")
 
 
     if st.button("← Home"):
@@ -56,7 +56,7 @@ def page_profile() -> None:
     uid = st.session_state.get("user_id")
 
     if st.button("📦 Prepare Backup", key="btn_backup"):
-        sessions = export_sessions_to_dict(uid, username=st.session_state.get("username", "guest"), local_db_path=_db_path())
+        sessions = export_sessions_to_dict(uid, username=st.session_state.get("username", getpass.getuser()), local_db_path=_db_path())
         if not sessions:
             st.warning("No saved sessions found to back up.")
         else:
@@ -74,7 +74,7 @@ def page_profile() -> None:
             payload = {
                 "lytrize_backup": True,
                 "version": "1.1",
-                "username": st.session_state.get("username", "guest"),
+                "username": st.session_state.get("username", getpass.getuser()),
                 "exported_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 "sessions": selected,
             }

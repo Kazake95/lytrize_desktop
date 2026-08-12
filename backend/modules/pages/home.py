@@ -52,8 +52,6 @@ def banner_data_uri() -> str:
 def page_home():
     """Home and saved-sessions browser."""
     render_logo()
-    is_guest = st.session_state.get("is_guest", False)
-
 
     if USE_RIGHT_IMAGE:
         left_col, right_col = st.columns([1, 1], gap="small")
@@ -108,8 +106,7 @@ def page_home():
 
 
         if st.button("🚀 Start New Analysis", type="primary"):
-            if not is_guest:
-                log_activity(st.session_state["user_id"], "new_analysis_started")
+            log_activity(st.session_state["user_id"], "new_analysis_started")
             for k in ["editing_session_id", "editing_session_name", "editing_file_name",
                       "df", "charts", "selected_analyses", "dashboard_title", "kpis",
                       "layout_mode", "_view_charts", "view_session_id"]:

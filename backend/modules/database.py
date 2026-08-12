@@ -4,7 +4,7 @@
 import json
 import uuid
 import os
-import hashlib
+import getpass
 import datetime
 import logging
 from contextlib import contextmanager
@@ -133,26 +133,15 @@ def _execute_fetchall(conn, query: str, params=()):
 
 
 
-_GUEST_USERNAME = "__lytrize_guest__"
-_GUEST_EMAIL    = "guest@local.invalid"
-
-
-_ALLOWED_USER_COLS = frozenset({
-    "id", "username", "email", "password_hash",
-    "created_at", "is_guest", "uuid",
-})
-
-
-
-
-def _column_exists(conn, table: str, column: str) -> bool:
-    """Return True when a table already contains the given column."""
+def _os_username() -> str:
+    """Return the OS account username running this app (getpass is an OS syscall)."""
     try:
-        c = conn.cursor()
-        c.execute(f"PRAGMA table_info({table})")
-        return any(row[1] == column for row in c.fetchall())
+        return getpass.getuser() or "local-user"
     except Exception:
-        return False
+        return "local-user"
+
+
+
 
 
 
@@ -168,15 +157,10 @@ def _ensure_index(conn, index_sql: str) -> None:
 
 
 
-def _guest_row_id(conn) -> Optional[int]:
-    """Return the permanent local guest user ID if it exists."""
+def _local_user_row_id(conn) -> Optional[int]:
+    """Return this OS account's local user ID if a row for it already exists."""
     c = conn.cursor()
-    if _column_exists(conn, "users", "is_guest"):
-        c.execute(_ph("SELECT id FROM users WHERE is_guest=? LIMIT 1"), (True,))
-        row = c.fetchone()
-        if row:
-            return row[0]
-    c.execute(_ph("SELECT id FROM users WHERE username=? LIMIT 1"), (_GUEST_USERNAME,))
+    c.execute(_ph("SELECT id FROM users WHERE username=? LIMIT 1"), (_os_username(),))
     row = c.fetchone()
     return row[0] if row else None
 
@@ -213,11 +197,7 @@ def init_db() -> None:
         c.execute("""CREATE TABLE IF NOT EXISTS users (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
             username      TEXT UNIQUE NOT NULL,
-            email         TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            is_guest      INTEGER DEFAULT 0,
-            uuid          TEXT UNIQUE
+            created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )""")
 
 
@@ -304,10 +284,6 @@ def init_db() -> None:
         # column already exists -- that pattern deliberately raised and
         # caught up to 17 exceptions on every single app launch.
         _legacy_columns = {
-            "users": [
-                ("is_guest", "INTEGER DEFAULT 0"),
-                ("uuid",     "TEXT"),
-            ],
             "sessions": [
                 ("session_name",        "TEXT NOT NULL DEFAULT ''"),
                 ("file_name",           "TEXT"),
@@ -349,16 +325,15 @@ def init_db() -> None:
 
 
         try:
-            c.execute("SELECT COUNT(*) FROM users WHERE username=?", (_GUEST_USERNAME,))
+            local_username = _os_username()
+            c.execute("SELECT COUNT(*) FROM users WHERE username=?", (local_username,))
             if c.fetchone()[0] == 0:
                 c.execute(
-                    "INSERT INTO users "
-                    "(username, email, password_hash, is_guest, uuid) "
-                    "VALUES (?,?,?,?,?)",
-                    (_GUEST_USERNAME, _GUEST_EMAIL, _hash(uuid.uuid4().hex), 1, uuid.uuid4().hex),
+                    "INSERT INTO users (username) VALUES (?)",
+                    (local_username,),
                 )
         except Exception:
-            log.exception("init_db: failed to seed guest user")
+            log.exception("init_db: failed to seed local user")
 
 
         try:
@@ -387,11 +362,7 @@ def init_db() -> None:
                 c2.execute("""CREATE TABLE IF NOT EXISTS users (
                     id            INTEGER PRIMARY KEY AUTOINCREMENT,
                     username      TEXT UNIQUE NOT NULL,
-                    email         TEXT UNIQUE NOT NULL,
-                    password_hash TEXT NOT NULL,
-                    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    is_guest      INTEGER DEFAULT 0,
-                    uuid          TEXT UNIQUE
+                    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )""")
                 conn.commit()
                 c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
@@ -404,16 +375,6 @@ def init_db() -> None:
         conn.commit()
     finally:
         conn.close()
-
-
-
-
-def _hash(pw: str, salt: Optional[str] = None) -> str:
-    """Hash a password with PBKDF2-HMAC-SHA256, 260 000 iterations, random salt."""
-    if salt is None:
-        salt = uuid.uuid4().hex
-    dk = hashlib.pbkdf2_hmac("sha256", pw.encode(), salt.encode(), 260_000)
-    return f"{salt}${dk.hex()}"
 
 
 
@@ -441,19 +402,26 @@ def log_activity(
 
 
 
-def get_or_create_guest_user() -> dict:
-    """Return the permanent local guest user row, creating it if needed."""
+def get_or_create_local_user() -> dict:
+    """Return the single local-user row for this OS account, creating it if needed.
+
+    Lytrize has no accounts, sign-up, or login — it is a single-user, offline
+    desktop app. Each OS user account gets exactly one row here, keyed by
+    their OS username, purely so existing tables can keep a `user_id` foreign
+    key without introducing a real multi-account system.
+    """
     import sqlite3
+    username = _os_username()
     conn = _connect()
     try:
         try:
-            uid = _guest_row_id(conn)
+            uid = _local_user_row_id(conn)
         except sqlite3.OperationalError:
             conn.close()
             init_db()
             conn = _connect()
             try:
-                uid = _guest_row_id(conn)
+                uid = _local_user_row_id(conn)
             except sqlite3.OperationalError:
                 uid = None
 
@@ -462,106 +430,35 @@ def get_or_create_guest_user() -> dict:
             c.execute(_ph("SELECT id, username FROM users WHERE id=?"), (uid,))
             row = c.fetchone()
             if row:
-                return {"id": row[0], "username": row[1], "is_guest": True}
+                return {"id": row[0], "username": row[1]}
 
-        c    = conn.cursor()
-        cols = {"username": _GUEST_USERNAME, "email": _GUEST_EMAIL,
-                "password_hash": _hash(uuid.uuid4().hex)}
-        if _column_exists(conn, "users", "is_guest"):
-            cols["is_guest"] = True
-        if _column_exists(conn, "users", "uuid"):
-            cols["uuid"] = uuid.uuid4().hex
-
-        keys = ", ".join(cols.keys())
-        phs  = ", ".join(["?"] * len(cols))
+        c = conn.cursor()
         try:
-            c.execute(_ph(f"INSERT INTO users ({keys}) VALUES ({phs})"), tuple(cols.values()))
+            c.execute(_ph("INSERT INTO users (username) VALUES (?)"), (username,))
             conn.commit()
         except Exception:
             conn.rollback()
 
-        uid = _guest_row_id(conn)
+        uid = _local_user_row_id(conn)
         if uid:
             c.execute(_ph("SELECT id, username FROM users WHERE id=?"), (uid,))
             row = c.fetchone()
             if row:
-                return {"id": row[0], "username": row[1], "is_guest": True}
+                return {"id": row[0], "username": row[1]}
     finally:
         conn.close()
 
     # Final fallback: try a fresh connection
     try:
         with _db() as conn:
-            uid2 = _guest_row_id(conn)
+            uid2 = _local_user_row_id(conn)
             if uid2:
-                return {"id": uid2, "username": _GUEST_USERNAME, "is_guest": True}
+                return {"id": uid2, "username": username}
     except Exception as exc:
         logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
         pass
-    log.error("get_or_create_guest_user: failed to obtain a valid guest user_id")
-    return {"id": None, "username": _GUEST_USERNAME, "is_guest": True}
-
-
-
-
-def merge_user_data(source_user_id: int, target_user_id: int) -> None:
-    """Reassign local data from a guest account to a newly signed-in account."""
-    if not source_user_id or not target_user_id or source_user_id == target_user_id:
-        return
-    try:
-        with _db() as conn:
-            cur = conn.cursor()
-            for table in ("sessions", "user_activity"):
-                cur.execute(
-                    f"UPDATE {table} SET user_id=? WHERE user_id=?",
-                    (target_user_id, source_user_id),
-                )
-
-
-            cur.execute("SAVEPOINT draft_merge")
-            try:
-                cur.execute(
-                    "DELETE FROM draft_sessions WHERE user_id=?",
-                    (target_user_id,),
-                )
-                cur.execute(
-                    "UPDATE draft_sessions SET user_id=? WHERE user_id=?",
-                    (target_user_id, source_user_id),
-                )
-                cur.execute("RELEASE SAVEPOINT draft_merge")
-            except Exception:
-                cur.execute("ROLLBACK TO SAVEPOINT draft_merge")
-                raise
-
-
-            # Merge analysed_datasets safely -- INSERT OR IGNORE avoids
-            # UNIQUE(user_id, file_name, rows_count, cols_count) conflicts
-            # when the target account already has the same raw dataset.
-            cur.execute(
-                "INSERT OR IGNORE INTO analysed_datasets "
-                "(user_id, file_name, rows_count, cols_count, analysed_at) "
-                "SELECT ?, file_name, rows_count, cols_count, analysed_at "
-                "FROM analysed_datasets WHERE user_id=?",
-                (target_user_id, source_user_id),
-            )
-            cur.execute(
-                "DELETE FROM analysed_datasets WHERE user_id=?",
-                (source_user_id,),
-            )
-
-
-        try:
-            get_user_sessions.clear()
-        except Exception as exc:
-            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-            pass
-        try:
-            count_datasets_analysed.clear()
-        except Exception as exc:
-            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-            pass
-    except Exception as e:
-        log.warning("merge_user_data: %s", e)
+    log.error("get_or_create_local_user: failed to obtain a valid local user_id")
+    return {"id": None, "username": username}
 
 
 
@@ -1042,21 +939,6 @@ def get_session_charts(session_id: int, user_id=None) -> list:
             logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
             pass
     return charts
-
-
-
-
-def delete_user_db(user_id: int) -> bool:
-    """Permanently delete a user account and all associated data."""
-    try:
-        with _db() as conn:
-
-            _execute(conn, _ph("DELETE FROM sessions        WHERE user_id=?"), (user_id,))
-            _execute(conn, _ph("DELETE FROM users           WHERE id=?"),      (user_id,))
-        return True
-    except Exception as e:
-        log.error("delete_user_db: %s", e)
-        return False
 
 
 
