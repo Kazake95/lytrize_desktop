@@ -935,7 +935,7 @@ Output: `build/lytrize-1.0-1.x86_64.rpm`
 |---|---|---|
 | Backend code | `/opt/lytrize/backend/` | ~5 MB |
 | Desktop launcher | `/opt/lytrize/desktop/` | ~1 MB |
-| Isolated Python venv | `/opt/lytrize/venv/` | ~350 MB |
+| Isolated Python venv | `/opt/lytrize/venv/` | ~1.1 GB |
 | Fonts | `/opt/lytrize/backend/assets/fonts/` | ~5 MB |
 | Icons | `/usr/share/icons/hicolor/` | ~1 MB |
 | Desktop entry | `/usr/share/applications/lytrize.desktop` | — |

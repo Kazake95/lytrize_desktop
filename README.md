@@ -85,8 +85,8 @@ Lytrize includes a native desktop launcher (PySide6) that manages the backend an
 | **Architecture** | amd64 (64-bit) | amd64 (64-bit) |
 | **Python** | 3.11+ (only for building from source) | 3.11+ |
 | **Browser** | Any installed browser — Chrome, Chromium, Firefox, Brave, or Edge | Chromium-based (best experience) |
-| **Disk** | ~400 MB installed (includes isolated Python venv) | ~400 MB |
-| **RAM** | 2 GB minimum | 4 GB+ for files over 100 MB |
+| **Disk** | ~1.3 GB installed (1.1 GB app + 147 MB user data) | ~1.3 GB |
+| **RAM** | 6 GB minimum | 8 GB+ for files over 100 MB |
 
 ---
 
@@ -217,7 +217,7 @@ The app exports a standalone HTML file. To save that page as a PNG, use your bro
 If no supported browser is detected, copy `http://127.0.0.1:8501` into any browser while the launcher window shows "Running".
 
 **Large files are slow**
-Lytrize uses smart sampling for scatter plots (8,000 points) and maps (5,000 points), plus chunked reading for CSVs over 30 MB. For best performance with files over 100 MB, use 4 GB+ RAM.
+Lytrize uses smart sampling for scatter plots (8,000 points) and maps (5,000 points), plus chunked reading for CSVs over 30 MB. For best performance with files over 100 MB, use 8 GB+ RAM.
 
 **Something looks broken**
 Check the terminal output for Python tracebacks. If the issue happens again, open an issue and attach the log.
