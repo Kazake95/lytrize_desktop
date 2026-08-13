@@ -1,6 +1,7 @@
 """modules/pages/upload.py -- File upload and column classification page."""
 import logging
 import json
+import datetime
 
 
 import streamlit as st
@@ -538,9 +539,23 @@ def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
                 _stats_key = "_ul_df_stats"
                 _stats_ver_key = "_ul_df_stats_ver"
                 if st.session_state.get(_stats_ver_key) != _df_ver or _stats_key not in st.session_state:
+                    # A conversion to "date" now yields a true datetime64 dtype,
+                    # but "time" yields datetime.time objects in an object-dtype
+                    # column. Detect those object columns (whose values are real
+                    # date/time objects) and count them as datetime, not text --
+                    # mirroring the special handling in show_column_classifier.
+                    # (datetime.datetime subclasses datetime.date, so this also
+                    # catches columns of datetime objects.)
+                    _date_like_obj = [
+                        c for c in df.select_dtypes("object").columns
+                        if len(df) > 0 and isinstance(
+                            df[c].dropna().iloc[0],
+                            (datetime.date, datetime.time)
+                        )
+                    ]
                     _num_c = len(df.select_dtypes("number").columns)
-                    _cat_c = len(df.select_dtypes("object").columns)
-                    _dt_c  = len(df.select_dtypes("datetime").columns)
+                    _cat_c = len(df.select_dtypes("object").columns) - len(_date_like_obj)
+                    _dt_c  = len(df.select_dtypes("datetime").columns) + len(_date_like_obj)
                     # For large files, sample for null% to avoid O(rows×cols) scan
                     if _n_rows > 100_000:
                         _sample_df = df.sample(min(100_000, _n_rows), random_state=42)

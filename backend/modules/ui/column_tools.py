@@ -41,6 +41,35 @@ def _parse_datetime_robust(series: pd.Series) -> pd.Series:
     return result
 
 
+def _parse_time_value(value):
+    """Parse a single value into a datetime.time object.
+
+    Handles already-parsed time objects, 24-hour / 12-hour clock strings,
+    and full datetimes (from which only the time component is kept). Returns
+    None for anything unparseable, which the caller treats as null."""
+    if isinstance(value, datetime.time):
+        return value
+    if isinstance(value, datetime.datetime):
+        return value.time()
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    for fmt in ("%H:%M:%S", "%H:%M", "%I:%M:%S %p", "%I:%M %p", "%I %p"):
+        try:
+            return datetime.datetime.strptime(s, fmt).time()
+        except (ValueError, TypeError):
+            continue
+    try:
+        parsed = pd.to_datetime(s, errors="coerce")
+        if pd.notna(parsed):
+            return parsed.time()
+    except Exception:
+        pass
+    return None
+
+
 def convert_series_dtype(series: pd.Series, new_dtype: str) -> pd.Series:
     """Pure dtype-conversion switch, shared by the preview panel, the Apply
     button, and modules/utils/transform_log.py's replay-on-reupload logic.
@@ -50,25 +79,24 @@ def convert_series_dtype(series: pd.Series, new_dtype: str) -> pd.Series:
         return _parse_datetime_robust(series)
 
     if new_dtype == "date":
+        # Return native datetime.date objects. pandas' datetime64 always renders
+        # with a time component ("2023-01-01 00:00:00") and gets upcast to the
+        # DataFrame's datetime resolution ([ns]/[us]) on assignment -- which is
+        # exactly what the separate "datetime64[ns]" option is for. Native
+        # datetime.date values display date-only ("2023-01-01"), are never
+        # upcast, and the Data Preview stats now detect object columns holding
+        # date/time objects and classify them as 📅 datetime.
         return _parse_datetime_robust(series).dt.date
 
     if new_dtype == "time":
-        src = series.astype(str).str.strip()
-        parsed = pd.to_datetime("1970-01-01 " + src, errors="coerce")
-        mask_failed = parsed.isna()
-        if mask_failed.any():
-            parsed[mask_failed] = pd.to_datetime(src[mask_failed], errors="coerce")
-        still_failed = parsed.isna()
-        if still_failed.any():
-            for fmt in ("%I:%M %p", "%I:%M:%S %p", "%I %p"):
-                remaining = still_failed & parsed.isna()
-                if not remaining.any():
-                    break
-                parsed[remaining] = pd.to_datetime(
-                    "1970-01-01 " + src[remaining], format=f"1970-01-01 {fmt}",
-                    errors="coerce"
-                )
-        return parsed.dt.strftime("%H:%M:%S").where(parsed.notna(), other=None)
+        # Build datetime.time objects directly. The old approach prepended a
+        # fixed date and used .dt, but that fails (AttributeError: Can only use
+        # .dt accessor with datetimelike values) whenever pd.to_datetime returns
+        # an *object* dtype Series, which happens as soon as any value fails to
+        # parse. Element-wise parsing into datetime.time is robust to mixed
+        # inputs (times, full datetimes, 12-hour clock strings) and needs no
+        # fixed-date anchoring.
+        return series.apply(_parse_time_value)
 
     if new_dtype == "timedelta64[ns]":
         src = series
@@ -260,7 +288,12 @@ def show_dtype_transformer(df):
                     if new_nulls:
                         msg += f" ({new_nulls} value(s) couldn't convert → became null)"
                     st.success(msg)
-                    st.rerun()
+                    # MUST break out of the fragment scope so the rest of the
+                    # page (Data Preview + column-classification stats) re-renders
+                    # against the updated st.session_state.df. A bare st.rerun()
+                    # inside a fragment can stay fragment-scoped, leaving the
+                    # preview table showing the stale pre-conversion data.
+                    st.rerun(scope="app")
                 except Exception as e:
                     st.error(f"❌ Conversion failed: {e}")
     else:
@@ -376,7 +409,9 @@ def show_dtype_transformer(df):
                                     f"{_n_changed:,} rows updated. "
                                     f"Re-open this panel to check remaining unresolved values."
                                 )
-                                st.rerun()
+                                # Break out of the fragment scope so the rest of
+                                # the page re-renders against the remapped data.
+                                st.rerun(scope="app")
                         else:
                             st.success("🎉 All values in this column resolve cleanly — ready for Map Plot.")
 
