@@ -16,7 +16,7 @@ from modules.ui.excel_loader   import show_excel_loader
 from modules.ui.css            import inject_footer, render_logo
 from modules.utils.perf        import read_csv_fast, mem_mb
 from modules.utils.session_cache import set_df, update_df
-from modules.analysis.data_quality import run_data_quality
+from modules.analysis.data_quality import run_data_quality, count_duplicates
 from modules.analysis.outlier import run_outlier_upload
 from modules.utils.transform_log import replay_transform_log
 from modules.utils.regenerate import regenerate_charts, regenerate_kpis, validate_columns
@@ -506,6 +506,15 @@ def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
     _n_cols = df.shape[1]
     st.success(f"✅ **{file_name}** — {_n_rows:,} rows × {_n_cols} columns")
 
+    if _n_rows > 100_000:
+        st.info(
+            "ℹ️ **Large dataset detected.** All counts, summaries, and statistical "
+            "thresholds (missing values, duplicates, outliers) are computed on the "
+            "**full dataset** for exact accuracy. Only row-level chart rendering "
+            "(heatmap, scatter backgrounds, map density) is sampled or aggregated "
+            "for display speed — the underlying analysis is exact."
+        )
+
 
     # ── Data Preview (fragment-isolated so button clicks don't rerun the
     # entire upload page) ──────────────────────────────────────────────────
@@ -644,20 +653,17 @@ def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
             st.info("Check the box below to run a data quality analysis.")
             if st.checkbox("🔍 Enable Data Quality Diagnostics", key="_enable_dq_run"):
                 with st.spinner("Analyzing data quality metrics..."):
-                    if len(df) > 100_000:
-                        st.warning("⚠️ Large dataset detected. Analyzing a representative 100,000-row sample for speed.")
-                        dq_df = df.sample(n=100_000, random_state=42)
-                    else:
-                        dq_df = df
-                    dq_charts = run_data_quality(dq_df)
+                    # All counts/summaries are computed on the FULL dataset.
+                    # Only row-level chart rendering (heatmap) samples internally.
+                    dq_charts = run_data_quality(df)
 
 
                     if dq_charts:
                         st.markdown("#### Data Quality Summaries")
                         for title, fig in dq_charts:
                             if title == "Duplicate Rows Summary":
-                                unique_rows = int(dq_df.drop_duplicates().shape[0])
-                                duplicate_rows = len(dq_df) - unique_rows
+                                duplicate_rows = count_duplicates(df)
+                                unique_rows = len(df) - duplicate_rows
                                 st.markdown(
                                     f"**Duplicate rows:** {duplicate_rows:,} duplicate row(s) / "
                                     f"{unique_rows:,} unique row(s)."
@@ -677,12 +683,9 @@ def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
             st.info("Check the box below to run outlier analysis across numeric columns.")
             if st.checkbox("📊 Enable Outlier Scanners", key="_enable_outlier_run"):
                 with st.spinner("Calculating outlier boundaries..."):
-                    if len(df) > 100_000:
-                        st.warning("⚠️ Large dataset detected. Scanning a representative 100,000-row sample for speed.")
-                        outlier_df = df.sample(n=100_000, random_state=42)
-                    else:
-                        outlier_df = df
-                    run_outlier_upload(outlier_df)
+                    # IQR fences/counts are computed on the FULL dataset.
+                    # Only the scatter background is sampled for rendering.
+                    run_outlier_upload(df)
 
     _render_outlier_detection()
 

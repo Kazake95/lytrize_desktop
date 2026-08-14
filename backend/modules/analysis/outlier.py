@@ -58,7 +58,6 @@ def _compute_outliers(df: pd.DataFrame, cols: list, multiplier: float) -> dict:
             "hi":          hi,
             "out_count":   out_count,
             "pct":         pct,
-            "out_indices": df.index[out_mask].tolist(),
         }
 
 

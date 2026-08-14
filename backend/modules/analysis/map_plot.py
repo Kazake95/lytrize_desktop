@@ -21,6 +21,7 @@ log = logging.getLogger(__name__)
 
 
 _MAP_SAMPLE = 5_000
+_DENSITY_CELLS = 2_000
 
 
 _CHOROPLETH_SCALES = [
@@ -45,6 +46,48 @@ def _norm(s: str) -> str:
     nfkd = unicodedata.normalize("NFKD", s)
     ascii_s = nfkd.encode("ascii", "ignore").decode("ascii")
     return re.sub(r"\s+", " ", ascii_s).strip().lower()
+
+
+
+
+def _density_aggregate(
+    df: pd.DataFrame,
+    lat: str,
+    lon: str,
+    n_cells: int = _DENSITY_CELLS,
+) -> pd.DataFrame:
+    """Bin ALL points into a spatial grid and aggregate counts per cell.
+
+    Uses the full dataset (no random sampling) so the spatial density
+    pattern is accurate. Returns a small DataFrame (~n_cells rows) with
+    mean lat/lon per cell and a '_count' column for colouring/sizing.
+    """
+    lat_min, lat_max = float(df[lat].min()), float(df[lat].max())
+    lon_min, lon_max = float(df[lon].min()), float(df[lon].max())
+
+    # Guard against degenerate (single-point) bounds.
+    if lat_max == lat_min:
+        lat_max = lat_min + 1e-6
+    if lon_max == lon_min:
+        lon_max = lon_min + 1e-6
+
+    # Aim for a roughly square grid: n_cells total, sqrt per axis.
+    side = max(int(round(n_cells ** 0.5)), 1)
+    lat_edges = np.linspace(lat_min, lat_max, side + 1)
+    lon_edges = np.linspace(lon_min, lon_max, side + 1)
+
+    lat_bin = np.clip(np.digitize(df[lat].values, lat_edges) - 1, 0, side - 1)
+    lon_bin = np.clip(np.digitize(df[lon].values, lon_edges) - 1, 0, side - 1)
+    cell_id = lat_bin * side + lon_bin
+
+    agg = pd.DataFrame({
+        "cell": cell_id,
+        lat: df[lat].values,
+        lon: df[lon].values,
+    }).groupby("cell", as_index=False).agg(
+        **{lat: (lat, "mean"), lon: (lon, "mean"), "_count": (lat, "size")}
+    )
+    return agg
 
 
 
@@ -635,6 +678,7 @@ def _run_scatter_map(
 
     agg_label = ""
     sampled   = False
+    density   = False
     loc_col   = location_col if location_col and location_col in clean_df.columns else None
     val_col   = value_col    if value_col    and value_col    in clean_df.columns else None
 
@@ -659,7 +703,19 @@ def _run_scatter_map(
         elif not size_col and val_col in plot_df.columns:
             size_col = val_col
     else:
-        plot_df, sampled = sample_for_plot(clean_df, n=_MAP_SAMPLE)
+        if len(clean_df) > _MAP_SAMPLE:
+            # Aggregate ALL points into spatial cells (full data, no random
+            # sampling) so the density pattern is accurate and render cost is
+            # bounded. Colour/size by cell count.
+            plot_df = _density_aggregate(clean_df, lat, lon)
+            sampled = True
+            density = True
+            if color_col and color_col in clean_df.columns:
+                color_col = None  # density map colours by count instead
+            if size_col and size_col in clean_df.columns:
+                size_col = None
+        else:
+            plot_df, sampled = clean_df, False
 
 
     if plot_df.empty:
@@ -718,7 +774,12 @@ def _run_scatter_map(
 
     n_pts     = len(plot_df)
     loc_label = hover or "Locations"
-    sample_str = f" ({n_pts:,} sample of {len(clean_df):,})" if sampled else f" ({n_pts:,} locations)"
+    if density:
+        sample_str = f" (density of {len(clean_df):,} points)"
+    elif sampled:
+        sample_str = f" ({n_pts:,} sample of {len(clean_df):,})"
+    else:
+        sample_str = f" ({n_pts:,} locations)"
     title     = f"Map: {loc_label}{agg_label}{sample_str}"
 
 
@@ -786,7 +847,14 @@ def _run_scatter_map(
     )
 
 
-    if sampled:
+    if density:
+        fig.add_annotation(
+            text=f"⚠ Density map — {n_pts:,} cells from {len(clean_df):,} points",
+            xref="paper", yref="paper", x=0.5, y=0.0,
+            showarrow=False, xanchor="center", yanchor="bottom",
+            font=dict(size=10, color="#f59e0b"),
+        )
+    elif sampled:
         fig.add_annotation(
             text=f"⚠ {n_pts:,}-point sample — zoom in for detail",
             xref="paper", yref="paper", x=0.5, y=0.0,

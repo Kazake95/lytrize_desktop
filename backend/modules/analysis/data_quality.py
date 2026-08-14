@@ -38,6 +38,18 @@ def _dup_count(df: pd.DataFrame, pk_col) -> int:
 
 
 @st.cache_data(show_spinner=False)
+def count_duplicates(df: pd.DataFrame) -> int:
+    """Return the number of duplicate rows (keep='first') on the FULL dataset.
+
+    Cached by Streamlit so the O(rows) duplicated() scan runs once per
+    DataFrame version, not on every widget rerun.
+    """
+    return int(df.duplicated().sum())
+
+
+
+
+@st.cache_data(show_spinner=False)
 def _dup_rows(df: pd.DataFrame, pk_col) -> pd.DataFrame:
     subset = [pk_col] if pk_col else None
     mask = df.duplicated(subset=subset, keep=False)
