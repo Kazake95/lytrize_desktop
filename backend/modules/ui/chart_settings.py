@@ -968,13 +968,14 @@ def apply_chart_display_options(
                 raise
 
     def _safe_update_yaxes(fig, **kwargs):
-        """Update yaxes, falling back without row/col if figure lacks subplots."""
+        """Update yaxes, falling back without row/col/secondary_y if figure lacks subplots."""
         try:
             fig.update_yaxes(**kwargs)
         except Exception as exc:
             if "make_subplots" in str(exc):
                 kwargs.pop("row", None)
                 kwargs.pop("col", None)
+                kwargs.pop("secondary_y", None)
                 fig.update_yaxes(**kwargs)
             else:
                 raise
