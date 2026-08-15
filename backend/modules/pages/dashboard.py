@@ -1,10 +1,11 @@
 """modules/pages/dashboard.py -- Dashboard view, editing, saving, and PDF export."""
-import json, copy, datetime
+import json, copy
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as _comp  # used for live preview iframe
 from html import escape
 import re
+import logging
 
 
 from modules.database import (
@@ -363,11 +364,6 @@ def _kpi_card_html(kpi):
     label  = escape(str(kpi.get("label", "")))
 
 
-    _UNIT_META = {
-        "B": ("B", "Billions",  "#8566fc"),
-        "M": ("M", "Millions",  "#6163df"),
-        "K": ("K", "Thousands", "#3390c8"),
-    }
     full_val = f"{prefix}{value}{suffix}"
     if len(full_val) > 16:
         sz = "0.95rem"

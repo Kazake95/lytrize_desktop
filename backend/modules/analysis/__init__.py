@@ -60,7 +60,6 @@ _NEEDS_AXES = {"statistical", "distribution", "correlation", "categorical",
                "pie_chart", "time_series", "scatter_plot", "matrix_heatmap", "matrix_table", "map_plot"}
 
 
-_NO_FORM = set()
 
 
 _WIDGET_SPEC = {

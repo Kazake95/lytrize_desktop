@@ -48,7 +48,6 @@ import logging
 
 import json
 import os
-import pathlib
 import shutil
 import socket
 import subprocess
@@ -159,7 +158,6 @@ _BROWSER_CANDIDATES: list[tuple[str, str, bool]] = [
     ("Firefox ESR",    "firefox-esr",           False),
     ("Zen Browser",    "zen",                   False),
     ("LibreWolf",      "librewolf",             False),
-    ("Brave-Origin",   "Brave-Origin-Nightly",  False),
     ("Default",        "xdg-open",              False),
 ]
 
@@ -819,8 +817,6 @@ class Launcher(QWidget):
     def _is_running(self) -> bool:
         return self._proc is not None and self._proc.poll() is None
 
-    def _build_url(self) -> str:
-        return APP_URL
 
     def _selected_browser(self) -> dict:
         if self.combo_browser is not None:
@@ -932,7 +928,6 @@ class Launcher(QWidget):
         try:
             _log_fh = open(_log_path, "w", buffering=1)  # line-buffered
         except Exception:
-            import io
             _log_fh = open(os.devnull, "w")
 
         self._proc = subprocess.Popen(
@@ -1008,7 +1003,7 @@ class Launcher(QWidget):
     def _open_app(self) -> None:
         """Open the Lytrize web UI in the selected browser."""
         browser = self._selected_browser()
-        url     = self._build_url()
+        url     = APP_URL
         _devnull = open(os.devnull, "w")
 
         if browser["chromium"]:

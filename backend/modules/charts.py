@@ -168,13 +168,6 @@ def _fig_json_cached(uid: str, fig) -> str:
     return js
 
 
-def _invalidate_fig_json(uid: str) -> None:
-    """Drop the cached JSON for a chart (call when its figure is replaced)."""
-    cache = st.session_state.get("_fig_json_cache")
-    if cache:
-        cache.pop(uid, None)
-
-
 # ---------------------------------------------------------------------------
 # Cached charts->JSON helper (Phase 3: debounced autosave)
 # ---------------------------------------------------------------------------

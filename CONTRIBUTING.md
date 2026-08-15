@@ -30,7 +30,7 @@ Thanks for your interest! This guide covers the repository layout, local develop
 
 ## Project Overview
 
-Lytrize is a **local-first, offline desktop analytics application** for Linux. It lets users upload CSV or Excel files and generate interactive Plotly charts, dashboards, and plain-English insights — all without an internet connection, cloud account, or telemetry.
+Lytrize is a **local-first, offline desktop analytics application** for Linux. It lets users upload CSV or Excel files and generate interactive Plotly charts and shareable dashboards — all without an internet connection, cloud account, or telemetry.
 
 ### Key Design Principles
 
@@ -68,7 +68,7 @@ lytrize_desktop/
 │   │   └── fonts/              # 40+ bundled TTF fonts for offline use
 │   └── modules/
 │       ├── __init__.py
-│       ├── charts.py           # Palettes, chart layout, insight engine, JSON serialization, downsampling
+│       ├── charts.py           # Palettes, chart layout, JSON serialization, downsampling
 │       ├── database.py         # SQLite schema, all DB I/O, backup/restore, migration logic
 │       ├── export.py           # HTML export engine, theme system, PDF-safe text cleaning
 │       ├── analysis/           # Chart runners and configuration registry
@@ -150,7 +150,7 @@ Lytrize has a **two-layer architecture**: a PySide6 desktop launcher that manage
 │  config.py     — APP_NAME, APP_VERSION, APP_HOST, APP_PORT          │
 │                                                                     │
 │  modules/                                                           │
-│    charts.py     — Palettes, chart_layout(), insight engine,        │
+│    charts.py     — Palettes, chart_layout(), JSON serialization,    │
 │                    charts_to_json(), charts_json_cached(),          │
 │                    _fig_json_cached(), _downsample_fig_for_persist() │
 │    database.py   — SQLite schema, init_db(), CRUD, backup/restore,  │
@@ -161,7 +161,7 @@ Lytrize has a **two-layer architecture**: a PySide6 desktop launcher that manage
 │    analysis/      — Chart runners and configuration registry         │
 │      __init__.py     — ANALYSIS_OPTIONS, _RUNNERS, _WIDGET_SPEC,    │
 │                        render_config_panel(), _collect_kwargs(),      │
-│                        _run(), generate_insights()                    │
+│                        _run()                                        │
 │      descriptive.py, statistical.py, distribution.py,               │
 │      correlation.py, categorical.py, pie_chart.py,                  │
 │      time_series.py, scatter_plot.py, matrix_table.py,              │
@@ -224,7 +224,7 @@ Lytrize has a **two-layer architecture**: a PySide6 desktop launcher that manage
 2. **App bootstrap** — `app.py:main()` calls `_init_db_once()` (creates SQLite tables), `inject_css()` (loads fonts + stylesheet), gets or creates the local user row for the current OS user, and restores any saved draft.
 3. **Routing** — `app.py` reads `st.session_state.page` (or the `p` URL parameter) and dispatches to `page_home()`, `page_upload()`, `page_analysis()`, `page_dashboard()`, or `page_profile()`.
 4. **Upload** — `page_upload()` uses `read_csv_fast()` or `read_excel_sheet()` from `perf.py` to load the file, runs `optimize_dtypes()`, and stores the DataFrame in `st.session_state.df` via `set_df()`. The column classifier (`column_tools.py`) auto-detects numeric, categorical, and datetime columns. A parquet snapshot is saved for tab-refresh recovery. The transform log is initialised to track structural column changes.
-5. **Analysis** — `page_analysis()` renders chart-type cards from `ANALYSIS_OPTIONS`. When the user clicks **Generate**, `_collect_kwargs()` reads widget values from `session_state`, `_run()` dispatches to the appropriate chart runner, and `generate_chart_insights()` produces plain-English observations. Each chart's generation kwargs are stored in `chart_meta_{uid}["_generation_kwargs"]` for later regeneration.
+5. **Analysis** — `page_analysis()` renders chart-type cards from `ANALYSIS_OPTIONS`. When the user clicks **Generate**, `_collect_kwargs()` reads widget values from `session_state`, `_run()` dispatches to the appropriate chart runner, and stores each chart's generation kwargs are stored in `chart_meta_{uid}["_generation_kwargs"]` for later regeneration.
 6. **Chart display** — Each chart is rendered in an isolated `@st.fragment` (`chart_card.py`) so that adjusting one chart's settings only reruns that chart, not the entire page.
 7. **Dashboard** — `page_dashboard()` arranges charts in a grid, calculates KPI cards (each KPI stores a `_recipe` for regeneration), and renders the export button. `generate_html_report()` from `export.py` produces a self-contained HTML file with inline Plotly.js.
 8. **Persistence** — Drafts auto-save on every chart mutation via `save_draft()`. Saved sessions are stored in the `sessions` table via `save_session_db()`. The DataFrame is snapshotted to parquet via `save_df_snapshot()` for tab-refresh recovery.
@@ -307,15 +307,13 @@ Shared configuration constants:
 - `APP_HOST = "127.0.0.1"`
 - `APP_PORT = 8501`
 
-### `backend/modules/charts.py` — Chart Utilities & Insight Engine
+### `backend/modules/charts.py` — Chart Utilities
 
 - **`PALETTES`** — 16 named color palettes (Default Blue-Purple, Vibrant, Nature Green, Warm Sunset, etc.)
 - **`chart_layout(height)`** — Returns a dict of Plotly layout kwargs used by every chart (transparent background, no gridlines, dark hover labels).
 - **`apply_hover_format(fig)`** — Applies K/M/B-formatted hovertemplates to every trace in a Plotly figure.
-- **`generate_chart_insights(chart_type, title, fig)`** — Produces plain-English observations from a Plotly figure. Handles distributions, correlations, outliers, time series, categorical/pie, scatter, statistical, data quality, and matrix charts.
 - **`charts_to_json(charts)`** — Serializes the active chart list to JSON for database storage. Uses per-chart memoized `_fig_json_cached()` so unchanged figures are never re-serialized, and downsamples large line/scatter traces via `_downsample_fig_for_persist()` so the persisted payload stays small.
 - **`charts_json_cached()`** — Memoized version that only re-serializes when the chart set or notes actually change (debounced autosave).
-- **`clean_insights(insights)`** — Strips markdown bold markers and normalizes spacing from insight text.
 - **`_json_safe(obj)`** — Recursively converts non-JSON-safe dict keys (e.g., tuple keys from Plotly meta) to strings.
 - **`_downsample_fig_for_persist(fig)`** — Returns a deep-copied figure with large line/scatter traces downsampled to at most 10,000 points for database storage. The live figure is never mutated.
 - **`_fig_json_cached(uid, fig)`** — Memoized per-chart JSON serialization keyed by `id(fig)`. Unchanged charts are never re-serialized.
@@ -346,7 +344,7 @@ All SQLite operations. Key functions:
 
 ### `backend/modules/export.py` — HTML Export Engine
 
-- **`generate_html_report(charts, session_name, orientation, kpis, dashboard_title, grid_cols_n, theme)`** — Generates a fully self-contained HTML dashboard file with inline Plotly.js, embedded fonts, KPI cards, insights, notes, and print-optimized CSS. The first chart includes Plotly.js inline; subsequent charts reuse it.
+- **`generate_html_report(charts, session_name, orientation, kpis, dashboard_title, grid_cols_n, theme)`** — Generates a fully self-contained HTML dashboard file with inline Plotly.js, embedded fonts, KPI cards, notes, and print-optimized CSS. The first chart includes Plotly.js inline; subsequent charts reuse it.
 - **`DEFAULT_THEME`** — 25+ theme keys (background colors, card colors, typography, layout, etc.).
 - **`_merge_theme(user_theme)`** — Merges user overrides over defaults.
 - **`_apply_axes(fig, x_lbl, y_lbl, text_style)`** — Applies axis titles and tick fonts to a figure copy.
@@ -589,7 +587,6 @@ Called by `/usr/local/bin/lytrize`. Resolves the venv Python (`/opt/lytrize/venv
 
 5. **Add kwargs collection** — In `_collect_kwargs()` and `_collect_kwargs_scoped()`, add an `elif aid == "<new_type>":` branch that reads widget values and builds the kwargs dict for the runner.
 
-6. **Add insight support** (optional) — If your chart type produces insights, add a handler in `generate_chart_insights()` in `charts.py`.
 
 That's it — no other files need changes.
 
@@ -970,7 +967,6 @@ Currently, the project does not include an automated test suite. When adding new
    - Excel files with multiple sheets
 3. **Check auto-save** — Verify the draft is saved on every chart mutation and restored after a browser tab refresh.
 4. **Check draft cleanup** — Verify drafts are cleared after a successful session save.
-5. **Check the insight engine** — If you add a new chart runner, confirm that the insight engine produces at least one insight and does not crash on degenerate data.
 6. **Check export** — Verify the HTML export is self-contained (no external CDN dependencies) and renders correctly in Chrome and Firefox.
 7. **Check cross-platform** — If possible, test on both Ubuntu and Fedora.
 8. **Check re-upload auto-update** — If you modify chart runners or KPIs, verify that saved charts/KPIs regenerate correctly when re-uploading a modified version of the same dataset. Check that missing columns are reported as warnings.

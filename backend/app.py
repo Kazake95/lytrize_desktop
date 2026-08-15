@@ -4,7 +4,6 @@ import logging
 
 import warnings
 import json
-import os
 
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -12,16 +11,8 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 try:
     import plotly.io as _pio
-    _pio.renderers.default = "browser"
     _pio.config.mathjax = None
 except (AttributeError, Exception):
-    pass
-
-try:
-    import plotly.offline as _poff
-    _poff._DEFAULT_INCLUDE_PLOTLYJS = "inline"
-except Exception as exc:
-    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
     pass
 
 
@@ -43,7 +34,7 @@ from modules.pages.home            import page_home
 from modules.pages.upload          import page_upload
 from modules.pages.analysis        import page_analysis
 from modules.pages.dashboard       import page_dashboard
-from modules.utils.session_cache   import save_df_snapshot, load_df_snapshot, set_df
+from modules.utils.session_cache   import load_df_snapshot, set_df
 
 
 

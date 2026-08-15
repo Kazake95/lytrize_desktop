@@ -9,7 +9,7 @@ from modules.database import log_activity, save_draft, update_session_db, get_se
 from modules.utils.session_cache import make_json_safe
 from modules.utils.transform_log import get_transform_log_json
 from modules.analysis import (
-    ANALYSIS_OPTIONS, _NEEDS_AXES, _NO_FORM,
+    ANALYSIS_OPTIONS, _NEEDS_AXES,
     render_config_panel, _collect_kwargs, _run,
     _WIDGET_SPEC, _collect_widget_state,
 )

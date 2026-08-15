@@ -4,7 +4,7 @@
 
 **Local-first data analytics for Linux — no cloud, no account, no setup.**
 
-Upload a CSV or Excel file and get interactive charts, dashboards, and insights in seconds. Everything stays on your device.
+Upload a CSV or Excel file and get interactive charts and dashboards in seconds. Everything stays on your device.
 
 [![Platform](https://img.shields.io/badge/platform-Linux%20(amd64)-blue?style=flat-square)](https://github.com/Kazake95/lytrize_desktop)
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
@@ -191,11 +191,7 @@ sudo dpkg -r lytrize          # Debian / Ubuntu
 sudo dnf remove lytrize       # Fedora / RHEL
 ```
 
-User data at `~/.local/share/lytrize/` is **not** removed by the package uninstaller. Delete it manually if you want a complete clean:
-
-```bash
-rm -rf ~/.local/share/lytrize
-```
+> **⚠️ Warning:** The package uninstaller **removes all user data** — including saved sessions, dashboards, and the local database at `~/.local/share/lytrize/`. Back up your sessions first (Home → **Restore Backup** → **Backup**) if you want to keep them.
 
 ---
 
