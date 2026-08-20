@@ -5,6 +5,7 @@ import datetime
 
 
 import streamlit as st
+import numpy as np
 import pandas as pd
 from html import escape
 
@@ -366,18 +367,28 @@ def _auto_update_on_reupload(df: pd.DataFrame, file_name: str) -> pd.DataFrame:
     return df
 
 
-def _apply_upload_filters(df: pd.DataFrame, search_text: str, col_filters: dict) -> pd.DataFrame:
+def _apply_upload_filters(df: pd.DataFrame, search_text: str, col_filters: dict) -> np.ndarray:
     """Apply the global text search + per-column filters built by the Full
-    Table view. Pure function so it's testable without Streamlit widgets."""
-    mask = pd.Series(True, index=df.index)
+    Table view. Returns a **boolean numpy mask** (not a filtered DataFrame)
+    so callers can paginate with ``df.iloc[mask]`` without ever materialising
+    a full copy of a large dataset. Pure function so it's testable without
+    Streamlit widgets."""
+    n = len(df)
+
+    # FAST-PATH: no filters at all — return an all-True mask without building
+    # a 12.7M-element boolean Series or copying the DataFrame.
+    if not search_text and not col_filters:
+        return np.ones(n, dtype=bool)
+
+    mask = np.ones(n, dtype=bool)
 
     if search_text:
         text_cols = df.select_dtypes(include=["object", "category"]).columns
         if len(text_cols):
             needle = search_text.lower()
-            sub_mask = pd.Series(False, index=df.index)
+            sub_mask = np.zeros(n, dtype=bool)
             for c in text_cols:
-                sub_mask |= df[c].astype(str).str.lower().str.contains(needle, na=False, regex=False)
+                sub_mask |= df[c].astype(str).str.lower().str.contains(needle, na=False, regex=False).to_numpy()
             mask &= sub_mask
 
     for col, spec in col_filters.items():
@@ -387,27 +398,35 @@ def _apply_upload_filters(df: pd.DataFrame, search_text: str, col_filters: dict)
         val  = spec.get("value")
         if kind == "numeric" and val is not None:
             lo, hi = val
-            mask &= df[col].between(lo, hi)
+            mask &= df[col].between(lo, hi).to_numpy()
         elif kind == "categorical" and val:
-            mask &= df[col].astype(str).isin([str(v) for v in val])
+            mask &= df[col].astype(str).isin([str(v) for v in val]).to_numpy()
         elif kind == "text_contains" and val:
-            mask &= df[col].astype(str).str.lower().str.contains(val.lower(), na=False, regex=False)
+            mask &= df[col].astype(str).str.lower().str.contains(val.lower(), na=False, regex=False).to_numpy()
         elif kind == "date" and val is not None:
             start, end = val
             parsed = pd.to_datetime(df[col], errors="coerce")
-            mask &= (parsed >= pd.Timestamp(start)) & (parsed <= pd.Timestamp(end) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1))
+            mask &= ((parsed >= pd.Timestamp(start)) & (parsed <= pd.Timestamp(end) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1))).to_numpy()
         elif kind == "bool" and val != "All":
-            mask &= (df[col] == (val == "True"))
+            mask &= (df[col] == (val == "True")).to_numpy()
 
-    return df[mask]
+    return mask
 
 
-def _render_full_table_filters(df: pd.DataFrame) -> pd.DataFrame:
-    """Render the filter UI for the Full Table preview mode and return the
-    filtered DataFrame. Filter widgets are opt-in per column (via a
-    multiselect) so wide datasets don't render dozens of filter controls
-    at once."""
+def _render_full_table_filters(df: pd.DataFrame) -> np.ndarray:
+    """Render the filter UI for the Full Table preview mode and return a
+    **boolean numpy mask** of matching rows (not a filtered DataFrame).
+    Filter widgets are opt-in per column (via a multiselect) so wide
+    datasets don't render dozens of filter controls at once.
+
+    For large datasets (>100k rows) the categorical unique-value scan is
+    performed on a sample so the widget renders in O(sample) instead of
+    O(rows). The cached mask is a lightweight numpy bool array — never a
+    full copy of the DataFrame.
+    """
     all_cols = df.columns.tolist()
+    n_rows = len(df)
+    _LARGE = n_rows > 100_000
 
     fc1, fc2 = st.columns([2, 1])
     with fc1:
@@ -464,8 +483,20 @@ def _render_full_table_filters(df: pd.DataFrame) -> pd.DataFrame:
                     else:
                         st.caption(f"🔢 {col}: single value, nothing to filter")
                 else:
-                    nunique = series.nunique(dropna=True)
+                    # ── Categorical / text column ─────────────────────────
+                    # For large datasets, estimate nunique on a sample so the
+                    # widget renders in O(100k) instead of O(12.7M).
+                    if _LARGE:
+                        _sample_series = series.dropna().sample(
+                            min(100_000, len(series)), random_state=42
+                        )
+                        nunique = int(_sample_series.nunique(dropna=True))
+                    else:
+                        nunique = int(series.nunique(dropna=True))
+
                     if nunique <= 200:
+                        # Sample-based estimate says few unique values — still
+                        # need the real list for the multiselect options.
                         opts = sorted(series.dropna().astype(str).unique().tolist())
                         picked = st.multiselect(f"🔤 {col}", opts, key=f"_ul_filter_cat_{col}")
                         if picked:
@@ -481,13 +512,14 @@ def _render_full_table_filters(df: pd.DataFrame) -> pd.DataFrame:
     )
     cache_key = ("_ul_full_filtered", st.session_state.get("_df_version", 0), filter_sig)
     if st.session_state.get("_ul_full_filter_cache_key") != cache_key:
-        filtered = _apply_upload_filters(df, search_text, col_filters)
-        st.session_state["_ul_full_filter_cache"] = filtered
+        mask = _apply_upload_filters(df, search_text, col_filters)
+        # Cache the lightweight boolean mask — NOT a full DataFrame copy.
+        st.session_state["_ul_full_filter_cache"] = mask
         st.session_state["_ul_full_filter_cache_key"] = cache_key
     else:
-        filtered = st.session_state["_ul_full_filter_cache"]
+        mask = st.session_state["_ul_full_filter_cache"]
 
-    return filtered
+    return mask
 
 
 def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
@@ -585,8 +617,8 @@ def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
 
             if _ul_mode == "full":
                 st.markdown("---")
-                filtered = _render_full_table_filters(df)
-                _n_filtered = len(filtered)
+                mask = _render_full_table_filters(df)
+                _n_filtered = int(mask.sum())
 
                 pg1, pg2, pg3 = st.columns([1, 1, 2])
                 with pg1:
@@ -605,12 +637,25 @@ def _show_analysis_pipeline(df: pd.DataFrame, file_name: str):
                         f"(of {_n_rows:,} total) · page {page}/{total_pages}"
                     )
 
-                page_df = filtered.iloc[(page-1)*page_size : page*page_size]
+                # Materialise ONLY the visible page (25–500 rows) — never the
+                # full filtered dataset.
+                _row_idx = np.flatnonzero(mask)
+                _page_idx = _row_idx[(page-1)*page_size : page*page_size]
+                page_df = df.iloc[_page_idx]
                 st.dataframe(page_df, use_container_width=True, height=min(600, 38 + len(page_df) * 35))
 
+                # LAZY download: the callable is only invoked when the user
+                # actually clicks the button. Previously `data=filtered.to_csv()`
+                # serialised all 12.7M rows on EVERY fragment rerun — the cause
+                # of the UI freeze.
+                if _n_filtered > 1_000_000:
+                    st.warning(
+                        f"⚠️ Downloading {_n_filtered:,} rows will produce a large CSV "
+                        f"and may take a while. Click the button below to generate it."
+                    )
                 st.download_button(
                     "⬇️ Download filtered rows as CSV",
-                    data=filtered.to_csv(index=False).encode("utf-8"),
+                    data=lambda: df.iloc[_row_idx].to_csv(index=False).encode("utf-8"),
                     file_name=f"filtered_{file_name.rsplit('.', 1)[0]}.csv",
                     mime="text/csv",
                     key="_ul_full_download",
