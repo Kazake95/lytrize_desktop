@@ -1,6 +1,6 @@
 Name:           lytrize
-Version:        1.0
-Release:        2%{?dist}
+Version:        1.1
+Release:        1%{?dist}
 Summary:        Offline desktop analytics — CSV and Excel to interactive dashboards
 BuildArch:      x86_64
 
