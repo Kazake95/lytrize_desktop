@@ -149,75 +149,32 @@ If you need to update your dataset, go to the Home page, click **Edit** on a sav
 ---
 ## Lytrize-Clip Chromium Extension
 
-**[📥 Download Lytrize-Clip Releases](https://github.com/Kazake95/lytrize_desktop/releases/tag/Lytrize_Clip_Chromium_Extension)**
+**[📥 Click to Download Lytrize-Clip ](https://github.com/Kazake95/lytrize_desktop/releases/tag/Lytrize_Clip_Chromium_Extension)**
 
-**Lytrize-Clip** is the companion Manifest V3 Chromium extension for taking full-page screenshots of rendered webpages.
+**Lytrize-Clip** is the companion Chromium extension for taking full-page screenshots of rendered webpages. It captures the entire rendered surface in one native screenshot — without scrolling, zooming, or viewport stitching — and downloads the result as a PNG.
 
-It captures the entire rendered document as **one native DevTools Protocol screenshot** — without scrolling, zooming, viewport stitching, or combining multiple screenshots.
-
-It is especially useful for long dashboards and pages containing expanded dropdowns, modals, fixed-position UI, or dynamically rendered content.
+It is especially useful for capturing Lytrize dashboards and other long pages that contain expanded dropdowns, modals, or lazy-loaded content.
 
 ### How it works
 
-Lytrize-Clip uses `chrome.debugger` and the Chrome DevTools Protocol:
-
-1. `Page.getLayoutMetrics` determines the page's intrinsic layout/content size.
-2. `Page.captureScreenshot` captures the rendered page.
-3. `captureBeyondViewport: true` captures content outside the visible viewport.
-4. The resulting PNG is saved through the browser's native download manager.
-
-The extension does **not** resize the viewport, scroll the page, or stitch multiple images together. This avoids changing responsive layout conditions during capture.
-
-### Important: local `file://` pages
-
-Chromium requires a user-controlled permission for extensions that access local files.
-
-For a page such as:
-
-```text
-file:///home/user/Downloads/Saved_Session.html
-```
-
-open the browser's extension details page and enable:
-
-**Allow access to file URLs**
-
-For Chrome/Chromium:
-
-```text
-chrome://extensions/
-```
-
-Then open **Lytrize-Clip → Details → Allow access to file URLs**.
-
-Without this setting, Chromium can reject the debugger attachment with:
-
-> Cannot attach to this target.
-
-Lytrize-Clip checks this condition before attaching and directs the user to the extension settings.
-
-> **Important:** This setting is controlled by Chromium and cannot be enabled automatically by an extension.
+Lytrize-Clip uses the Chrome DevTools Protocol (`Page.captureScreenshot` with `captureBeyondViewport`) to capture the full rendered page as one image. The PNG is then saved through the browser's native download manager.
 
 ### Install on Linux
 
-The release package contains the installer script and the unpacked extension directory:
+The extension package includes `Lytrize-Clip_installler.sh` and the unpacked `Lytrize-Clip/` extension directory.
 
-```text
-Lytrize-Clip_ext/
-├── Lytrize-Clip_installler.sh
-└── Lytrize-Clip/
-```
+> **Important:** Close your Chromium-based browser before running the installer. The `Lytrize-Clip/` folder must remain in the same directory as the installer script.
 
-> The installer filename currently uses `installler` (three `l`s).
+**First download the zip from above link**
 
-**First download the ZIP from the GitHub release link above.**
-
-**Close all Chromium-based browsers before running the installer.**
+**Then close your browser before installation**
 
 ```bash
-cd Lytrize-Clip_ext
-chmod +x Lytrize-Clip_installler.sh
-./Lytrize-Clip_installler.sh [browser-name]
+
+cd Lytrize-Clip
+chmod +x Lytrize-Clip_installer.sh
+./Lytrize-Clip_installer.sh [browser-name]
+
 ```
 
 Supported browser names:
@@ -230,62 +187,37 @@ Supported browser names:
 - `vivaldi`
 - `auto` (default)
 
-Example:
+For example :
 
 ```bash
 ./Lytrize-Clip_installler.sh chrome
 ```
 
-The installer detects the browser profile, creates or reuses a persistent extension key, updates browser extension preferences, enables Developer Mode, and creates a backup of the Preferences file.
+The installer detects the browser profile, creates or reuses a persistent extension key, updates the browser preferences, and creates a backup of the preferences file. Modern Chromium browsers still require the extension to be loaded through **Developer mode**.
 
-After installation:
+After the installer finishes:
 
-**Restart your browser and pin Lytrize-Clip for quick access.**
+**Restart your browser & pin it for quick access** after running the script.
+
+> **Note:** The `Lytrize-Clip/` extension folder must sit in the same directory as the installer script.
 
 ### Manual installation (any OS)
 
-1. Open the browser's extensions page.
-   - Chrome/Chromium: `chrome://extensions/`
-   - Edge: `edge://extensions/`
-   - Brave: `brave://extensions/`
-   - Opera: `opera://extensions/`
-   - Vivaldi: `vivaldi://extensions/`
+1. Open `chrome://extensions/` (or the equivalent extensions page in your Chromium browser).
 2. Enable **Developer mode**.
 3. Click **Load unpacked**.
-4. Select the `Lytrize-Clip/` folder from the release package.
-
-For local `file://` pages, also enable **Allow access to file URLs** in the extension's details page.
+4. Select the `Lytrize-Clip/` folder from the extension package.
 
 ### Permissions
 
 - `debugger` — required to access Chrome DevTools Protocol for native full-page capture
-- `activeTab` — targets the current active tab
+- `activeTab` — limits capture access to the current active tab
 - `downloads` — saves the PNG through the browser download manager
 
-There is no `host_permissions` entry in the current manifest. Local `file://` access remains controlled separately by Chromium's **Allow access to file URLs** setting.
-
-### Compatibility
-
-Lytrize-Clip targets current Manifest V3 Chromium-based browsers and is intended for:
-
-- Google Chrome
-- Chromium
-- Microsoft Edge
-- Brave
-- Opera
-- Vivaldi
-
-Browser-specific behavior may vary with Chromium updates.
-
-### Known limitation
-
-A single native Chromium screenshot has practical bitmap and dimension limits. Extremely large documents can exceed those limits. Lytrize-Clip reports such failures rather than silently truncating the capture.
-
-### Privacy
-
-Lytrize-Clip does not collect, upload, transmit, or externally store captured page content or screenshots.
+Lytrize-Clip does not collect, transmit, or store captured page data.
 
 ---
+
 ## Chart Types
 
 | Chart | What it does |
