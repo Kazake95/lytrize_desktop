@@ -151,68 +151,84 @@ If you need to update your dataset, go to the Home page, click **Edit** on a sav
 
 **[📥 Click to Download Lytrize-Clip ](https://github.com/Kazake95/lytrize_desktop/releases/tag/Lytrize_Clip_Chromium_Extension)**
 
-**Lytrize-Clip** is the companion Chromium extension for taking full-page screenshots of rendered webpages. It captures the entire rendered surface in one native screenshot — without scrolling, zooming, or viewport stitching — and downloads the result as a PNG.
+**Lytrize-Clip** captures full-page screenshots of rendered web pages and local HTML files as a single PNG — without scrolling, zooming, or viewport stitching.
 
-It is especially useful for capturing Lytrize dashboards and other long pages that contain expanded dropdowns, modals, or lazy-loaded content.
+It uses the Chrome DevTools Protocol (`Page.captureScreenshot` with `captureBeyondViewport`) and saves the image through the browser's native download manager.
 
-### How it works
+## Linux Installation
 
-Lytrize-Clip uses the Chrome DevTools Protocol (`Page.captureScreenshot` with `captureBeyondViewport`) to capture the full rendered page as one image. The PNG is then saved through the browser's native download manager.
+The release includes:
 
-### Install on Linux
+```text
+Lytrize-Clip_installer.sh
+Lytrize-Clip/
+```
 
-The extension package includes `Lytrize-Clip_installler.sh` and the unpacked `Lytrize-Clip/` extension directory.
+The installer copies the extension to the persistent location:
 
-> **Important:** Close your Chromium-based browser before running the installer. The `Lytrize-Clip/` folder must remain in the same directory as the installer script.
+```text
+~/Lytrize-Clip
+```
 
-**First download the zip from above link**
+So the original extracted release folder can be deleted after installation.
 
-**Then close your browser before installation**
+> **Important:** Close your Chromium-based browser before running the installer.
 
 ```bash
-
-cd Lytrize-Clip
 chmod +x Lytrize-Clip_installer.sh
 ./Lytrize-Clip_installer.sh [browser-name]
-
 ```
 
-Supported browser names:
+Supported browsers:
 
-- `chrome`
-- `chromium`
-- `edge`
-- `brave`
-- `opera`
-- `vivaldi`
-- `auto` (default)
+```text
+chrome  chromium  edge  brave  opera  vivaldi  auto
+```
 
-For example :
+Example:
 
 ```bash
-./Lytrize-Clip_installler.sh chrome
+./Lytrize-Clip_installer.sh chromium
 ```
 
-The installer detects the browser profile, creates or reuses a persistent extension key, updates the browser preferences, and creates a backup of the preferences file. Modern Chromium browsers still require the extension to be loaded through **Developer mode**.
+Restart the browser after installation and pin Lytrize-Clip for quick access.
 
-After the installer finishes:
+> **Note:** Chromium may require **Developer mode** for unpacked extensions. If manual loading is required, select `~/Lytrize-Clip`, not the extracted release folder.
 
-**Restart your browser & pin it for quick access** after running the script.
+## Windows Installation
 
-> **Note:** The `Lytrize-Clip/` extension folder must sit in the same directory as the installer script.
+Run:
 
-### Manual installation (any OS)
+```text
+install_windows.bat
+```
 
-1. Open `chrome://extensions/` (or the equivalent extensions page in your Chromium browser).
+or:
+
+```powershell
+.\Lytrize-Clip_installer.ps1
+```
+
+The extension is copied to:
+
+```text
+%USERPROFILE%\Lytrize-Clip
+```
+
+Close the browser before installation. If manual loading is required, use **Load unpacked** and select `%USERPROFILE%\Lytrize-Clip`.
+
+## Manual Installation
+
+1. Open your Chromium browser's extensions page.
 2. Enable **Developer mode**.
-3. Click **Load unpacked**.
-4. Select the `Lytrize-Clip/` folder from the extension package.
+3. Select **Load unpacked**.
+4. Choose the persistent `Lytrize-Clip` folder.
 
-### Permissions
+## Permissions
 
-- `debugger` — required to access Chrome DevTools Protocol for native full-page capture
-- `activeTab` — limits capture access to the current active tab
-- `downloads` — saves the PNG through the browser download manager
+- `debugger` — Chrome DevTools Protocol full-page capture
+- `activeTab` — access to the active tab
+- `downloads` — save screenshots as PNG
 
 Lytrize-Clip does not collect, transmit, or store captured page data.
 
