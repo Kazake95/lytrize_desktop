@@ -17,7 +17,8 @@ from modules.ui.css import APP_NAME, inject_footer, render_logo
 
 
 def _db_path() -> str:
-    _default = str(pathlib.Path.home() / ".local" / "share" / "lytrize" / "lytrize.db")
+    from modules.utils.paths import data_dir as _data_dir
+    _default = str(_data_dir() / "lytrize.db")
     return os.environ.get("LYTRIZE_DB_PATH") or _default
 
 

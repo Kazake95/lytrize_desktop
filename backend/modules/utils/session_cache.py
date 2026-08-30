@@ -125,12 +125,8 @@ _MAX_SNAPSHOT_BYTES = 512 * 1_048_576
 
 def df_cache_path(user_id: int) -> Path:
     """Return the path for the per-user DataFrame parquet snapshot."""
-    runtime = os.environ.get("XDG_RUNTIME_DIR")
-    if runtime:
-        base = Path(runtime) / "lytrize"
-    else:
-        cache_home = os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))
-        base = Path(cache_home) / "lytrize"
+    from modules.utils.paths import snapshot_dir
+    base = snapshot_dir()
 
     base.mkdir(parents=True, exist_ok=True)
     try:

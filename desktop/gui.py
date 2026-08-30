@@ -54,7 +54,9 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-import signal  # process-group termination support
+
+if os.name != "nt":
+    import signal  # process-group termination support (POSIX only)
 
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
@@ -63,16 +65,11 @@ from PySide6.QtWidgets import (
     QGraphicsDropShadowEffect,
 )
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QFont
-from PySide6.QtCore import Qt, QThread, Signal, QPropertyAnimation, QEasingCurve, QTimer, Property
+from PySide6.QtCore import Qt, QThread, Signal, QPropertyAnimation, QEasingCurve, QTimer, Property, QEvent
 
 
 
-BASE       = Path(__file__).resolve().parent.parent
-DATA_DIR   = Path.home() / ".local" / "share" / "lytrize"
-PREFS      = DATA_DIR / "launcher_prefs.json"
-DB_PATH    = DATA_DIR / "lytrize.db"
-VENV_PY    = BASE / "venv" / "bin" / "python"
-APP_PY     = BASE / "backend" / "app.py"
+BASE       = Path(__file__).resolve().parent.parent  # repo root (or install base)
 
 # backend/config.py is the single source of truth for host/port -- import it
 # rather than duplicating "127.0.0.1" / "8501" literals here. If it can't be
@@ -84,7 +81,28 @@ try:
 except Exception:
     APP_HOST, APP_PORT = "127.0.0.1", 8501
 
+# Cross-platform helpers for data-dir placement.
+from modules.utils.paths import data_dir as _paths_data_dir
+from modules.utils.paths import is_windows as _is_windows
+
 APP_URL    = f"http://{APP_HOST}:{APP_PORT}"
+
+# Persistent user data lives in %APPDATA%\Lytrize on Windows and
+# ~/.local/share/lytrize on Linux. Everything downstream (prefs, DB, browser
+# profiles, logs) derives from DATA_DIR so uninstall can remove a single tree.
+DATA_DIR   = _paths_data_dir()
+PREFS      = DATA_DIR / "launcher_prefs.json"
+DB_PATH    = DATA_DIR / "lytrize.db"
+
+# Windows venvs place the interpreter under Scripts\pythonw.exe (no console);
+# Linux venvs use bin/python. VENV_PY is used for the Streamlit subprocess.
+VENV_DIR   = BASE / "venv"
+if _is_windows():
+    VENV_PY = VENV_DIR / "Scripts" / "pythonw.exe"
+else:
+    VENV_PY = VENV_DIR / "bin" / "python"
+
+APP_PY     = BASE / "backend" / "app.py"
 
 _PROFILE_ROOT = DATA_DIR / "browser-profiles"
 _CHROMIUM_PROFILE = _PROFILE_ROOT / "chromium"
@@ -144,7 +162,9 @@ def _save_prefs(data: dict) -> None:
 
 
 
-_BROWSER_CANDIDATES: list[tuple[str, str, bool]] = [
+# ── Linux candidates ---------------------------------------------------
+# Resolved via shutil.which() against the executable name on PATH.
+_LINUX_BROWSER_CANDIDATES: list[tuple[str, str, bool]] = [
     ("Google Chrome",  "google-chrome",        True),
     ("Google Chrome",  "google-chrome-stable", True),
     ("Chromium",       "chromium",              True),
@@ -158,8 +178,25 @@ _BROWSER_CANDIDATES: list[tuple[str, str, bool]] = [
     ("Firefox ESR",    "firefox-esr",           False),
     ("Zen Browser",    "zen",                   False),
     ("LibreWolf",      "librewolf",             False),
-    ("Default",        "xdg-open",              False),
 ]
+
+# ── Windows candidates -------------------------------------------------
+# Real install paths under the standard Program Files / Program Files (x86)
+# roots. `%PF%` is expanded to each root at detection time. These exes are NOT
+# on PATH on Windows, so shutil.which() cannot be used for them.
+_WINDOWS_BROWSER_CANDIDATES: list[tuple[str, str, bool]] = [
+    ("Google Chrome",   r"%PF%\Google\Chrome\Application\chrome.exe",              True),
+    ("Microsoft Edge",  r"%PF%\Microsoft\Edge\Application\msedge.exe",              True),
+    ("Brave",           r"%PF%\BraveSoftware\Brave-Browser\Application\brave.exe", True),
+    ("Vivaldi",         r"%PF%\Vivaldi\Application\vivaldi.exe",                    True),
+    ("Opera",           r"%PF%\Opera\launcher.exe",                                True),
+    ("Mozilla Firefox", r"%PF%\Mozilla Firefox\firefox.exe",                       False),
+    ("LibreWolf",       r"%PF%\LibreWolf\librewolf.exe",                           False),
+]
+
+# Sentinel used as the "Default / OS handler" browser binary. On Linux this is
+# resolved to real `xdg-open`; on Windows it triggers os.startfile().
+_DEFAULT_HANDLER = "xdg-open"
 
 
 def _detect_browsers() -> list[dict]:
@@ -168,27 +205,95 @@ def _detect_browsers() -> list[dict]:
 
     Each dict has keys: ``name`` (str), ``binary`` (str path), ``chromium`` (bool).
 
-    Deduplication is done on the *resolved* binary path, so symlinks such as
+    On Linux, candidates are resolved with ``shutil.which()`` so symlinks such as
     ``/usr/bin/chromium → /usr/bin/chromium-browser`` are counted once.
-    Falls back to a single ``xdg-open`` entry if nothing else is found.
+
+    On Windows, candidates are looked up by their real executable path under the
+    Program Files roots (browser exes are not on PATH). If nothing is found on
+    either OS, a single OS-default-handler entry is returned.
     """
     seen: set[str] = set()
     found: list[dict] = []
 
-    for name, binary, is_chromium in _BROWSER_CANDIDATES:
-        path = shutil.which(binary)
-        if not path:
-            continue
-        resolved = str(Path(path).resolve())
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        found.append({"name": name, "binary": path, "chromium": is_chromium})
+    if _is_windows():
+        pf      = os.environ.get("ProgramFiles")        or r"C:\Program Files"
+        pf_x86  = os.environ.get("ProgramFiles(x86)")   or r"C:\Program Files (x86)"
+        local   = os.environ.get("LOCALAPPDATA")        or ""
+        # Per-user installs (e.g. current-user Chrome) live under %LOCALAPPDATA%;
+        # system-wide ones under the Program Files roots.
+        roots = [pf, pf_x86]
+        if local:
+            roots.append(local)
+        for name, relpath, is_chromium in _WINDOWS_BROWSER_CANDIDATES:
+            for root in roots:
+                binary = relpath.replace("%PF%", root)
+                path = Path(binary)
+                if not path.exists():
+                    continue
+                resolved = str(path.resolve())
+                if resolved in seen:
+                    continue
+                seen.add(resolved)
+                found.append({"name": name, "binary": binary, "chromium": is_chromium})
+    else:
+        for name, binary, is_chromium in _LINUX_BROWSER_CANDIDATES:
+            path = shutil.which(binary)
+            if not path:
+                continue
+            resolved = str(Path(path).resolve())
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            found.append({"name": name, "binary": path, "chromium": is_chromium})
 
     if not found:
-        found.append({"name": "Default", "binary": "xdg-open", "chromium": False})
+        found.append({
+            "name": "Default",
+            "binary": _DEFAULT_HANDLER,
+            "chromium": False,
+        })
 
     return found
+
+
+def _windows_processes() -> list[dict]:
+    """
+    Snapshot of running Windows processes as a list of dicts with keys
+    ``ProcessId``, ``ParentProcessId``, ``Name`` and ``CommandLine``.
+
+    Implemented via PowerShell's Get-CimInstance (no third-party deps).
+    Returns an empty list if the query fails, so callers must fall back to
+    PID-based killing.
+    """
+    ps_cmd = (
+        "Get-CimInstance Win32_Process | "
+        "Select-Object ProcessId,ParentProcessId,Name,CommandLine | "
+        "ConvertTo-Json -Compress"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        data = json.loads(result.stdout or "[]")
+    except Exception as exc:
+        logging.getLogger(__name__).debug(
+            "Suppressed error enumerating processes: %s", exc, exc_info=True
+        )
+        return []
+    if isinstance(data, dict):          # single-result form
+        data = [data]
+    return data or []
+
+
+def _port_in_use(host: str, port: int) -> bool:
+    """True when something is already accepting connections on host:port."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.5)
+        return sock.connect_ex((host, port)) == 0
 
 
 
@@ -618,6 +723,7 @@ class Launcher(QWidget):
         self._proc         : subprocess.Popen | None = None
         self._wait_thread  : _WaitThread | None      = None
         self._watch_thread : _WatchThread | None     = None
+        self._browser_procs: set[int] = set()   # PIDs of opened isolated browser windows
         self._browsers     = _detect_browsers()
         self._icon         = _make_icon()
         self._crash_count  = 0
@@ -631,12 +737,13 @@ class Launcher(QWidget):
         self.setWindowIcon(self._icon)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        h = 310 if len(self._browsers) > 1 else 278
-        self.setFixedSize(390, h)
+        self.setFixedSize(390, 310)
         self.setStyleSheet(self._QSS)
 
         self._build_ui()
         self._build_tray()
+        if QSystemTrayIcon.isSystemTrayAvailable():
+            self.tray.show()   # show right away so minimizing to tray works pre-start
         self._connect_signals()
         self._apply_window_shadow()
 
@@ -725,18 +832,19 @@ class Launcher(QWidget):
         divider.setFixedHeight(1)
 
         prefs = _load_prefs()
+        # Always show the "Open with:" dropdown so the user can pick a browser
+        # even when only one (or only the OS-default fallback) is detected.
         self.combo_browser: QComboBox | None = None
-        if len(self._browsers) > 1:
-            lbl_b = QLabel("Open with:")
-            lbl_b.setObjectName("blbl")
-            self.combo_browser = QComboBox()
-            saved_binary = prefs.get("browser_binary", "")
-            selected_idx = 0
-            for i, browser in enumerate(self._browsers):
-                self.combo_browser.addItem(browser["name"], userData=browser["binary"])
-                if browser["binary"] == saved_binary:
-                    selected_idx = i
-            self.combo_browser.setCurrentIndex(selected_idx)
+        lbl_b = QLabel("Open with:")
+        lbl_b.setObjectName("blbl")
+        self.combo_browser = QComboBox()
+        saved_binary = prefs.get("browser_binary", "")
+        selected_idx = 0
+        for i, browser in enumerate(self._browsers):
+            self.combo_browser.addItem(browser["name"], userData=browser["binary"])
+            if browser["binary"] == saved_binary:
+                selected_idx = i
+        self.combo_browser.setCurrentIndex(selected_idx)
 
         self.btn_start = QPushButton("▶  Start")
         self.btn_start.setObjectName("btn_start")
@@ -853,6 +961,52 @@ class Launcher(QWidget):
         QTimer.singleShot(500, lambda: self.progress.setVisible(False))
 
 
+    def _terminate_stale_backend(self) -> None:
+        """
+        Terminate a leftover Lytrize backend from a previous session that is
+        still holding APP_PORT (e.g. after a crash or a forced shutdown).
+        Without this, the next launch dies with Streamlit's
+        "Port ... is not available" (exit 1). Only processes whose command line
+        matches *our* backend (`streamlit run <APP_PY>`) are touched, so other
+        applications on the same port are left alone.
+        """
+        if _is_windows():
+            procs = _windows_processes()
+            if not procs:
+                return
+            helper_shells = {"powershell.exe", "pwsh.exe", "cmd.exe", "conhost.exe"}
+            needle_app = str(APP_PY)
+            for proc in procs:
+                cmdline = proc.get("CommandLine")
+                name = (proc.get("Name") or "").lower()
+                if not isinstance(cmdline, str) or name in helper_shells:
+                    continue
+                if "streamlit" in cmdline and needle_app in cmdline:
+                    try:
+                        pid = int(proc.get("ProcessId"))
+                    except (TypeError, ValueError):
+                        continue
+                    if pid == os.getpid():
+                        continue
+                    logging.getLogger(__name__).warning(
+                        "Terminating stale Lytrize backend (pid %s) holding port %s",
+                        pid, APP_PORT,
+                    )
+                    self._kill_process_tree(pid)
+        else:
+            try:
+                subprocess.run(
+                    ["pkill", "-f", f"streamlit run {APP_PY}"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=10,
+                )
+            except (FileNotFoundError, subprocess.SubprocessError, OSError) as exc:
+                logging.getLogger(__name__).debug(
+                    "Suppressed error killing stale backend: %s", exc, exc_info=True
+                )
+
+
     def _start(self) -> None:
         """
         Launch the Streamlit backend subprocess.
@@ -867,6 +1021,19 @@ class Launcher(QWidget):
         """
         if self._is_running():
             return
+
+        # Self-heal: a stale backend from a previous session may still hold
+        # APP_PORT, which would make Streamlit exit(1) with
+        # "Port ... is not available". Clear our own leftovers first.
+        if _port_in_use(APP_HOST, APP_PORT):
+            self._terminate_stale_backend()
+            time.sleep(1.0)
+            if _port_in_use(APP_HOST, APP_PORT):
+                logging.getLogger(__name__).warning(
+                    "Port %s is still in use by another application; "
+                    "the backend may fail to start (see streamlit.log).",
+                    APP_PORT,
+                )
 
         self.btn_start.setEnabled(False)
         self._set_status("Starting…", "#f59e0b", pulse=True)
@@ -916,19 +1083,42 @@ class Launcher(QWidget):
                 if key:
                     env[key] = val
 
-        python = str(VENV_PY) if VENV_PY.exists() else "python3"
+        python = str(VENV_PY) if VENV_PY.exists() else ("python" if _is_windows() else "python3")
 
-        import glob as _glob
-        _sp = _glob.glob("/opt/lytrize/venv/lib/python*/site-packages")
-        if _sp:
-            _existing = env.get("PYTHONPATH", "")
-            env["PYTHONPATH"] = _sp[0] + (":" + _existing if _existing else "")
+        # On an installed Linux build the venv may have been re-linked to a
+        # different Python minor version, so we explicitly prepend its
+        # site-packages. Unnecessary on Windows (pythonw resolves its own venv).
+        if not _is_windows():
+            import glob as _glob
+            _sp = _glob.glob("/opt/lytrize/venv/lib/python*/site-packages")
+            if _sp:
+                _existing = env.get("PYTHONPATH", "")
+                env["PYTHONPATH"] = _sp[0] + (":" + _existing if _existing else "")
 
         _log_path = DATA_DIR / "streamlit.log"
         try:
             _log_fh = open(_log_path, "w", buffering=1)  # line-buffered
         except Exception:
             _log_fh = open(os.devnull, "w")
+
+        # Spawn Streamlit without any console window: on Windows we use
+        # CREATE_NO_WINDOW (so the backend leaves no visible shell) and
+        # CREATE_NEW_PROCESS_GROUP (so taskkill /T can target the tree later).
+        # On POSIX we use start_new_session to make the subprocess a process
+        # group leader, matching the original behaviour.
+        popen_kwargs: dict = dict(
+            cwd=str(APP_PY.parent),
+            env=env,
+            stdout=_log_fh,
+            stderr=_log_fh,
+        )
+        if _is_windows():
+            popen_kwargs["creationflags"] = (
+                getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            )
+        else:
+            popen_kwargs["start_new_session"] = True
 
         self._proc = subprocess.Popen(
             [
@@ -946,11 +1136,7 @@ class Launcher(QWidget):
                 "--runner.fastReruns",           "true",
                 "--runner.magicEnabled",         "false",
             ],
-            cwd=str(APP_PY.parent),
-            env=env,
-            stdout=_log_fh,
-            stderr=_log_fh,
-            start_new_session=True,   # process group leader for clean shutdown
+            **popen_kwargs,
         )
         self.tray.show()
 
@@ -987,7 +1173,10 @@ class Launcher(QWidget):
         self._progress_timer.stop()
         self.progress.setVisible(False)
         self._crash_count += 1
-        self._set_status(f"Crashed (exit {code}) — click Start to retry", "#ef4444")
+        crash_msg = f"Crashed (exit {code}) — click Start to retry"
+        if _port_in_use(APP_HOST, APP_PORT):
+            crash_msg += f" — port {APP_PORT} is in use (see streamlit.log)"
+        self._set_status(crash_msg, "#ef4444")
         self.btn_start.setEnabled(True)
         self.btn_open.setEnabled(False)
         self.btn_stop.setEnabled(False)
@@ -1001,19 +1190,28 @@ class Launcher(QWidget):
 
 
     def _open_app(self) -> None:
-        """Open the Lytrize web UI in the selected browser."""
-        browser = self._selected_browser()
-        url     = APP_URL
-        _devnull = open(os.devnull, "w")
+        """Open the Lytrize web UI in the selected browser and track its PID."""
+        browser  = self._selected_browser()
+        url      = APP_URL
+        proc_kwargs: dict = {}
+        if _is_windows():
+            # Keep console windows away from browser launches too.
+            proc_kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        else:
+            # Make the browser its own process-group leader so the POSIX
+            # killpg() in _kill_process_tree() targets the browser tree only
+            # (never this launcher).
+            proc_kwargs["start_new_session"] = True
 
         if browser["chromium"]:
             _CHROMIUM_PROFILE.mkdir(parents=True, exist_ok=True)
-            try:
-                _CHROMIUM_PROFILE.chmod(0o700)
-            except Exception as exc:
-                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                pass
-            subprocess.Popen(
+            if not _is_windows():
+                try:
+                    _CHROMIUM_PROFILE.chmod(0o700)
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+            _devnull = open(os.devnull, "w")
+            p = subprocess.Popen(
                 [
                     browser["binary"],
                     f"--app={url}",
@@ -1026,16 +1224,27 @@ class Launcher(QWidget):
                 ],
                 stdout=_devnull,
                 stderr=_devnull,
+                **proc_kwargs,
             )
-        elif browser["binary"] == "xdg-open":
-            subprocess.Popen(
-                ["xdg-open", url],
-                stdout=_devnull,
-                stderr=_devnull,
-            )
+            self._browser_procs.add(p.pid)
+            _devnull.close()
+        elif browser["binary"] == _DEFAULT_HANDLER:
+            # Default OS handler: Windows uses the shell's default handler via
+            # os.startfile(); Linux delegates to xdg-open.
+            if _is_windows():
+                os.startfile(url)
+            else:
+                _devnull = open(os.devnull, "w")
+                subprocess.Popen(
+                    ["xdg-open", url],
+                    stdout=_devnull,
+                    stderr=_devnull,
+                )
+                _devnull.close()
         else:
             _ensure_firefox_profile(_FIREFOX_PROFILE)
-            subprocess.Popen(
+            _devnull = open(os.devnull, "w")
+            p = subprocess.Popen(
                 [
                     browser["binary"],
                     "--new-instance",
@@ -1047,13 +1256,170 @@ class Launcher(QWidget):
                 ],
                 stdout=_devnull,
                 stderr=_devnull,
+                **proc_kwargs,
             )
+            self._browser_procs.add(p.pid)
+            _devnull.close()
+
+
+    def _kill_process_tree(self, pid: int) -> None:
+        """Terminate a process and all its descendants on either OS."""
+        if pid is None:
+            return
+        try:
+            if _is_windows():
+                subprocess.run(
+                    ["taskkill", "/PID", str(pid), "/T", "/F"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+            else:
+                pgid = os.getpgid(pid)
+                os.killpg(pgid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError, OSError) as exc:
+            logging.getLogger(__name__).debug(
+                "Suppressed error killing pid %s: %s", pid, exc, exc_info=True
+            )
+
+
+    def _kill_backend(self) -> None:
+        """Stop the Streamlit backend and reap its watch thread."""
+        if self._proc is not None and self._proc.poll() is None:
+            self._kill_process_tree(self._proc.pid)
+            try:
+                self._proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                if not _is_windows():
+                    try:
+                        os.killpg(os.getpgid(self._proc.pid), signal.SIGKILL)
+                    except (ProcessLookupError, OSError):
+                        pass
+                self._proc.wait()
+        self._proc = None
+        if self._watch_thread is not None:
+            try:
+                self._watch_thread.quit()
+                self._watch_thread.wait(2000)
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+            self._watch_thread = None
+
+
+    def _kill_by_pattern(self, pattern: str) -> None:
+        """
+        Windows: terminate every process tree whose command line references
+        ``pattern`` (our isolated browser profile directory).
+
+        Chromium/Firefox hand off to a new process on Windows, so the PID we
+        originally spawned is usually dead by the time "Stop & Quit" runs while
+        the real browser window lives under a different PID. Every browser
+        process of our isolated instance carries the profile path in its
+        command line (``--user-data-dir=...`` / ``--profile ...``), so matching
+        on that path reliably finds the surviving tree. Helper shells are
+        excluded so we never kill the PowerShell instance doing the lookup.
+        """
+        if not pattern:
+            return
+        procs = _windows_processes()
+        if not procs:
+            return
+
+        helper_shells = {"powershell.exe", "pwsh.exe", "cmd.exe", "conhost.exe"}
+        by_id: dict[int, dict] = {}
+        matched: set[int] = set()
+        for proc in procs:
+            try:
+                pid = int(proc.get("ProcessId"))
+            except (TypeError, ValueError):
+                continue
+            cmdline = proc.get("CommandLine")
+            name = (proc.get("Name") or "").lower()
+            by_id[pid] = proc
+            if (
+                isinstance(cmdline, str)
+                and pattern in cmdline
+                and name not in helper_shells
+            ):
+                matched.add(pid)
+
+        if not matched:
+            return
+
+        # Kill only the *roots* of matched subtrees: taskkill /T then takes
+        # down every descendant, so children are not killed redundantly.
+        roots: list[int] = []
+        for pid in matched:
+            ancestor_matched = False
+            seen: set[int] = set()
+            current = by_id.get(pid)
+            while current is not None:
+                try:
+                    parent = int(current.get("ParentProcessId"))
+                except (TypeError, ValueError):
+                    break
+                if parent in seen:          # defensive: cyclic parent chain
+                    break
+                seen.add(parent)
+                if parent in matched:
+                    ancestor_matched = True
+                    break
+                current = by_id.get(parent)
+            if not ancestor_matched:
+                roots.append(pid)
+
+        for pid in roots:
+            self._kill_process_tree(pid)
+
+
+    def _kill_browsers(self) -> None:
+        """
+        Close every isolated browser window this launcher opened.
+
+        Primary strategy (Windows): match surviving browser processes on the
+        unique isolated profile path, since the originally spawned PID may have
+        exited after a single-instance handoff. The tracked PIDs are still
+        killed first as a fast path. On Linux the browsers are launched as
+        their own session leaders, so a process-group kill reaches the whole
+        tree.
+        """
+        for pid in list(self._browser_procs):
+            self._kill_process_tree(pid)
+
+        if not _is_windows():
+            # POSIX escalation: SIGTERM is usually enough for a browser, but a
+            # hung one must not survive "Stop & Quit". Give it a moment, then
+            # SIGKILL any process group that is still alive.
+            time.sleep(1.0)
+            for pid in list(self._browser_procs):
+                try:
+                    os.kill(pid, 0)          # liveness probe (no signal sent)
+                except (ProcessLookupError, PermissionError, OSError):
+                    continue                 # already gone (or unreapable)
+                try:
+                    os.killpg(os.getpgid(pid), signal.SIGKILL)
+                except (ProcessLookupError, PermissionError, OSError) as exc:
+                    logging.getLogger(__name__).debug(
+                        "Suppressed error SIGKILLing browser group %s: %s",
+                        pid, exc, exc_info=True,
+                    )
+
+        self._browser_procs.clear()
+
+        if _is_windows():
+            # Both profile roots are swept so a mid-session browser switch
+            # cannot leave an orphaned window behind.
+            self._kill_by_pattern(str(_CHROMIUM_PROFILE))
+            self._kill_by_pattern(str(_FIREFOX_PROFILE))
 
 
     def _stop_and_quit(self) -> None:
         """
-        Terminate the Streamlit subprocess (and all its children) and exit.
-        Uses process group kill to ensure no background processes remain.
+        Terminate the Streamlit backend (and all its children) AND the isolated
+        browser windows, then exit. Cross-platform: on Windows we use
+        ``taskkill /T /F`` against the process tree; on Linux a process-group
+        kill. This ensures no background process or browser window survives
+        "Stop & Quit".
         """
         self._progress_timer.stop()
 
@@ -1062,26 +1428,10 @@ class Launcher(QWidget):
                 self._watch_thread.crashed.disconnect()
             except Exception as exc:
                 logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                pass
             self._watch_thread.cancel()
 
-        if self._proc is not None and self._proc.poll() is None:
-            try:
-                pgid = os.getpgid(self._proc.pid)
-                os.killpg(pgid, signal.SIGTERM)
-                self._proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(pgid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                self._proc.wait()
-            except ProcessLookupError:
-                pass
-            except Exception:
-                if self._proc.poll() is None:
-                    self._proc.terminate()
-                    self._proc.wait()
+        self._kill_backend()
+        self._kill_browsers()
 
         self.tray.hide()
         QApplication.quit()
@@ -1095,6 +1445,21 @@ class Launcher(QWidget):
                 self.show()
                 self.raise_()
                 self.activateWindow()
+
+
+    def changeEvent(self, event) -> None:  # noqa: N802
+        """Minimize to the system tray whenever the window is minimized
+        (taskbar click or titlebar minimize), instead of staying on the taskbar."""
+        if event.type() == QEvent.WindowStateChange and self.isMinimized():
+            self.hide()
+            if self.tray.isVisible():
+                self.tray.showMessage(
+                    "Lytrize",
+                    "Minimized to the system tray. Right-click the tray icon to restore.",
+                    QSystemTrayIcon.Information,
+                    2000,
+                )
+        super().changeEvent(event)
 
 
     def closeEvent(self, event) -> None:  # noqa: N802

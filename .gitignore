@@ -41,9 +41,11 @@ backend/.streamlit
 # ── Build artifacts ────────────────────────────────────────────────────────
 *.deb
 *.rpm
+# Windows installer + staging land in the root build\ folder (build_windows.ps1)
+*.exe
 
 
 # ── Temporary / scratch files ─────────────────────────────────────────────
 extra
 lytrize_codebase_documentation.md
-test_commands_extra _for_Dev_purpose.txt
+test_commands.txt

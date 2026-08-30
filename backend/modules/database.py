@@ -20,9 +20,8 @@ log = logging.getLogger(__name__)
 
 
 import pathlib as _pathlib
-_default_db = str(
-    _pathlib.Path.home() / ".local" / "share" / "lytrize" / "lytrize.db"
-)
+from modules.utils.paths import data_dir as _data_dir
+_default_db = str(_data_dir() / "lytrize.db")
 DB_PATH = os.environ.get("LYTRIZE_DB_PATH") or _default_db
 
 
