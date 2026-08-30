@@ -747,20 +747,6 @@ def _run_scatter_map(
             size = None
 
 
-    lat_q = plot_df[lat].quantile([0.02, 0.98])
-    lon_q = plot_df[lon].quantile([0.02, 0.98])
-    _zoom_df = plot_df[
-        plot_df[lat].between(float(lat_q.iloc[0]), float(lat_q.iloc[1])) &
-        plot_df[lon].between(float(lon_q.iloc[0]), float(lon_q.iloc[1]))
-    ]
-    if len(_zoom_df) > 0:
-        centre_lat = float(_zoom_df[lat].mean())
-        centre_lon = float(_zoom_df[lon].mean())
-        _, _, zoom = _auto_zoom(_zoom_df[lat], _zoom_df[lon])
-    else:
-        centre_lat, centre_lon, zoom = _auto_zoom(plot_df[lat], plot_df[lon])
-
-
     hover_data: dict = {}
     for col in (val_col, size_col, color_col):
         if col and col in plot_df.columns and col != hover:
@@ -789,35 +775,47 @@ def _run_scatter_map(
     )
 
 
-    map_kwargs = dict(
+    # Fully-offline map: render with the bundled-geo scatter_geo trace. Plotly
+    # ships the world/region geojson inside the package, so it needs no network.
+    # The previous scatter_mapbox / layout.scattermap path loaded public OSM/Carto
+    # tiles from the internet, which cannot resolve in this offline desktop app
+    # and left the map blank. map_style is kept for config compatibility but has
+    # no effect on scatter_geo.
+    geo_kwargs = dict(
         lat=lat, lon=lon,
         size_max=int(marker_size_max),
         hover_name=hover,
         hover_data=hover_data,
         title=title,
-        opacity=float(marker_opacity),
-        zoom=zoom,
-        center={"lat": centre_lat, "lon": centre_lon},
+        projection="natural earth",
+        fitbounds="locations",
     )
     if color and color in plot_df.columns:
-        map_kwargs["color"] = color
+        geo_kwargs["color"] = color
         if color_is_numeric:
-            map_kwargs["color_continuous_scale"] = _pal_to_continuous(pal, invert=invert_colorscale)
+            geo_kwargs["color_continuous_scale"] = _pal_to_continuous(pal, invert=invert_colorscale)
         else:
-            map_kwargs["color_discrete_sequence"] = list(reversed(pal)) if invert_colorscale else pal
+            geo_kwargs["color_discrete_sequence"] = list(reversed(pal)) if invert_colorscale else pal
     if size and size in plot_df.columns:
-        map_kwargs["size"] = size
-
+        geo_kwargs["size"] = size
 
     try:
-        try:
-            fig = px.scatter_map(plot_df, **map_kwargs, map_style=map_style)
-            fig.update_layout(map=dict(style=map_style))
-        except AttributeError:
-            fig = px.scatter_mapbox(plot_df, **map_kwargs, mapbox_style=map_style)
+        fig = px.scatter_geo(plot_df, **geo_kwargs)
     except Exception:
-        log.exception("scatter map error")
+        log.exception("scatter_geo error")
         return []
+
+    # scatter_geo has no opacity kwarg; apply marker opacity directly.
+    fig.update_traces(marker=dict(opacity=float(marker_opacity)))
+    fig.update_geos(
+        bgcolor="rgba(14,20,38,0)",
+        showcoastlines=True, coastlinecolor="rgba(148,163,184,0.4)",
+        showland=True, landcolor="rgba(30,41,59,0.8)",
+        showocean=True, oceancolor="rgba(14,20,38,0.9)",
+        showlakes=True, lakecolor="rgba(14,20,38,0.9)",
+        showframe=False,
+        showcountries=True, countrycolor="rgba(255,255,255,0.4)",
+    )
 
 
     if color_is_numeric:

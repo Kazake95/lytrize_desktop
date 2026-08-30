@@ -6,19 +6,23 @@ rm -rf backend/__pycache__
 rm -rf /home/$USER/.local/share/lytrize
 rm -rf build
 
-
-Remove-Item -Recurse -Force backend/modules/*/__pycache__
-Remove-Item -Recurse -Force backend/modules/__pycache__
-Remove-Item -Recurse -Force desktop/__pycache__
-Remove-Item -Recurse -Force backend/__pycache__
-Remove-Item -Recurse -Force build
+Get-ChildItem backend\modules -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force backend\modules\__pycache__ -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force desktop\__pycache__ -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force backend\__pycache__ -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force "$env:APPDATA\Lytrize" -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force build -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force "$env:LOCALAPPDATA\Lytrize" -ErrorAction SilentlyContinue
 
 
 cd sponsorscout
 python -m venv venv
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\venv\Scripts\Activate.ps1
+python desktop/gui.py
+
 python career_portal_scanner_v6.py
+
 To see only the libraries installed in this specific portable folder, run:
 .\python-3.10.x.amd64\python.exe -m pip list
 

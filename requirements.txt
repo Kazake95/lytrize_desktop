@@ -1,7 +1,13 @@
 pyarrow>=18.0.0
-streamlit>=1.40.0,<2.0.0
+# streamlit >=1.47 bundles plotly.js 2.35.0 (map/scattermap support needed
+# by our px.scatter_map fallback). streamlit <1.47' bundled plotly.js predates
+# layout.map and silently drops map traces.
+streamlit>=1.47.0,<2.0.0
 pandas>=2.2.0,<3.0.0
-plotly>=5.22.0,<6.0.0
+# plotly.py >=5.35 pulls in plotly.js 2.35.0, which (via streamlit >=1.47)
+# adds the `map`/`scattermap` layout API that px.scatter_map emits. Older
+# plotly.js silently drops `scattermap` traces, rendering maps blank.
+plotly>=5.35.0,<6.0.0
 openpyxl>=3.1.0,<4.0.0
 scipy>=1.12.0,<2.0.0
 statsmodels>=0.14.0,<0.15.0
