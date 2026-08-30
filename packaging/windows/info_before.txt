@@ -1,0 +1,23 @@
+Lytrize - Offline Desktop Analytics
+====================================
+
+Analyse CSV and Excel files locally with interactive Plotly charts,
+saved dashboards, KPI cards, and export to PDF / image.
+
+  * 100% offline - no account, no cloud, no telemetry. Nothing ever
+    leaves this computer.
+  * All your work, dashboards, and settings are stored locally in your
+    user's AppData folder.
+  * Lytrize is free and open-source software released under the
+    MIT License (shown on the next page).
+
+Getting started:
+  1. Launch Lytrize from the Start Menu or desktop shortcut.
+  2. Click "Start New Analysis" and choose a CSV or Excel file.
+  3. Explore the chart types, build a dashboard, and download the
+     result as a standalone HTML file.
+
+Browser note:
+  Lytrize is displayed in a dedicated, isolated browser window (no
+  toolbar, no tabs). You can pick which browser to use from the
+  desktop launcher.

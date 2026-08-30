@@ -67,6 +67,17 @@ VersionInfoVersion={#AppVersion}
 ; {userappdata}/{localappdata} are correct. Silence Inno's per-user-area
 ; warning because that assumption is intentional, not accidental.
 UsedUserAreasWarning=no
+; Installer legal/info pages (MIT license + welcome + third-party notices).
+; Each points to a plain-text file kept next to lytrize.iss.
+LicenseFile=license.txt
+InfoBeforeFile=info_before.txt
+InfoAfterFile=third_party_notices.txt
+; Friendly description in Add/Remove Programs and the final "Ready" dialog.
+AppComments=Local-first, fully offline data analytics.
+
+[CustomMessages]
+LicenseText=Lytrize is free, open-source software (MIT License). Clicking "Next" accepts the license terms.
+LicenseLabel=Lytrize license
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
