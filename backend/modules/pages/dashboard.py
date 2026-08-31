@@ -734,11 +734,22 @@ def _render_chart(item, idx, total, viewing_saved):
         # viewing_saved path: render chart without settings controls
         from modules.ui.chart_card import get_display_fig
         fig_show = get_display_fig(uid, fig, meta, ctype)
+        _dash_fig_types = {
+            str(getattr(_t, "type", "")).lower() for _t in getattr(fig_show, "data", ())
+        }
+        _dash_is_map = bool(_dash_fig_types & {
+            "scattermap", "scattermapbox", "scattergeo", "choropleth",
+        })
         st.plotly_chart(
             fig_show,
             use_container_width=True,
             key=f"dash_plotly_{uid}",
-            config={"responsive": True, "displayModeBar": "hover", "mathjax": False},
+            config={
+                "responsive": True,
+                "displayModeBar": True if _dash_is_map else "hover",
+                "mathjax": False,
+                "scrollZoom": _dash_is_map,
+            },
         )
         live_desc = st.session_state.get(note_key, "") or (desc or "")
         if live_desc:

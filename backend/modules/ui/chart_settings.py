@@ -736,7 +736,7 @@ def apply_chart_display_options(
                     if opts.get("histogram_opacity") is not None:
                         tr.opacity = float(opts["histogram_opacity"])
 
-                if ttype in ("scatter", "scattergl", "scattermap", "scattermapbox"):
+                if ttype in ("scatter", "scattergl", "scattermap", "scattermapbox", "scattergeo"):
                     if opts.get("marker_opacity") is not None and hasattr(tr, "marker"):
                         tr.marker.opacity = float(opts["marker_opacity"])
                     if opts.get("marker_size") is not None and hasattr(tr, "marker"):
@@ -1064,7 +1064,7 @@ def apply_chart_display_options(
         )
 
         _is_map_chart = chart_type in ("map_plot",) or any(
-            str(getattr(t, "type", "")).lower() in ("choropleth", "scattermapbox", "scattermap")
+            str(getattr(t, "type", "")).lower() in ("choropleth", "scattermapbox", "scattermap", "scattergeo")
             for t in f2.data
         )
         if not _is_map_chart:
@@ -1159,35 +1159,109 @@ def apply_chart_display_options(
             cb_title_col = str(opts.get("colorbar_title_color", "#cbd5e1"))
             cb_family    = resolve_font_stack(str(opts.get("colorbar_font_family", _raw_family)))
             cb_title     = opts.get("colorbar_title", "")
+            _map_cs      = opts.get("heatmap_colorscale")
+            show_scb     = opts.get("show_colorbar")
             _cb_font_suffix = dict(weight=_weight, style=_style)
-            for tr in f2.data:
-                try:
-                    tr.colorbar.tickfont = dict(
-                        size=cb_tick_sz, color=cb_tick_col, family=cb_family, **_cb_font_suffix)
-                    if cb_title:
-                        tr.colorbar.title.text = cb_title
-                    tr.colorbar.title.font = dict(
-                        size=cb_title_sz, color=cb_title_col, family=cb_family, **_cb_font_suffix)
-                except Exception as exc:
-                    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                    pass
-            try:
-                cb_kwargs = dict(
-                    tickfont=dict(size=cb_tick_sz, color=cb_tick_col, family=cb_family, **_cb_font_suffix),
+
+            # "Invert" (a generation-time checkbox on the map) reverses the
+            # chosen Colorscale.  It lives in the chart's _generation_kwargs,
+            # so we read it here and reverse the display Colorscale in the
+            # FINAL layer -- otherwise the Layout Colorscale (e.g. default RdBu)
+            # silently overwrites the generation-time invert and the checkbox
+            # appears dead.  Built-in plotly scales support the "_r" suffix.
+            _gen_kw = meta.get("_generation_kwargs") if isinstance(meta, dict) else None
+            _inv_cs = bool((_gen_kw or {}).get("invert_colorscale", False))
+            _eff_cs = (f"{_map_cs}_r" if (_map_cs and _inv_cs) else _map_cs)
+
+            # scatter_geo & scattermapbox with a continuous color render their
+            # colorbar through the LAYOUT coloraxis (marker.colorbar is unused),
+            # so update_coloraxes is the right API for those. choropleth keeps a
+            # trace-level colorbar instead.
+            cb_kwargs = dict(
+                tickfont=dict(size=cb_tick_sz, color=cb_tick_col, family=cb_family, **_cb_font_suffix),
+            )
+            if cb_title:
+                cb_kwargs["title"] = dict(
+                    text=cb_title,
+                    font=dict(size=cb_title_sz, color=cb_title_col, family=cb_family, **_cb_font_suffix),
                 )
-                if cb_title:
-                    cb_kwargs["title"] = dict(text=cb_title, font=dict(size=cb_title_sz, color=cb_title_col, family=cb_family, **_cb_font_suffix))
-                f2.update_coloraxes(colorbar=cb_kwargs)
-            except Exception as exc:
-                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                pass
-            _map_cs = opts.get("heatmap_colorscale")
-            if _map_cs:
+
+            _uses_coloraxis = False
+            for tr in f2.data:
+                ttype = str(getattr(tr, "type", "") or "").lower()
+                marker = getattr(tr, "marker", None)
+                if getattr(marker, "coloraxis", None):
+                    _uses_coloraxis = True
+                # show_colorbar toggle -- drive EVERY mechanism that can render
+                # a colorbar for this trace, because px sets BOTH
+                # marker.coloraxis AND a trace-level marker.colorbar on
+                # scattermapbox/scattergeo traces, and which one the browser's
+                # plotly.js actually draws depends on its version.
+                # 1) trace-level showscale (choropleth)
+                if show_scb is not None and hasattr(tr, "showscale"):
+                    try:
+                        tr.showscale = bool(show_scb)
+                    except Exception as exc:
+                        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+                # 2) marker-level showscale -- only for traces that render a
+                #    TRACE-level colorbar (no marker.coloraxis); setting it on
+                #    coloraxis traces would create a SECOND colorbar.
+                if (show_scb is not None and marker is not None
+                        and hasattr(marker, "showscale")
+                        and not getattr(marker, "coloraxis", None)):
+                    try:
+                        marker.showscale = bool(show_scb)
+                    except Exception as exc:
+                        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+                # 3) coloraxis.showscale -- applied below via update_coloraxes
+                # Trace-level colorbar styling (choropleth / marker.colorbar).
+                _cbar = getattr(tr, "colorbar", None) or getattr(marker, "colorbar", None)
+                if _cbar is not None:
+                    try:
+                        _cbar.tickfont = dict(size=cb_tick_sz, color=cb_tick_col, family=cb_family, **_cb_font_suffix)
+                        if cb_title:
+                            _cbar.title.text = cb_title
+                        _cbar.title.font = dict(size=cb_title_sz, color=cb_title_col, family=cb_family, **_cb_font_suffix)
+                    except Exception as exc:
+                        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+
+            if _uses_coloraxis:
                 try:
-                    f2.update_coloraxes(colorscale=str(_map_cs))
+                    f2.update_coloraxes(colorbar=cb_kwargs)
                 except Exception as exc:
                     logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                    pass
+                # Colorbar visibility for coloraxis traces lives on the
+                # coloraxis itself (marker.showscale doesn't exist there).
+                if show_scb is not None:
+                    try:
+                        f2.update_coloraxes(showscale=bool(show_scb))
+                    except Exception as exc:
+                        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+                if _eff_cs:
+                    try:
+                        f2.update_coloraxes(colorscale=str(_eff_cs))
+                    except Exception as exc:
+                        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+            if _eff_cs:
+                # Also cover trace-level continuous color: px sets BOTH
+                # marker.coloraxis AND marker.color on scattermapbox traces,
+                # and older plotly.js (2.28.x) renders marker colors from the
+                # trace, NOT the coloraxis -- so marker.colorscale must ALWAYS
+                # be updated when marker.color holds values, or markers ignore
+                # the Colorscale dropdown while the colorbar still changes.
+                for tr in f2.data:
+                    ttype = str(getattr(tr, "type", "") or "").lower()
+                    marker = getattr(tr, "marker", None)
+                    try:
+                        if ttype == "choropleth" and hasattr(tr, "colorscale"):
+                            tr.colorscale = str(_eff_cs)
+                        elif (marker is not None and hasattr(marker, "colorscale")
+                              and getattr(marker, "color", None) is not None):
+                            marker.colorscale = str(_eff_cs)
+                    except Exception as exc:
+                        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+
+
             _hover_prec = int(opts.get("hover_decimals", 2))
             for _tr in f2.data:
                 try:

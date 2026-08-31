@@ -541,7 +541,7 @@ def page_analysis():
     def _render_data_preview():
         with st.expander(
             f"📋 Data Preview — {_fname}  ({_n_rows:,} rows × {_n_cols} columns)",
-            expanded=st.session_state.get("_preview_expanded", True),
+            expanded=st.session_state.get("_preview_expanded", False),
         ):
             _pb1, _pb2, _pb3, _pb4 = st.columns([1, 1, 1, 4])
             with _pb1:

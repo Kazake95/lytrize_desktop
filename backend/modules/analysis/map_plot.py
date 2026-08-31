@@ -39,6 +39,88 @@ _PROJECTIONS = [
 _SCOPES = ["world", "usa", "europe", "asia", "africa", "north america", "south america"]
 
 
+# The three user-facing base maps.  ALL of them render the same proven way:
+# scatter_mapbox "white-bg" + a custom RASTER tile layer.  We deliberately do
+# NOT use plotly's named vector styles (carto-positron etc.) -- the plotly.js
+# bundled by the installed Streamlit (2.28.x, mapbox-gl fork) cannot load the
+# vector GL style JSON they now serve, which produced the "API key needed"
+# watermark.  Plain raster tiles have no keys, no watermarks and always work.
+MAP_STYLES = ["OpenStreetMap (Light)", "OpenStreetMap (Dark)", "Satellite (Earth)"]
+
+_MAP_DEFAULT = "OpenStreetMap (Light)"
+
+# Raster tile templates per style.  All free, no API key.
+_MAP_TILE_TEMPLATES = {
+    "OpenStreetMap (Light)": [
+        "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+    ],
+    "OpenStreetMap (Dark)": [  # Esri Dark Gray Canvas -- free, no key
+        "https://server.arcgisonline.com/ArcGIS/rest/services/"
+        "Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+    ],
+    "Satellite (Earth)": [  # Esri World Imagery -- free, no key
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/"
+        "MapServer/tile/{z}/{y}/{x}",
+    ],
+}
+
+# Free, key-less Esri reference layer that draws translucent country borders +
+# place labels on top of any raster basemap.  Used to honour the "Borders" checkbox
+# on the tile (scatter_mapbox) path, where the borders toggle is otherwise
+# meaningless because they are baked into the base raster imagery.
+_MAP_BORDERS_OVERLAY = [
+    "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/"
+    "World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+]
+
+
+def _normalize_map_style(map_style) -> str:
+    """Map any stored/legacy style value onto one of the three MAP_STYLES.
+
+    Keeps older saved charts working: anything dark-ish -> Dark OSM,
+    satellite/earth/terrain-ish -> Satellite, everything else -> Light OSM.
+    """
+    s = str(map_style or "").lower()
+    if any(k in s for k in ("dark", "matter", "night", "moon")):
+        return "OpenStreetMap (Dark)"
+    if any(k in s for k in ("satellite", "earth", "terrain", "imagery", "esri")):
+        return "Satellite (Earth)"
+    return "OpenStreetMap (Light)"
+
+
+_TILE_PROBE_HOSTS = (
+    ("server.arcgisonline.com", 443),  # dark canvas + satellite tiles
+    ("tile.openstreetmap.org", 443),   # light OSM raster tiles
+)
+_TILE_PROBE_TIMEOUT = 1.5
+_tiles_online_cache: Optional[bool] = None
+
+
+def _tiles_online() -> bool:
+    """One-shot (cached) probe: are raster tile servers reachable?
+
+    Tile basemaps are rendered client-side by plotly.js, so Python cannot know
+    whether the browser can load them -- but if this machine can open a TCP
+    connection to a tile host, the tiles will resolve too.  Falls back to the
+    offline scatter_geo renderer when every host is unreachable.
+    """
+    global _tiles_online_cache
+    if _tiles_online_cache is not None:
+        return _tiles_online_cache
+    import socket
+    _online = False
+    for host, port in _TILE_PROBE_HOSTS:
+        try:
+            with socket.create_connection((host, port), timeout=_TILE_PROBE_TIMEOUT):
+                _online = True
+                break
+        except OSError:
+            continue
+    _tiles_online_cache = _online
+    log.info("Tile basemap probe: online=%s", _online)
+    return _online
+
+
 
 
 def _norm(s: str) -> str:
@@ -55,12 +137,16 @@ def _density_aggregate(
     lat: str,
     lon: str,
     n_cells: int = _DENSITY_CELLS,
+    extra_cols: Optional[list] = None,
 ) -> pd.DataFrame:
     """Bin ALL points into a spatial grid and aggregate counts per cell.
 
     Uses the full dataset (no random sampling) so the spatial density
     pattern is accurate. Returns a small DataFrame (~n_cells rows) with
     mean lat/lon per cell and a '_count' column for colouring/sizing.
+    ``extra_cols`` (e.g. the location / colour columns) are carried per
+    cell using their most frequent value so hover tooltips keep showing
+    meaningful labels instead of an empty box.
     """
     lat_min, lat_max = float(df[lat].min()), float(df[lat].max())
     lon_min, lon_max = float(df[lon].min()), float(df[lon].max())
@@ -80,13 +166,23 @@ def _density_aggregate(
     lon_bin = np.clip(np.digitize(df[lon].values, lon_edges) - 1, 0, side - 1)
     cell_id = lat_bin * side + lon_bin
 
-    agg = pd.DataFrame({
-        "cell": cell_id,
-        lat: df[lat].values,
-        lon: df[lon].values,
-    }).groupby("cell", as_index=False).agg(
-        **{lat: (lat, "mean"), lon: (lon, "mean"), "_count": (lat, "size")}
-    )
+    def _modal(s: pd.Series):
+        """Most frequent value in the cell (falls back to first)."""
+        if s.empty:
+            return None
+        m = s.mode()
+        return m.iat[0] if not m.empty else s.iloc[0]
+
+    data = {"cell": cell_id, lat: df[lat].values, lon: df[lon].values}
+    for c in (extra_cols or []):
+        if c and c in df.columns and c not in data and c != "cell":
+            data[c] = df[c].values
+    agg = pd.DataFrame(data)
+    agg_dict = {lat: (lat, "mean"), lon: (lon, "mean"), "_count": (lat, "size")}
+    for c in (extra_cols or []):
+        if c and c in df.columns and c not in agg_dict and c != "cell":
+            agg_dict[c] = (c, _modal)
+    agg = agg.groupby("cell", as_index=False).agg(**agg_dict)
     return agg
 
 
@@ -591,10 +687,11 @@ def run_map_plot(
     agg_func=None,
     invert_colorscale=False,
     palette=None,
-    map_style: str = "carto-positron",
+    map_style: str = "OpenStreetMap (Light)",
     marker_opacity: float = 0.82,
     marker_size_min: int = 4,
     marker_size_max: int = 22,
+    show_borders: bool = True,
     choropleth_colorscale: str = "Blues",
     choropleth_projection: str = "natural earth",
     choropleth_scope: str = "world",
@@ -655,6 +752,7 @@ def run_map_plot(
         marker_opacity=marker_opacity,
         marker_size_min=marker_size_min,
         marker_size_max=marker_size_max,
+        show_borders=show_borders,
     )
 
 
@@ -665,6 +763,7 @@ def _run_scatter_map(
     location_col, value_col, size_col, color_col,
     agg_func, invert_colorscale, pal,
     map_style, marker_opacity, marker_size_min, marker_size_max,
+    show_borders=True,
 ):
     needed = list({lat, lon})
     for c in (size_col, color_col, location_col, value_col):
@@ -679,6 +778,7 @@ def _run_scatter_map(
     agg_label = ""
     sampled   = False
     density   = False
+    _density_color = False
     loc_col   = location_col if location_col and location_col in clean_df.columns else None
     val_col   = value_col    if value_col    and value_col    in clean_df.columns else None
 
@@ -706,12 +806,19 @@ def _run_scatter_map(
         if len(clean_df) > _MAP_SAMPLE:
             # Aggregate ALL points into spatial cells (full data, no random
             # sampling) so the density pattern is accurate and render cost is
-            # bounded. Colour/size by cell count.
-            plot_df = _density_aggregate(clean_df, lat, lon)
+            # bounded. Colour/size by cell count. The location / colour
+            # columns are carried per cell (modal value) so hover tooltips
+            # still show meaningful labels.
+            _hover_extra = [
+                c for c in (loc_col, color_col) if c and c in clean_df.columns
+            ]
+            plot_df = _density_aggregate(clean_df, lat, lon,
+                                         extra_cols=_hover_extra)
             sampled = True
             density = True
-            if color_col and color_col in clean_df.columns:
-                color_col = None  # density map colours by count instead
+            _density_color = True   # colour comes from the cell point count
+            plot_df.rename(columns={"_count": "Points"}, inplace=True)
+            color_col = "Points"
             if size_col and size_col in clean_df.columns:
                 size_col = None
         else:
@@ -727,7 +834,7 @@ def _run_scatter_map(
     hover = loc_col   if loc_col   and loc_col   in plot_df.columns else None
 
 
-    if color and plot_df[color].nunique() > 25:
+    if color and plot_df[color].nunique() > 25 and not _density_color:
         color = None
 
 
@@ -756,6 +863,15 @@ def _run_scatter_map(
             hover_data[col] = False
     hover_data[lat] = False
     hover_data[lon] = False
+    if density:
+        # Density maps: show the carried location / colour columns in the
+        # hover (otherwise the tooltip is empty). NOTE: must run AFTER the
+        # hide-all loop above, which would otherwise reset these entries
+        # back to False. The cell point count ("Points") is already included
+        # as the colour column.
+        for col in _hover_extra:
+            if col and col in plot_df.columns and col != hover:
+                hover_data[col] = True
 
 
     n_pts     = len(plot_df)
@@ -775,12 +891,128 @@ def _run_scatter_map(
     )
 
 
-    # Fully-offline map: render with the bundled-geo scatter_geo trace. Plotly
-    # ships the world/region geojson inside the package, so it needs no network.
-    # The previous scatter_mapbox / layout.scattermap path loaded public OSM/Carto
-    # tiles from the internet, which cannot resolve in this offline desktop app
-    # and left the map blank. map_style is kept for config compatibility but has
-    # no effect on scatter_geo.
+    # --- Tile basemap path (real raster tiles) -----------------------------
+    # scatter_geo is a vector-outline projection with NO tile basemap, so the
+    # Style dropdown can never look like a real map on it.  When the tile
+    # servers are reachable we render px.scatter_mapbox with "white-bg" plus a
+    # custom RASTER tile layer (see _MAP_TILE_TEMPLATES) -- the only mechanism
+    # that works on the bundled plotly.js 2.28.x without keys or watermarks.
+    # NOTE: we deliberately use scatter_mapbox (NOT scatter_map): the plotly.js
+    # bundled by the installed Streamlit (2.28.x) predates the maplibre "map"
+    # subplot (plotly.js >= 2.35) and silently drops scattermap traces,
+    # leaving a blank canvas with a stray colorbar. scatter_mapbox works on
+    # every plotly.js the app can serve.  Offline we fall through to the
+    # themed scatter_geo renderer below.
+    style = _normalize_map_style(map_style)
+    if _tiles_online():
+        try:
+            lat_med = float(plot_df[lat].median())
+            lon_med = float(plot_df[lon].median())
+            lat_span = float(plot_df[lat].max() - plot_df[lat].min())
+            lon_span = float(plot_df[lon].max() - plot_df[lon].min())
+            # Rough cos correction so high-latitude lon spans don't over-zoom.
+            _cos = max(abs(np.cos(np.radians(lat_med))), 0.1)
+            span = max(lat_span, lon_span / _cos, 0.02)
+            zoom = float(min(max(round(np.log2(360.0 / span), 1), 1), 16))
+            _tile_urls = _MAP_TILE_TEMPLATES.get(style) or \
+                _MAP_TILE_TEMPLATES[_MAP_DEFAULT]
+            raster_layer = {
+                "sourcetype": "raster",
+                "source": list(_tile_urls),
+                "below": "traces",
+            }
+            # Tile basemap + (optional) country-border overlay honouring the
+            # "Borders" checkbox.  On the tile path the base raster already
+            # carries borders, so we overlay a translucent boundaries layer so
+            # the toggle actually draws/removes them instead of being a no-op.
+            _layers = [raster_layer]
+            if show_borders and _MAP_BORDERS_OVERLAY:
+                _layers.append({
+                    "sourcetype": "raster",
+                    "source": list(_MAP_BORDERS_OVERLAY),
+                    "below": "traces",
+                })
+            map_kwargs = dict(mapbox_style="white-bg")
+            map_kwargs.update(
+                lat=lat, lon=lon,
+                size_max=int(marker_size_max),
+                hover_name=hover,
+                hover_data=hover_data,
+                title=title,
+                zoom=zoom,
+                center=dict(lat=lat_med, lon=lon_med),
+            )
+            if color and color in plot_df.columns:
+                map_kwargs["color"] = color
+                if color_is_numeric:
+                    map_kwargs["color_continuous_scale"] = _pal_to_continuous(
+                        pal, invert=invert_colorscale)
+                else:
+                    map_kwargs["color_discrete_sequence"] = (
+                        list(reversed(pal)) if invert_colorscale else pal)
+            if size and size in plot_df.columns:
+                map_kwargs["size"] = size
+            fig = px.scatter_mapbox(plot_df, **map_kwargs)
+            # The raster basemap layer (OSM light/dark or satellite tiles) plus
+            # optional borders overlay.
+            fig.update_layout(mapbox_layers=_layers)
+            fig.update_traces(marker=dict(opacity=float(marker_opacity)))
+            if color_is_numeric:
+                # Continuous color renders through the layout coloraxis; style
+                # the rendered colorbar there (theme-neutral: tiles carry the
+                # light/dark look, so keep the bar readable on both).
+                fig.update_coloraxes(
+                    colorbar=dict(
+                        title=dict(text=str(color)),
+                        thickness=14, len=0.80,
+                        bgcolor="rgba(0,0,0,0)",
+                        bordercolor="rgba(0,0,0,0)",
+                        borderwidth=0, x=1.01,
+                    )
+                )
+            layout = chart_layout(height=520)
+            for key in ("plot_bgcolor", "bargap", "bargroupgap", "xaxis", "yaxis"):
+                layout.pop(key, None)
+            layout["margin"] = dict(l=0, r=0, t=52, b=0)
+            fig.update_layout(
+                **layout,
+                dragmode="pan",
+                legend=dict(
+                    title=dict(text=str(color) if color else ""),
+                    orientation="v",
+                    bgcolor="rgba(0,0,0,0)",
+                ),
+            )
+            if density:
+                fig.add_annotation(
+                    text=f"⚠ Density map — {n_pts:,} cells from {len(clean_df):,} points",
+                    xref="paper", yref="paper", x=0.5, y=0.0,
+                    showarrow=False, xanchor="center", yanchor="bottom",
+                    font=dict(size=10, color="#f59e0b"),
+                )
+            elif sampled:
+                fig.add_annotation(
+                    text=f"⚠ {n_pts:,}-point sample — zoom in for detail",
+                    xref="paper", yref="paper", x=0.5, y=0.0,
+                    showarrow=False, xanchor="center", yanchor="bottom",
+                    font=dict(size=10, color="#f59e0b"),
+                )
+            fig._lytrize_meta = {
+                "analysis_type": "map_plot",
+                "x_axis": None, "y_axis": None,
+                "legend": color,
+                "supports_notes": True,
+                "supports_axis_editing": False,
+                "supports_legend_editing": True,
+            }
+            return [(f"Map: {loc_label}", fig)]
+        except Exception:
+            log.exception("scatter_map (tile) render failed; falling back to scatter_geo")
+
+    # --- Offline fallback: bundled-geo scatter_geo (no tiles) --------------
+    # Plotly ships the world/region geojson inside the package, so it needs no
+    # network.  map_style is translated into an equivalent light/dark geo
+    # theme because scatter_geo cannot draw tiles.
     geo_kwargs = dict(
         lat=lat, lon=lon,
         size_max=int(marker_size_max),
@@ -807,29 +1039,57 @@ def _run_scatter_map(
 
     # scatter_geo has no opacity kwarg; apply marker opacity directly.
     fig.update_traces(marker=dict(opacity=float(marker_opacity)))
-    fig.update_geos(
-        bgcolor="rgba(14,20,38,0)",
-        showcoastlines=True, coastlinecolor="rgba(148,163,184,0.4)",
-        showland=True, landcolor="rgba(30,41,59,0.8)",
-        showocean=True, oceancolor="rgba(14,20,38,0.9)",
-        showlakes=True, lakecolor="rgba(14,20,38,0.9)",
-        showframe=False,
-        showcountries=True, countrycolor="rgba(255,255,255,0.4)",
-    )
+    # ``map_style`` selects the base map theme. scatter_geo ships no mapbox
+    # tiles, so the (light/dark) style is translated into equivalent geo
+    # surface colors instead of always forcing a dark base map.
+    _is_dark = "dark" in str(map_style).lower()
+    if _is_dark:
+        _geo = dict(
+            bgcolor="rgba(0,0,0,0)",
+            showcoastlines=True, coastlinecolor="rgba(148,163,184,0.4)",
+            showland=True, landcolor="rgba(30,41,59,0.8)",
+            showocean=True, oceancolor="rgba(14,20,38,0.9)",
+            showlakes=True, lakecolor="rgba(14,20,38,0.9)",
+            showframe=False,
+            showcountries=show_borders,
+            countrycolor="rgba(255,255,255,0.4)" if show_borders else "rgba(0,0,0,0)",
+        )
+        _cb_tick  = "#94a3b8"
+        _cb_title = "#cbd5e1"
+    else:
+        # Light base map (open-street-map / carto-positron).
+        _geo = dict(
+            bgcolor="rgba(0,0,0,0)",
+            showcoastlines=True, coastlinecolor="rgba(100,116,139,0.6)",
+            showland=True, landcolor="#f1f5f9",
+            showocean=True, oceancolor="#bfdbfe",
+            showlakes=True, lakecolor="#bae6fd",
+            showframe=False,
+            showcountries=show_borders,
+            countrycolor="rgba(100,116,139,0.6)" if show_borders else "rgba(0,0,0,0)",
+        )
+        _cb_tick  = "#475569"
+        _cb_title = "#1e293b"
+    fig.update_geos(**_geo)
 
 
     if color_is_numeric:
-        fig.update_coloraxes(
-            colorbar=dict(
-                title=dict(text=str(color), font=dict(color="#cbd5e1")),
-                tickfont=dict(color="#94a3b8"),
-                thickness=14, len=0.80,
-                bgcolor="rgba(0,0,0,0)",
-                bordercolor="rgba(0,0,0,0)",
-                borderwidth=0, x=1.01,
+        # scatter_geo with a continuous color renders its colorbar through the
+        # LAYOUT coloraxis (the trace`s marker.colorbar is unused). update_coloraxes
+        # is the correct, rendered colorbar API. (Re-applied by chart_settings.)
+        try:
+            fig.update_coloraxes(
+                colorbar=dict(
+                    title=dict(text=str(color), font=dict(color=_cb_title)),
+                    tickfont=dict(color=_cb_tick),
+                    thickness=14, len=0.80,
+                    bgcolor="rgba(0,0,0,0)",
+                    bordercolor="rgba(0,0,0,0)",
+                    borderwidth=0, x=1.01,
+                )
             )
-        )
-
+        except Exception as exc:
+            log.debug("map colorbar styling error: %s", exc)
 
     layout = chart_layout(height=520)
     for key in ("plot_bgcolor", "bargap", "bargroupgap", "xaxis", "yaxis"):

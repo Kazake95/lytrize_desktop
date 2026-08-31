@@ -381,19 +381,28 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
                 unsafe_allow_html=True,
             )
 
-        # Optimize plotly config for performance
+        # Optimize plotly config for performance. Map figures (tiles / geo /
+        # choropleth) always get the modebar + scroll zoom -- deriving this
+        # from the FIGURE's trace types (not the session key, which can be
+        # stale) so map zoom never silently stays disabled.
+        _fig_types = {
+            str(getattr(_t, "type", "")).lower() for _t in getattr(fig_show, "data", ())
+        }
+        _is_map_fig = bool(_fig_types & {
+            "scattermap", "scattermapbox", "scattergeo", "choropleth",
+        })
         st.plotly_chart(
             fig_show,
             use_container_width=True,
             key=f"plotly_{key_prefix}_{uid}",
             config={
                 "responsive": True,
-                "displayModeBar": "hover",
+                "displayModeBar": True if _is_map_fig else "hover",
                 "mathjax": False,
                 "staticPlot": False,
-                "scrollZoom": False,
+                "scrollZoom": _is_map_fig,
                 "doubleClick": "reset",
-                "showTips": False,
+                "showTips": True if _is_map_fig else False,
             },
         )
 

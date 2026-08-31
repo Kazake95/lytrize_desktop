@@ -390,7 +390,7 @@ def _render_config_panel_body(aid: str, df, sk) -> None:
                                   help="Limit to the top N rows after sorting. 0 shows all rows.")
 
     elif aid == "map_plot":
-        from modules.analysis.map_plot import _CHOROPLETH_SCALES, _PROJECTIONS, _SCOPES, detect_geo_column
+        from modules.analysis.map_plot import _CHOROPLETH_SCALES, _PROJECTIONS, _SCOPES, MAP_STYLES, detect_geo_column
         _map_mode_opts = ["Scatter (Lat/Lon)", "Choropleth (Location Names)"]
         _df_sig = f"{df.shape}_{list(df.columns)}"
         _geo_cache_key = "_detected_geo_col"
@@ -411,8 +411,7 @@ def _render_config_panel_body(aid: str, df, sk) -> None:
             with mp5: st.selectbox("Colour", [NONE] + cat + num, key=sk("color_col"))
             with mp6: st.selectbox("Value", [NONE] + num, key=sk("value_col"))
             with mp7: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=sk("agg_func"))
-            with mp8: st.selectbox("Style", ["carto-positron", "open-street-map", "carto-darkmatter"],
-                                   key=sk("map_style"))
+            with mp8: st.selectbox("Style", MAP_STYLES, index=0, key=sk("map_style"))
             with mp9: st.slider("Opacity", 0.3, 1.0, 0.82, 0.05, key=sk("marker_opacity"))
             with mp10: st.checkbox("Invert", key=sk("invert_colorscale"))
             with mp11: st.checkbox("Borders", value=True, key=sk("show_borders"))
@@ -588,7 +587,8 @@ def _collect_kwargs(aid: str, df, uid: Optional[str] = None) -> dict:
                 color_col=_mp_resolve("color_col"),
                 agg_func=_AGG_FUNCS.get(g("agg_func", "Avg"), "mean"),
                 invert_colorscale=bool(g("invert_colorscale", False)),
-                map_style=g("map_style", "carto-positron"),
+                show_borders=bool(g("show_borders", True)),
+                map_style=g("map_style", "OpenStreetMap (Light)"),
                 marker_opacity=float(g("marker_opacity", 0.82)),
             )
 
