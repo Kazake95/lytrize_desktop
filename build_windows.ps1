@@ -15,7 +15,7 @@
        verifies PySide6 still imports after slimming, so a broken install
        can never ship.
     4. Invokes ISCC.exe (with retries) to compile packaging\windows\lytrize.iss
-       into packaging\windows\Output\LytrizeSetup_<ver>.exe.
+       into build\LytrizeSetup_<ver>.exe (next to the Linux .deb/.rpm artifacts).
 
   Usage (from the repository root):
     powershell -ExecutionPolicy Bypass -File build_windows.ps1

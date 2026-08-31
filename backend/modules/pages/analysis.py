@@ -598,18 +598,32 @@ def _set_chart_meta(uid, **kw) -> None:
 
 
 def _apply_regen_scroll() -> None:
-    """Scroll the page so the inline 'Regenerate Chart' panel is in view."""
+    """Snap the page so the inline 'Regenerate Chart' panel is in view.
+
+    Uses an *instant* jump (not an animated scroll) and only scrolls if the
+    heading isn't already on screen.  An animated smooth-scroll over a long
+    page made the panel look like it was 'coming down from the top', which
+    read as a UI glitch.  In the common case the user just clicked Edit on the
+    chart, which is already in view, so we don't scroll at all and nothing
+    jumps.
+    """
     _comp.html(
         """<script>
         setTimeout(function(){
             var els = window.parent.document.querySelectorAll('h3');
+            var t = null;
             for(var el of els){
                 if(el.textContent && el.textContent.includes('Regenerate Chart')){
-                    el.scrollIntoView({behavior:'smooth',block:'start'});
-                    break;
+                    t = el; break;
                 }
             }
-        }, 180);
+            if(!t){ return; }
+            var r = t.getBoundingClientRect();
+            var vh = window.innerHeight || document.documentElement.clientHeight;
+            // Skip scrolling when the heading is already comfortably on screen.
+            if(r.top >= 0 && r.bottom <= vh){ return; }
+            t.scrollIntoView({behavior:'auto', block:'start'});
+        }, 60);
         </script>""",
         height=0,
     )

@@ -50,7 +50,7 @@ Lytrize is a **local-first, offline desktop analytics application** for Linux. I
 | **Backend** | Python 3.11+, Streamlit, Pandas, Plotly, PyArrow, statsmodels, pycountry |
 | **Desktop Launcher** | PySide6 (Qt 6) |
 | **Database** | SQLite (WAL mode) |
-| **Packaging** | `.deb` (dpkg-deb), `.rpm` (rpmbuild) |
+| **Packaging** | `.deb` (dpkg-deb), `.rpm` (rpmbuild), Windows `.exe` (Inno Setup 7) |
 | **Export** | Self-contained HTML with inline Plotly.js |
 
 ---
@@ -115,7 +115,8 @@ lytrize_desktop/
 │   └── launcher.py            # CLI entry point (called by /usr/local/bin/lytrize)
 ├── packaging/                 # Package build definitions
 │   ├── deb/                   # .deb package structure (DEBIAN/, usr/)
-│   └── rpm/                   # .rpm spec file and structure
+│   ├── rpm/                   # .rpm spec file and structure
+│   └── windows/               # Inno Setup 7 script + extras (lytrize.iss)
 ├── service/                   # systemd user service
 │   └── lytrize.service
 ├── build.sh                   # .deb build script
@@ -236,10 +237,11 @@ Lytrize has a **two-layer architecture**: a PySide6 desktop launcher that manage
 
 ### Prerequisites
 
-- **OS:** Linux (Ubuntu 20.04 LTS or later recommended)
+- **OS:** Linux (Ubuntu 20.04 LTS or later recommended), or Windows 10/11 (x64) if building the installer
 - **Python:** 3.11 or newer
 - **Browser:** Chrome, Chromium, Firefox, Brave, or Edge (for testing)
 - **Git**
+- **Windows builds only:** [Inno Setup 7](https://jrsoftware.org/isinfo.php) (ISCC.exe), e.g. at `C:\Program Files\Inno Setup 7\ISCC.exe`.
 
 ### Quick Start
 
@@ -950,6 +952,57 @@ Output: `build/lytrize-1.0-1.x86_64.rpm`
 
 - The package uninstaller removes `/opt/lytrize/` and system files but **not** user data at `~/.local/share/lytrize/`.
 - The `.rpm` `%preun` and `%postun` scripts also terminate running instances and stop systemd user services.
+
+### Windows (.exe Installer)
+
+Builds a standalone Windows installer using [Inno Setup 7](https://jrsoftware.org/isinfo.php).
+
+#### Prerequisites — Windows build machine
+
+- Windows 10/11 (x64), Python 3.11+
+- **Inno Setup 7** installed (default path: `C:\Program Files\Inno Setup 7\ISCC.exe`). Pass a custom path with `-InnoSetupPath` if installed elsewhere.
+
+#### Build
+
+From the repository root (PowerShell):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build_windows.ps1
+```
+
+The script:
+
+1. Locates Python 3.11+ and ISCC.exe.
+2. Stages `backend\`, `desktop\`, and `requirements.txt` into `build\windows-staging\`.
+3. Creates a fresh venv and installs all dependencies.
+4. Slims the venv: removes `__pycache__`, tests/docs, and unused PySide6 Qt modules (WebEngine, QML/Quick, 3D, Charts, Designer, …). A smoke test (`from PySide6 import QtCore, QtGui, QtWidgets`) guarantees PySide6 still imports after slimming.
+5. Compiles `packaging\windows\lytrize.iss` with ISCC (retries on antivirus "volume externally altered" errors) into `build\LytrizeSetup_1.1.exe`.
+
+For build-volume / antivirus trouble, stage the venv on the local NTFS temp drive instead:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build_windows.ps1 -UseTempStaging
+```
+
+Output: `build\LytrizeSetup_1.1.exe` (next to the Linux `.deb`/`.rpm` artifacts).
+
+> **Note:** ISCC compresses thousands of venv files and is sensitive to real-time antivirus scanning. If compilation keeps failing, exclude `build\windows-staging\` from AV and retry, or use `-UseTempStaging`.
+
+#### What gets bundled
+
+| Component | Location in installer | Size |
+|---|---|---|
+| Backend code + assets | `{app}\backend\` | ~5 MB |
+| Desktop launcher | `{app}\desktop\` | ~1 MB |
+| Isolated Python venv | `{app}\venv\` | ~1.1 GB (slimming applied) |
+| Fonts | `{app}\backend\assets\fonts\` | ~5 MB |
+
+#### Install / Uninstall
+
+- Installs to `{autopf}\Lytrize` (i.e. `Program Files\Lytrize`) — requires administrator privileges.
+- User data lives under `%APPDATA%\Lytrize` (DB, launcher prefs, browser profiles, logs) and `%LOCALAPPDATA%\Lytrize` (parquet DataFrame snapshots) — written by the app itself via `modules/utils/paths.py`.
+- Start Menu + (optional) Desktop shortcuts launch `pythonw.exe` directly, so **no console/Python window** ever appears — only the launcher GUI and the isolated browser window.
+- The uninstaller removes **everything**: the app folder and both `%APPDATA%\Lytrize` and `%LOCALAPPDATA%\Lytrize` (it force-kills any running `pythonw`/`python` processes first to avoid file locks). The app's own **Stop & Quit** also closes isolated browser windows. This is a single-user-per-PC assumption.
 
 ---
 
