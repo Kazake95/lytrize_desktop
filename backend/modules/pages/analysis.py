@@ -365,7 +365,7 @@ def page_analysis():
                 st.session_state.page = "dashboard"; st.rerun()
 
 
-        _render_chart_list(charts, edit_mode=True)
+        _render_chart_list(charts, edit_mode=True, df=df)
         inject_footer()
         return
 
@@ -401,134 +401,6 @@ def page_analysis():
                 f"Click **Proceed to Dashboard** when done.")
 
 
-    regen_uid  = st.session_state.get("_regen_uid")
-    regen_type = st.session_state.get("_regen_type", "")
-    if regen_uid and regen_type and df is not None:
-        # Save old charts before regeneration for note transfer
-        if "_old_charts_before_regen" not in st.session_state:
-            st.session_state["_old_charts_before_regen"] = [
-                c for c in st.session_state.get("charts", [])
-            ]
-        
-        chart_entry = next(
-            (c for c in st.session_state.get("charts", []) if c[0] == regen_uid), None)
-        if chart_entry:
-            regen_title = chart_entry[1]
-            type_label  = next(
-                (o["name"] for o in ANALYSIS_OPTIONS if o["id"] == regen_type),
-                regen_type)
-            st.markdown(f"### 🔄 Regenerate Chart — *{regen_title}* ({type_label})")
-            st.caption("Adjust options below then click **Apply Changes** to replace the chart.")
-
-
-            # Restore original chart options into _edit_ keys so the scoped
-            # panel shows the chart's saved selections instead of hardcoded defaults.
-            _edit_prefix = f"_edit_{regen_uid}_{regen_type}_"
-            _restore_flag = st.session_state.get("_regen_restore", False)
-            if _restore_flag:
-                meta = _chart_meta(regen_uid)
-                ws = meta.get("widget_state", {})
-                if not ws:
-                    # Backward-compat fallback: rebuild a snapshots dict from
-                    # persisted generation kwargs on old charts that predate
-                    # widget_state.
-                    ws = {}
-                    gen_kwargs = meta.get("_generation_kwargs", {})
-                    if isinstance(gen_kwargs, dict) and gen_kwargs:
-                        _compat_map = {
-                            "statistical":    [("x", "x_cols"), ("y", "y_cols"), ("palette", "palette")],
-                            "distribution":   [("x", "x_cols"), ("color", "y_cols"), ("palette", "palette")],
-                            "correlation":    [("x", "x_cols"), ("y", "y_cols"), ("palette", "palette")],
-                            "categorical":    [("x","x_cols"), ("y","y_cols"), ("agg","agg"), ("sort","sort_by"), ("top_n","top_n"), ("direction","direction"), ("dual_y","dual_y_col"), ("dual_y_agg","dual_y_agg"), ("palette","palette")],
-                            "pie_chart":      [("x","x_cols"), ("y","y_cols"), ("agg","agg"), ("sort","sort_by"), ("top_n","top_n"), ("palette","palette")],
-                            "time_series":    [("x","x_cols"), ("y","y_cols"), ("date_part","date_part"), ("agg","agg"), ("dual_y_ts","dual_y_col"), ("dual_y_agg","dual_y_agg"), ("palette","palette")],
-                            "scatter_plot":   [("x_col","x_col"), ("y_col","y_col"), ("color_col","color_col"), ("size_col","size_col"), ("trendline","trendline"), ("palette","palette")],
-                            "matrix_heatmap": [("index_col","index_col"), ("columns_col","columns_col"), ("values_col","values_col"), ("agg","agg"), ("sort_rows","sort_rows"), ("top_n_rows","top_n_rows")],
-                            "matrix_table":   [("index_col","index_col"), ("columns_col","columns_col"), ("values_col","values_col"), ("agg","agg"), ("sort_rows","sort_rows"), ("top_n_rows","top_n_rows")],
-                            "map_plot":       [("map_mode","map_mode"), ("lat_col","lat_col"), ("lon_col","lon_col"), ("location_col","location_col"), ("color_col","color_col"), ("value_col","value_col"), ("agg_func","agg_func"), ("map_style","map_style"), ("marker_opacity","marker_opacity"), ("invert_colorscale","invert_colorscale"), ("show_borders","show_borders"), ("geo_col","geo_col"), ("choropleth_colorscale","choropleth_colorscale"), ("choropleth_projection","choropleth_projection"), ("choropleth_scope","choropleth_scope"), ("choropleth_show_borders","choropleth_show_borders")],
-                        }
-                        for widget_key, gen_key in _compat_map.get(regen_type, []):
-                            if gen_key in gen_kwargs:
-                                _v = gen_kwargs[gen_key]
-                                if _v is not None and _v != "None":
-                                    ws[widget_key] = _v
-                # Always refresh from saved chart options when explicitly
-                # entering regenerate mode, then wipe the flag so a later
-                # cancel + re-edit still re-restores from saved chart options.
-                for key, _kwarg, kind in _WIDGET_SPEC.get(regen_type, []):
-                    if key in ws and ws[key] is not None:
-                        st.session_state[f"_edit_{regen_uid}_{regen_type}_{key}"] = ws[key]
-                st.session_state.pop("_regen_restore", None)
-            render_config_panel(regen_type, df, uid=regen_uid)
-
-
-            ra, rb, _ = st.columns([1, 1, 5])
-            with ra:
-                if st.button("✅ Apply Changes", key="regen_apply", type="primary",
-                             use_container_width=True):
-                    kwargs = _collect_kwargs(regen_type, df, uid=regen_uid)
-                    new_charts = _run(regen_type, df, **kwargs)
-                    if new_charts:
-                        # Invalidate the display-figure cache so the fragment
-                        # rebuilds with the newly-generated figure instead of
-                        # returning the stale cached display version.
-                        for _ck in (f"_display_fig_{regen_uid}", f"_display_fig_hash_{regen_uid}",
-                                    f"_display_fig_font_{regen_uid}", f"_display_fig_fonthash_{regen_uid}"):
-                            st.session_state.pop(_ck, None)
-
-
-                        new_fig   = new_charts[0][2]
-                        new_title = new_charts[0][1]
-                        st.session_state.charts = [
-                            (c[0], new_title if c[0] == regen_uid else c[1],
-                             new_fig  if c[0] == regen_uid else c[2])
-                            for c in st.session_state.get("charts", [])
-                        ]
-                        st.session_state[f"chart_type_{regen_uid}"] = regen_type
-                        
-                        # Transfer notes from old UIDs to new UIDs when in edit mode
-                        if st.session_state.get("editing_session_id"):
-                            shadow = st.session_state.get("_notes_shadow", {})
-                            # Find old chart UIDs that might have notes
-                            old_chart_uids = [c[0] for c in st.session_state.get("_old_charts_before_regen", [])]
-                            for old_uid in old_chart_uids:
-                                if old_uid in shadow and old_uid != regen_uid:
-                                    # Move note from old UID to regen_uid
-                                    shadow[regen_uid] = shadow.pop(old_uid)
-                                    st.session_state[f"desc_{regen_uid}"] = shadow[regen_uid]
-                        # Persist the latest scoped widget state so the next
-                        # edit opens with these exact selections.
-                        try:
-                            _new_ws = _collect_widget_state(regen_type, uid=regen_uid)
-                            _widget_spec_keys = [key for key, _kwarg, _kind in _WIDGET_SPEC.get(regen_type, [])]
-                            _set_chart_meta(
-                                regen_uid,
-                                _generation_kwargs=_collect_kwargs(
-                                    regen_type, st.session_state.get("df"), uid=regen_uid
-                                ),
-                                widget_state={
-                                    k: _new_ws.get(k)
-                                    for k in _widget_spec_keys
-                                },
-                            )
-                        except Exception as exc:
-                            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                            pass
-                    st.session_state.pop("_regen_uid",  None)
-                    st.session_state.pop("_regen_type", None)
-                    st.session_state.pop("_old_charts_before_regen", None)
-                    _autosave()
-                    st.rerun()
-            with rb:
-                if st.button("✕ Cancel", key="regen_cancel", use_container_width=True):
-                    st.session_state.pop("_regen_uid",  None)
-                    st.session_state.pop("_regen_type", None)
-                    st.session_state.pop("_old_charts_before_regen", None)
-                    _shadow_notes_sync()
-                    st.rerun()
-
-
-            st.markdown("---")
 
 
     _fname   = st.session_state.get("file_name", "dataset")
@@ -687,7 +559,7 @@ def page_analysis():
                 st.rerun()
 
 
-        _render_chart_list(st.session_state.charts, edit_mode=is_editing)
+        _render_chart_list(st.session_state.charts, edit_mode=is_editing, df=df)
 
 
         st.write("")
@@ -725,15 +597,160 @@ def _set_chart_meta(uid, **kw) -> None:
 
 
 
-def _render_chart_list(charts, edit_mode=False):
+def _apply_regen_scroll() -> None:
+    """Scroll the page so the inline 'Regenerate Chart' panel is in view."""
+    _comp.html(
+        """<script>
+        setTimeout(function(){
+            var els = window.parent.document.querySelectorAll('h3');
+            for(var el of els){
+                if(el.textContent && el.textContent.includes('Regenerate Chart')){
+                    el.scrollIntoView({behavior:'smooth',block:'start'});
+                    break;
+                }
+            }
+        }, 180);
+        </script>""",
+        height=0,
+    )
+
+
+
+def _restore_regen_ws(regen_uid, regen_type, meta) -> None:
+    """Restore a chart's saved options into the scoped '_edit_' widget keys.
+
+    Uses the persisted widget_state when available; otherwise rebuilds it from
+    the generation kwargs (backward-compat for charts that predate widget_state).
+    """
+    ws = meta.get("widget_state", {})
+    if not ws:
+        _compat_map = {
+            "statistical":    [("x", "x_cols"), ("y", "y_cols"), ("palette", "palette")],
+            "distribution":   [("x", "x_cols"), ("color", "y_cols"), ("palette", "palette")],
+            "correlation":    [("x", "x_cols"), ("y", "y_cols"), ("palette", "palette")],
+            "categorical":    [("x","x_cols"), ("y","y_cols"), ("agg","agg"), ("sort","sort_by"), ("top_n","top_n"), ("direction","direction"), ("dual_y","dual_y_col"), ("dual_y_agg","dual_y_agg"), ("palette","palette")],
+            "pie_chart":      [("x","x_cols"), ("y","y_cols"), ("agg","agg"), ("sort","sort_by"), ("top_n","top_n"), ("palette","palette")],
+            "time_series":    [("x","x_cols"), ("y","y_cols"), ("date_part","date_part"), ("agg","agg"), ("dual_y_ts","dual_y_col"), ("dual_y_agg","dual_y_agg"), ("palette","palette")],
+            "scatter_plot":   [("x_col","x_col"), ("y_col","y_col"), ("color_col","color_col"), ("size_col","size_col"), ("trendline","trendline"), ("palette","palette")],
+            "matrix_heatmap": [("index_col","index_col"), ("columns_col","columns_col"), ("values_col","values_col"), ("agg","agg"), ("sort_rows","sort_rows"), ("top_n_rows","top_n_rows")],
+            "matrix_table":   [("index_col","index_col"), ("columns_col","columns_col"), ("values_col","values_col"), ("agg","agg"), ("sort_rows","sort_rows"), ("top_n_rows","top_n_rows")],
+            "map_plot":       [("map_mode","map_mode"), ("lat_col","lat_col"), ("lon_col","lon_col"), ("location_col","location_col"), ("color_col","color_col"), ("value_col","value_col"), ("agg_func","agg_func"), ("map_style","map_style"), ("marker_opacity","marker_opacity"), ("invert_colorscale","invert_colorscale"), ("show_borders","show_borders"), ("geo_col","geo_col"), ("choropleth_colorscale","choropleth_colorscale"), ("choropleth_projection","choropleth_projection"), ("choropleth_scope","choropleth_scope"), ("choropleth_show_borders","choropleth_show_borders")],
+        }
+        gen_kwargs = (meta.get("_generation_kwargs") or {}) if isinstance(meta, dict) else {}
+        for widget_key, gen_key in _compat_map.get(regen_type, []):
+            if gen_key in gen_kwargs:
+                st.session_state[f"_edit_{regen_uid}_{regen_type}_{widget_key}"] = gen_kwargs[gen_key]
+    else:
+        for key, value in ws.items():
+            st.session_state[f"_edit_{regen_uid}_{regen_type}_{key}"] = value
+def _render_regen_panel(regen_uid, regen_type, df) -> None:
+    """Render the regenerate/edit panel, anchored right above its target chart."""
+    # Save old charts before regeneration for note transfer
+    if "_old_charts_before_regen" not in st.session_state:
+        st.session_state["_old_charts_before_regen"] = [
+            c for c in st.session_state.get("charts", [])
+        ]
+
+    if st.session_state.get("_regen_restore", False):
+        _restore_regen_ws(regen_uid, regen_type, _chart_meta(regen_uid))
+        st.session_state.pop("_regen_restore", None)
+
+    chart_entry = next(
+        (c for c in st.session_state.get("charts", []) if c[0] == regen_uid), None)
+    if not chart_entry:
+        return
+    regen_title = chart_entry[1]
+    type_label  = next(
+        (o["name"] for o in ANALYSIS_OPTIONS if o["id"] == regen_type),
+        regen_type)
+    st.markdown(f"### 🔄 Regenerate Chart — *{regen_title}* ({type_label})")
+    st.caption("Adjust options below then click **Apply Changes** to replace the chart.")
+
+
+    render_config_panel(regen_type, df, uid=regen_uid)
+
+
+    ra, rb, _ = st.columns([1, 1, 5])
+    with ra:
+        if st.button("✅ Apply Changes", key="regen_apply", type="primary",
+                     use_container_width=True):
+            kwargs = _collect_kwargs(regen_type, df, uid=regen_uid)
+            new_charts = _run(regen_type, df, **kwargs)
+            if new_charts:
+                # Invalidate the display-figure cache so the fragment rebuilds
+                # with the newly-generated figure instead of the stale one.
+                for _ck in (f"_display_fig_{regen_uid}", f"_display_fig_hash_{regen_uid}",
+                            f"_display_fig_font_{regen_uid}", f"_display_fig_fonthash_{regen_uid}"):
+                    st.session_state.pop(_ck, None)
+                new_fig   = new_charts[0][2]
+                new_title = new_charts[0][1]
+                st.session_state.charts = [
+                    (c[0], new_title if c[0] == regen_uid else c[1],
+                     new_fig  if c[0] == regen_uid else c[2])
+                    for c in st.session_state.get("charts", [])
+                ]
+                st.session_state[f"chart_type_{regen_uid}"] = regen_type
+                # Transfer notes from old UIDs to new UIDs when in edit mode
+                if st.session_state.get("editing_session_id"):
+                    shadow = st.session_state.get("_notes_shadow", {})
+                    for old_uid in [c[0] for c in st.session_state.get("_old_charts_before_regen", [])]:
+                        if old_uid in shadow and old_uid != regen_uid:
+                            shadow[regen_uid] = shadow.pop(old_uid)
+                            st.session_state[f"desc_{regen_uid}"] = shadow[regen_uid]
+                # Persist the latest scoped widget state for next edit
+                try:
+                    _new_ws = _collect_widget_state(regen_type, uid=regen_uid)
+                    _widget_spec_keys = [key for key, _kwarg, _kind in _WIDGET_SPEC.get(regen_type, [])]
+                    _set_chart_meta(
+                        regen_uid,
+                        _generation_kwargs=_collect_kwargs(
+                            regen_type, st.session_state.get("df"), uid=regen_uid
+                        ),
+                        widget_state={k: _new_ws.get(k) for k in _widget_spec_keys},
+                    )
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+            st.session_state.pop("_regen_uid",  None)
+            st.session_state.pop("_regen_type", None)
+            st.session_state.pop("_old_charts_before_regen", None)
+            _autosave()
+            st.rerun()
+    with rb:
+        if st.button("✕ Cancel", key="regen_cancel", use_container_width=True):
+            st.session_state.pop("_regen_uid",  None)
+            st.session_state.pop("_regen_type", None)
+            st.session_state.pop("_old_charts_before_regen", None)
+            _shadow_notes_sync()
+            st.rerun()
+
+
+    st.markdown("---")
+    _apply_regen_scroll()
+
+
+
+def _render_chart_list(charts, edit_mode=False, df=None):
     """Render chart cards with full settings, and notes in edit mode.
 
     Each card is wrapped in its own @st.fragment so interactions on one chart
     do NOT rerun the rest of the page.  See modules/ui/chart_card.py.
+
+    When a chart is being edited (``_regen_uid`` set) the regenerate panel is
+    rendered inline *right above that chart* so the user edits in place instead
+    of being bounced to the top of the page.
     """
     from modules.ui.chart_card import render_chart_card
 
+    _regen_uid  = st.session_state.get("_regen_uid")
+    _regen_type = st.session_state.get("_regen_type", "")
+
     for uid, title, fig in charts:
+        # Inline regenerate panel: show the edit options directly on top of the
+        # chart being edited (only when a DataFrame is available to re-run).
+        if _regen_uid and _regen_uid == uid and df is not None:
+            if uid and _regen_type:
+                _render_regen_panel(uid, _regen_type, df)
+
         meta = _chart_meta(uid)
 
         # Resolve chart type; the fragment handles everything else
