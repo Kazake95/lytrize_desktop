@@ -1,4 +1,4 @@
-<#
+﻿<#
   build_windows.ps1 -- Build the Lytrize Windows installer with Inno Setup 7.
 
   Sits in the repository root, mirroring build.sh / build_rpm.sh for Linux.
@@ -80,6 +80,10 @@ Write-Host "[2/6] Using Inno Setup: $InnoSetupPath"
 
 # ── 3. Prepare staging folder ───────────────────────────────────────────────
 Write-Host "[3/6] Preparing staging folder: $Staging"
+# Clean the entire build/ directory first -- mirrors `rm -rf build` in
+# build.sh / build_rpm.sh. Removes stale installer artifacts and old
+# staging dirs from previous runs so each build starts from a clean slate.
+if (Test-Path $BuildDir) { Remove-Item -Recurse -Force $BuildDir }
 if (Test-Path $Staging) { Remove-Item -Recurse -Force $Staging }
 New-Item -ItemType Directory -Force -Path $Staging | Out-Null
 
@@ -210,7 +214,12 @@ $Compiled = $false
 
 for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
     Write-Host "[6/6] Compiling installer with ISCC (attempt $attempt of $MaxAttempts)..."
-    Remove-Item -Recurse -Force $OutputDir -ErrorAction SilentlyContinue
+    # Only clear the previous installer *output file*, never the directory tree.
+    # $OutputDir == $BuildDir == build/ and the staging folder
+    # (build/windows-staging) lives inside it -- wiping the whole tree here
+    # would delete the venv and copied sources, guaranteeing the
+    # "No files found matching ...backend\*" [Files] failure on every attempt.
+    Remove-Item -Force (Join-Path $OutputDir "${AppName}Setup_${Version}.exe") -ErrorAction SilentlyContinue
 
     & $InnoSetupPath @IsccArgs
     if ($LASTEXITCODE -eq 0) { $Compiled = $true; break }

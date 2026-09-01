@@ -2,7 +2,7 @@
 
 # Lytrize Desktop
 
-**Local-first data analytics for Windows & Linux — no cloud, no account, no setup.**
+**Local-first data analytics for Linux & Windows - no cloud, no account, no setup.**
 
 Upload a CSV or Excel file and get interactive charts and dashboards in seconds. Everything stays on your device.
 
@@ -37,23 +37,13 @@ Upload a CSV or Excel file and get interactive charts and dashboards in seconds.
 
 ## Quick Start
 
-1. **Install** — grab the `.deb` / `.rpm` (**Linux**) or the `LytrizeSetup_*.exe` (**Windows**) from the [releases page](https://github.com/Kazake95/lytrize_desktop/releases).
+1. **Install** — grab the `.deb` / `.rpm` (**Linux**) or the `.exe` (**Windows**) from the [releases page](https://github.com/Kazake95/lytrize_desktop/releases).
    - *Linux*: install with `dpkg -i` or `dnf install`.
    - *Windows*: double-click the installer (admin prompt appears) — it installs to `Program Files\Lytrize`.
 2. **Open** — launch `lytrize` (Linux) or **Lytrize** from the Start Menu / desktop shortcut (Windows). The launcher window appears while the backend starts, then your chosen browser opens automatically in an isolated window.
 3. **Upload** — click **Start New Analysis** on the home screen and choose a CSV or Excel file (up to 400 MB).
 4. **Analyze** — on the Analysis page, click any chart-type card (bar, time series, scatter, correlation, etc.), choose your columnsand click **Generate**. Charts appear instantly.
 5. **Build & Export** — click **Proceed to Dashboard**, arrange your charts in a grid, add KPI cards, then **Download HTML** to get a standalone file you can open in any browser or save as PNG via DevTools.
-
-### Build the Windows installer
-
-From the repository root (requires Python 3.11+ and Inno Setup 7 at `C:\Program Files\Inno Setup 7\ISCC.exe`):
-
-```powershell
-powershell -ExecutionPolicy Bypass -File build_windows.ps1
-```
-
-Outputs `build\LytrizeSetup_1.1.exe` (same root `build\` folder the Linux `.deb` uses). It prepares a staging folder (`build\windows-staging\`, including a fresh venv with all dependencies), slims unused Qt modules, then compiles with ISCC (with retries). If ISCC hits antivirus/volume errors, re-run with `-UseTempStaging` to stage on the local NTFS drive.
 
 ---
 

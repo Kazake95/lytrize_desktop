@@ -698,6 +698,25 @@ class Launcher(QWidget):
             background: transparent;
         }
 
+        /* ── Minimize button (─) ── */
+        QPushButton#minimize_btn {
+            background: transparent;
+            color: #64748b;
+            border: none;
+            border-radius: 4px;
+            padding: 2px;
+            font-size: 14px;
+            font-weight: normal;
+        }
+        QPushButton#minimize_btn:hover {
+            background: rgba(99,102,241,0.15);
+            color: #818cf8;
+        }
+        QPushButton#minimize_btn:pressed {
+            background: rgba(99,102,241,0.25);
+            color: #6366f1;
+        }
+
         /* ── Close button (X) ── */
         QPushButton#close_btn {
             background: transparent;
@@ -792,6 +811,12 @@ class Launcher(QWidget):
         title_col.addWidget(lbl_title)
         title_col.addWidget(lbl_sub)
 
+        self.minimize_btn = QPushButton("─")
+        self.minimize_btn.setObjectName("minimize_btn")
+        self.minimize_btn.setFixedSize(24, 24)
+        self.minimize_btn.setFlat(True)
+        self.minimize_btn.clicked.connect(self._minimize_to_tray)
+
         self.close_btn = QPushButton("✕")
         self.close_btn.setObjectName("close_btn")
         self.close_btn.setFixedSize(24, 24)
@@ -804,6 +829,7 @@ class Launcher(QWidget):
         header.addWidget(lbl_icon)
         header.addLayout(title_col)
         header.addStretch()
+        header.addWidget(self.minimize_btn)
         header.addWidget(self.close_btn)
 
         self._dot = _PulseDot("#64748b", 9, self._card)
@@ -897,9 +923,10 @@ class Launcher(QWidget):
         self.tray.setToolTip("Lytrize")
 
         tray_menu = QMenu()
-        tray_menu.addAction("Open App",     self._open_app)
+        tray_menu.addAction("Show Launcher", self._show_launcher)
+        tray_menu.addAction("Open App",      self._open_app)
         tray_menu.addSeparator()
-        tray_menu.addAction("Stop && Quit", self._stop_and_quit)
+        tray_menu.addAction("Stop && Quit",  self._stop_and_quit)
         self.tray.setContextMenu(tray_menu)
 
     def _connect_signals(self) -> None:
@@ -1437,14 +1464,31 @@ class Launcher(QWidget):
         QApplication.quit()
 
 
+    def _minimize_to_tray(self) -> None:
+        """Minimize the launcher to the system tray.
+
+        Hides the window and shows a notification.  Works on both Windows and
+        Linux by explicitly hiding rather than relying on the window manager's
+        taskbar minimize behaviour (which is unreliable with FramelessWindowHint).
+        """
+        self.hide()
+        if self.tray.isVisible():
+            self.tray.showMessage(
+                "Lytrize",
+                "Minimized to the system tray. Right-click the tray icon to restore.",
+                QSystemTrayIcon.Information,
+                2000,
+            )
+
+    def _show_launcher(self) -> None:
+        """Show and restore the launcher window from the system tray."""
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
     def _tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason == QSystemTrayIcon.DoubleClick:
-            if self._is_running():
-                self._open_app()
-            else:
-                self.show()
-                self.raise_()
-                self.activateWindow()
+            self._show_launcher()
 
 
     def changeEvent(self, event) -> None:  # noqa: N802
