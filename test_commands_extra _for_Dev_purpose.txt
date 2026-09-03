@@ -18,7 +18,7 @@ Remove-Item -Recurse -Force "$env:LOCALAPPDATA\Lytrize" -ErrorAction SilentlyCon
 cd sponsorscout
 python -m venv venv
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\venv\Scripts\Activate.ps1
+venv\Scripts\Activate.ps1
 python desktop/gui.py
 
 python career_portal_scanner_v6.py

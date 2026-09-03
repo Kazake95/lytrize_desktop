@@ -42,7 +42,7 @@ Upload a CSV or Excel file and get interactive charts and dashboards in seconds.
    - *Windows*: double-click the installer (admin prompt appears) — it installs to `Program Files\Lytrize`.
 2. **Open** — launch `lytrize` (Linux) or **Lytrize** from the Start Menu / desktop shortcut (Windows). The launcher window appears while the backend starts, then your chosen browser opens automatically in an isolated window.
 3. **Upload** — click **Start New Analysis** on the home screen and choose a CSV or Excel file (up to 400 MB).
-4. **Analyze** — on the Analysis page, click any chart-type card (bar, time series, scatter, correlation, etc.), choose your columnsand click **Generate**. Charts appear instantly.
+4. **Analyze** — on the Analysis page, click any chart-type card (bar, time series, scatter, correlation, etc.), choose your columns and click **Generate**. Charts appear instantly.
 5. **Build & Export** — click **Proceed to Dashboard**, arrange your charts in a grid, add KPI cards, then **Download HTML** to get a standalone file you can open in any browser or save as PNG via DevTools.
 
 ---
@@ -51,20 +51,20 @@ Upload a CSV or Excel file and get interactive charts and dashboards in seconds.
 
 | | |
 |---|---|
-| **📊 11 chart types** | Bar, pie/donut, scatter, histogram, time series, correlation, pivot table, matrix heatmap, geographic map, outlierand data quality |
+| **📊 11 chart types** | Bar, pie/donut, scatter, histogram, time series, correlation, pivot table, matrix heatmap, geographic map, outlier and data quality |
 | **🗂️ Dashboard builder** | Arrange charts in a portrait (2-column) or landscape (3-column) grid, add KPI summary cards, set a title |
 | **📤 Export** | Download as a self-contained HTML file — then use your browser's DevTools to save as PNG |
-| **🧹 Data tools** | Rename columns, add calculated columns, change data types, flag outliersand handle missing values before analysis |
+| **🧹 Data tools** | Rename columns, add calculated columns, change data types, flag outliers and handle missing values before analysis |
 | **🔄 Auto-update** | Re-upload updated datasets and automatically regenerate all charts and KPIs — column renames and calculated columns are preserved |
 | **💾 Session backup & restore** | Save local session backups and restore any compatible JSON backup, including ones shared by other users |
 | **🔒 Fully offline** | No telemetry, no analytics, no outbound network requests |
-| **🚀 Fast** | Chunked CSV reader, dtype optimizationand smart sampling handle files up to 400 MB |
+| **🚀 Fast** | Chunked CSV reader, dtype optimization and smart sampling handle files up to 400 MB |
 
 ---
 
 ## What is Lytrize?
 
-Lytrize is a desktop analytics app that runs entirely on your computer. Drop in a spreadsheet and get charts, statisticsand a shareable dashboard. No internet connection needed, no sign-up, no data ever leaving your machine.
+Lytrize is a desktop analytics app that runs entirely on your computer. Drop in a spreadsheet and get charts, statistics and a shareable dashboard. No internet connection needed, no sign-up, no data ever leaving your machine.
 
 Built for people who work with data often and want answers fast — without opening a browser tab, logging into a service or waiting for a cloud query to finish.
 
@@ -84,8 +84,8 @@ Lytrize includes a native desktop launcher (PySide6) that manages the backend an
 
 | Requirement | Minimum | Recommended |
 |---|---|---|
-| **OS** | Linux (Ubuntu 20.04 LTS or later; Debian-based or RPM-based) | Ubuntu 22.04 LTS or later |
-| **Architecture** | amd64 (64-bit) | amd64 (64-bit) |
+| **OS** | Linux (Ubuntu 20.04 LTS or later; Debian-based or RPM-based) or Windows 10/11 (64-bit) | Ubuntu 22.04 LTS or later, or Windows 11 |
+| **Architecture** | amd64 / x64 (64-bit) | amd64 / x64 (64-bit) |
 | **Python** | 3.11+ (only for building from source) | 3.11+ |
 | **Browser** | Any installed browser — Chrome, Chromium, Firefox, Brave or Edge | Chromium-based (best experience) |
 | **Disk** | ~1.3 GB installed (1.1 GB app + 147 MB user data) | ~1.3 GB |
@@ -123,7 +123,17 @@ sudo dnf install lytrize-1.0-1.x86_64.rpm
 sudo rpm -i lytrize-1.0-1.x86_64.rpm
 ```
 
-### Option 3 — Build from source
+### Option 3 — Windows (.exe)
+
+```text
+LytrizeSetup_1.1.exe
+```
+
+Double-click the installer. It requires administrator privileges and installs to `Program Files\Lytrize` (64-bit Windows only). The installer bundles its own Python virtual environment, so there's no separate Python setup.
+
+Launch **Lytrize** from the Start Menu or desktop shortcut. User data is written to `%APPDATA%\Lytrize` and `%LOCALAPPDATA%\Lytrize`.
+
+### Option 4 — Build from source
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md#development-setup) for the full developer setup.
 
@@ -135,19 +145,19 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md#development-setup) for the full develope
 Launch Lytrize from your application menu or run `lytrize` in a terminal. A launcher window appears while the Streamlit backend starts, then your browser opens automatically.
 
 ### 2. Upload a file
-Click **Start New Analysis** on the home screen and choose a CSV or Excel file. Lytrize shows a preview and lets you rename columns, add calculated columns, fix data typesand flag outliers before proceeding.
+Click **Start New Analysis** on the home screen and choose a CSV or Excel file. Lytrize shows a preview and lets you rename columns, add calculated columns, fix data types and flag outliers before proceeding.
 
 ### 3. Run an analysis
-On the Analysis page, click any chart-type card — bar chart, time series, scatter plot, correlation heatmapand so on. Choose your columns and options, then click **Generate**. Charts appear right away.
+On the Analysis page, click any chart-type card — bar chart, time series, scatter plot, correlation heatmap and so on. Choose your columns and options, then click **Generate**. Charts appear right away.
 
 ### 4. Build a dashboard
-Charts you generate collect in your session. Click **Proceed to Dashboard** to arrange them, add KPI summary cards, set a titleand pick a portrait (2-column) or landscape (3-column) layout.
+Charts you generate collect in your session. Click **Proceed to Dashboard** to arrange them, add KPI summary cards, set a title and pick a portrait (2-column) or landscape (3-column) layout.
 
-### 5. Save, back upand export
+### 5. Save, back up and export
 Your session saves automatically as you work. Use **Save Session** to make a named checkpoint you can see on the home screen. Use **Restore Backup** to import any compatible JSON backup from another user or from your own archive. Use **Download HTML** to get a standalone file you can open in any browser or share with someone else. Save the HTML page as PNG using your browser's DevTools screenshot tool.
 
 ### 6. Update your data
-If you need to update your dataset, go to the Home page, click **Edit** on a saved sessionand re-upload the modified file. Lytrize automatically reapplies your column renames and calculated columns, then regenerates all charts and KPIs with the new data.
+If you need to update your dataset, go to the Home page, click **Edit** on a saved session and re-upload the modified file. Lytrize automatically reapplies your column renames and calculated columns, then regenerates all charts and KPIs with the new data.
 
 ---
 ## Lytrize-Clip Chromium Extension
@@ -198,7 +208,9 @@ Restart the browser after installation and pin Lytrize-Clip for quick access.
 
 > **Note:** Chromium may require **Developer mode** for unpacked extensions. If manual loading is required, select `~/Lytrize-Clip`, not the extracted release folder.
 
-Close the browser before installation. If manual loading is required, use **Load unpacked** and select `%USERPROFILE%\Lytrize-Clip`.
+## Windows Installation
+
+There's no installer script for Windows. Extract the release `.zip` to a persistent location, e.g. `%USERPROFILE%\Lytrize-Clip`, close your Chromium-based browser, then follow the **Manual Installation** steps below, selecting that folder.
 
 ## Manual Installation
 
@@ -233,7 +245,7 @@ Lytrize-Clip does not collect, transmit or store captured page data.
 | **Pivot Table** | Cross-tabulation table (pivot table as a data table) |
 | **Map Plot** | Geographic scatter (lat/lon) or choropleth (country/region names) |
 | **Outlier** | IQR-based outlier detection across numeric columns |
-| **Data Quality** | Missing values, duplicate rowsand column quality summary |
+| **Data Quality** | Missing values, duplicate rows and column quality summary |
 
 ---
 
@@ -311,9 +323,9 @@ Restart the app — a fresh database will be created automatically. Your saved s
 
 ## Contributing
 
-Lytrize is open source. Bug reports, feature requestsand pull requests are welcome.
+Lytrize is open source. Bug reports, feature requests and pull requests are welcome.
 
-Before opening a PR, please read [CONTRIBUTING.md](./CONTRIBUTING.md) for the full development setup, architecture overviewand contribution guidelines.
+Before opening a PR, please read [CONTRIBUTING.md](./CONTRIBUTING.md) for the full development setup, architecture overview and contribution guidelines.
 
 ---
 

@@ -309,11 +309,7 @@ def show_dtype_transformer(df):
         )
         if st.checkbox("🌍 Enable Location Diagnostics & Remapping", key="_enable_geo_standardiser"):
             try:
-                from modules.analysis.map_plot import (
-                    _build_country_map, _build_us_state_map,
-                    resolve_geo_names, get_unresolved_values, _norm,
-                    _CHOROPLETH_SCALES,
-                )
+                from modules.analysis.map_plot import resolve_geo_names, known_geo_display_names
                 _str_cols = [
                     c for c in df.columns
                     if pd.api.types.is_string_dtype(df[c])
@@ -361,15 +357,11 @@ def show_dtype_transformer(df):
                         if _unresolved:
                             st.markdown(
                                 f"**{len(_unresolved)} unresolved value(s)** — "
-                                f"enter the correct standard name next to each:"
+                                f"pick the correct standard name for each:"
                             )
-                            _country_map = _build_country_map()
-                            _state_map   = _build_us_state_map()
-                            _all_known   = sorted(set(
-                                list(_country_map.keys()) + list(_state_map.keys())
-                            ))
                             _remaps: dict = st.session_state.get("_geo_remaps", {}).get(_geo_col, {})
-
+                            _known_names = known_geo_display_names()
+                            _select_options = [""] + _known_names
 
                             _new_remaps = {}
                             for _uv in _unresolved[:30]:
@@ -381,12 +373,18 @@ def show_dtype_transformer(df):
                                         unsafe_allow_html=True,
                                     )
                                 with _r2:
-                                    _new_remaps[_uv] = st.text_input(
+                                    _prior = _remaps.get(_uv, "")
+                                    _default_idx = (
+                                        _select_options.index(_prior)
+                                        if _prior in _select_options else 0
+                                    )
+                                    _new_remaps[_uv] = st.selectbox(
                                         "Remap to",
-                                        value=_remaps.get(_uv, ""),
-                                        placeholder="e.g. India  or  US  or  California",
+                                        _select_options,
+                                        index=_default_idx,
                                         key=f"geo_remap_{_geo_col}_{_uv}",
                                         label_visibility="collapsed",
+                                        placeholder="Type to search a country or US state…",
                                     )
                             if len(_unresolved) > 30:
                                 st.caption(f"… and {len(_unresolved) - 30} more. Fix the most common ones first.")

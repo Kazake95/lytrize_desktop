@@ -115,7 +115,6 @@ def run_matrix_heatmap(df, index_col=None, columns_col=None, values_col=None,
     if pivot is None:
         return []
 
-    pal = palette or COLORS
     agg_label = agg.upper()
     _row_cap = _MAX_CATS_HEATMAP
     pivot = _trim_pivot(pivot, _row_cap)
@@ -283,9 +282,6 @@ def run_matrix_table(df, index_col=None, columns_col=None, values_col=None,
     }
     _val_hdr_w = max(len(_VALUE_HEADER_MAP.get(agg, f"{agg.upper()}({vals})")), _data_w)
     _col_widths = [_idx_w] + [_data_w] * n_cols_p + [_val_hdr_w]
-
-    _px_per_unit = 8
-    _fig_width   = min((sum(_col_widths)) * _px_per_unit + 24, 1400)
 
     table_header_color = None
     if isinstance(kwargs, dict):

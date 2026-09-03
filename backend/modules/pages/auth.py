@@ -9,11 +9,10 @@ import datetime
 import getpass
 import json
 import os
-import pathlib
 import streamlit as st
 
 from modules.database import export_sessions_to_dict, import_sessions_from_dict, get_or_create_local_user
-from modules.ui.css import APP_NAME, inject_footer, render_logo
+from modules.ui.css import inject_footer, render_logo
 
 
 def _db_path() -> str:

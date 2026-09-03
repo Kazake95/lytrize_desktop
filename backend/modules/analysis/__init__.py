@@ -14,7 +14,7 @@ from modules.analysis.correlation  import run_correlation
 from modules.analysis.categorical  import run_categorical
 from modules.analysis.pie_chart    import run_pie_chart
 from modules.analysis.time_series  import run_time_series
-from modules.analysis.outlier       import run_outlier, OUTLIER_HELP
+from modules.analysis.outlier       import run_outlier
 from modules.analysis.scatter_plot  import run_scatter_plot
 from modules.analysis.matrix_table  import run_matrix_heatmap, run_matrix_table
 from modules.analysis.map_plot      import run_map_plot
@@ -454,7 +454,7 @@ def _collect_kwargs(aid: str, df, uid: Optional[str] = None) -> dict:
     chart" panel; omit it (the default) to read from the plain
     per-analysis-type keys used when configuring a brand-new chart.
     """
-    num, cat, dt, all_cols = _num_cols(), _cat_cols(), _dt_cols(), df.columns.tolist()
+    num, cat = _num_cols(), _cat_cols()
     NONE = "None"
     g = (lambda key, default=None: _g_uid(uid, aid, key, default)) if uid is not None \
         else (lambda key, default=None: _g(aid, key, default))

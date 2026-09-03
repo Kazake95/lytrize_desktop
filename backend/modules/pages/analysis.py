@@ -2,29 +2,24 @@
 import logging
 
 
-import uuid, json, time
+import json
+import time
 import streamlit as st
 import streamlit.components.v1 as _comp
 from modules.database import log_activity, save_draft, update_session_db, get_session_meta
 from modules.utils.session_cache import make_json_safe
 from modules.utils.transform_log import get_transform_log_json
 from modules.analysis import (
-    ANALYSIS_OPTIONS, _NEEDS_AXES,
-    render_config_panel, _collect_kwargs, _run,
-    _WIDGET_SPEC, _collect_widget_state,
+    ANALYSIS_OPTIONS, render_config_panel,
+    _collect_kwargs, _run, _WIDGET_SPEC,
+    _collect_widget_state,
 )
 from modules.analysis.descriptive import run_descriptive
-from modules.analysis.data_quality import run_data_quality
 from modules.charts import (
     charts_to_json,
     apply_hover_format,
 )
 from modules.ui.css import inject_footer, render_logo
-from modules.ui.chart_settings import (
-    apply_chart_display_options,
-    compute_meta_hash,
-    render_chart_settings_controls,
-)
 
 
 
@@ -75,7 +70,6 @@ def _autosave() -> None:
                     kpis_json = sm.get("kpis_json", "[]") if sm else "[]"
                 except Exception as exc:
                     logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                    pass
                 st.session_state["_cached_kpis_json"] = kpis_json
 
 
@@ -94,7 +88,6 @@ def _autosave() -> None:
                 st.toast("✅ Auto-saved", icon="✅")
             except Exception as exc:
                 logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                pass
             
             st.session_state["_last_draft_save_time"] = time.time()
             # Process pending save if any
@@ -103,7 +96,6 @@ def _autosave() -> None:
                 st.session_state["_last_draft_save_time"] = 0  # Force immediate re-save on next rerun
         except Exception as exc:
             logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-            pass
 
 
 
@@ -127,7 +119,6 @@ def _restore_edit_notes() -> None:
                 st.session_state.setdefault("_notes_shadow", {})[chart_uid] = restore_val
     except Exception as exc:
         logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-        pass
     st.session_state["_analysis_notes_loaded"] = True
 
 
@@ -179,7 +170,6 @@ def _persist_draft(page="analysis"):
                 st.session_state["_df_snapshot_sig"] = df_sig
         except Exception as exc:
             logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-            pass
 
 
     charts = st.session_state.get("charts", [])

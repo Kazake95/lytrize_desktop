@@ -6,7 +6,6 @@ import logging
 
 
 import copy
-import functools
 import json
 import re
 from typing import Any
@@ -585,7 +584,6 @@ def _apply_font_only(fig, meta: dict | None, chart_type: str = ""):
         fig.update_yaxes(title_font=axis_title_font, tickfont=axis_tick_font)
     except Exception as exc:
         logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-        pass
 
     # Pie label/value fonts are per-trace but pie charts have few slices, so a
     # light loop here is cheap and keeps pie typography live.
@@ -616,7 +614,6 @@ def _apply_font_only(fig, meta: dict | None, chart_type: str = ""):
                                 setattr(_pf, _k, _v)
                     except Exception as exc:
                         logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                        pass
     return fig
 
 
@@ -808,7 +805,6 @@ def apply_chart_display_options(
                                     z_arr = z_raw
                             except Exception as exc:
                                 logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                                pass
                             if z_arr is not None:
                                 new_text = []
                                 for row in z_arr:
@@ -903,7 +899,6 @@ def apply_chart_display_options(
                             tr.header.font.color = str(hdr_text_color)
                         except Exception as exc:
                             logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                            pass
 
                     stripe_even = opts.get("table_stripe_even_color")
                     stripe_odd  = opts.get("table_stripe_odd_color")
@@ -923,7 +918,6 @@ def apply_chart_display_options(
                         tr.textfont.family = _font_family
                     except Exception as exc:
                         logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                        pass
 
             except Exception:
                 # One bad trace must not abort the rest of the figure.
@@ -1011,7 +1005,6 @@ def apply_chart_display_options(
         if _hdr_family_raw == "Inter" and _raw_family not in ("Inter", ""):
             _hdr_family_raw = _raw_family
         _hdr_family     = resolve_font_stack(_hdr_family_raw)
-        _hdr_style      = str(ts.get("header_font_style", "Normal"))
         _hdr_size       = int(ts.get("header_size", 28))
         _hdr_color      = str(ts.get("header_color", "#6163df"))
 
@@ -1052,7 +1045,6 @@ def apply_chart_display_options(
                         setattr(tr, font_attr, new_font)
             except Exception as exc:
                 logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                pass
 
         # The title is rendered in the HTML preview area (chart_card ctrl[0]),
         # so the Plotly native title is suppressed here to avoid the duplicate.
@@ -1120,7 +1112,6 @@ def apply_chart_display_options(
                                     setattr(_pf, _k, _v)
                         except Exception as exc:
                             logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                            pass
 
         _pie_val_clr = opts.get("pie_value_color") or ts.get("pie_value_color")
         _pie_val_sz  = opts.get("pie_value_size") or ts.get("pie_value_size")
@@ -1146,7 +1137,6 @@ def apply_chart_display_options(
                                     setattr(_pf, _k, _v)
                         except Exception as exc:
                             logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                            pass
 
     # ============================================================
     # COLORBAR / HEATMAP / MAP specific code
@@ -1283,7 +1273,6 @@ def apply_chart_display_options(
                     )
                 except Exception as exc:
                     logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                    pass
         else:
             # Apply colorscale via update_coloraxes for px.imshow compatibility
             _map_cs = opts.get("heatmap_colorscale")
@@ -1292,7 +1281,6 @@ def apply_chart_display_options(
                     f2.update_coloraxes(colorscale=str(_map_cs))
                 except Exception as exc:
                     logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                    pass
 
             # Build colorbar config for correlation/matrix_heatmap
             cb_tick_sz   = int(opts.get("colorbar_tick_size", 10))
@@ -1313,7 +1301,6 @@ def apply_chart_display_options(
                 f2.update_coloraxes(colorbar=cb_kwargs)
             except Exception as exc:
                 logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                pass
 
             for tr in f2.data:
                 ttype_for_cb = str(getattr(tr, "type", "")).lower()
@@ -1334,7 +1321,6 @@ def apply_chart_display_options(
                         tr.textfont = new_tf
                 except Exception as exc:
                     logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                    pass
 
     # ============================================================
     # APPLY VALUE LABEL COLOR LAST - This ensures it always wins
@@ -1358,7 +1344,6 @@ def apply_chart_display_options(
                             setattr(tr, font_attr, new_font)
                 except Exception as exc:
                     logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                    pass
 
             elif ttype in ("scatter", "scattergl"):
                 try:
@@ -1375,7 +1360,6 @@ def apply_chart_display_options(
                             setattr(tr, font_attr, new_font)
                 except Exception as exc:
                     logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                    pass
 
     return f2
 

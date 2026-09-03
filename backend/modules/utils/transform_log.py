@@ -15,7 +15,6 @@ wanted later.
 
 import json
 import logging
-from typing import Optional
 
 import pandas as pd
 import streamlit as st

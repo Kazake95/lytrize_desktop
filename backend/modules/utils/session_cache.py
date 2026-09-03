@@ -3,7 +3,6 @@ a lightweight Streamlit session_state-backed memo decorator for pure functions."
 
 
 import logging
-import os
 from pathlib import Path
 from typing import Optional, List
 
@@ -133,7 +132,6 @@ def df_cache_path(user_id: int) -> Path:
         base.chmod(0o700)
     except Exception as exc:
         logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-        pass
 
     return base / f"df_{user_id}.parquet"
 
@@ -154,7 +152,6 @@ def save_df_snapshot(user_id: int, df=None) -> None:
             path.chmod(0o600)
         except Exception as exc:
             logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-            pass
     except Exception as exc:
         log.warning(
             "save_df_snapshot: failed to write parquet for user %s "
@@ -189,7 +186,6 @@ def load_df_snapshot(user_id: int) -> Optional[pd.DataFrame]:
             return None
     except Exception as exc:
         logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-        pass
 
     try:
         return pd.read_parquet(str(path), engine="pyarrow")

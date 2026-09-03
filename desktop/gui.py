@@ -61,8 +61,7 @@ if os.name != "nt":
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QSystemTrayIcon, QMenu,
-    QFrame, QComboBox, QProgressBar, QSizePolicy,
-    QGraphicsDropShadowEffect,
+    QFrame, QComboBox, QProgressBar, QGraphicsDropShadowEffect,
 )
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QFont
 from PySide6.QtCore import Qt, QThread, Signal, QPropertyAnimation, QEasingCurve, QTimer, Property, QEvent
@@ -145,20 +144,17 @@ def _save_prefs(data: dict) -> None:
         DATA_DIR.chmod(0o700)
     except Exception as exc:
         logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-        pass
     tmp = PREFS.with_name(f".{PREFS.name}.tmp")
     tmp.write_text(json.dumps(data, indent=2))
     try:
         tmp.chmod(0o600)
     except Exception as exc:
         logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-        pass
     os.replace(tmp, PREFS)
     try:
         PREFS.chmod(0o600)
     except Exception as exc:
         logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-        pass
 
 
 
@@ -403,7 +399,6 @@ def _ensure_firefox_profile(profile_dir: Path) -> None:
         profile_dir.chmod(0o700)
     except Exception as exc:
         logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-        pass
 
     user_js = profile_dir / "user.js"
     if not user_js.exists():
@@ -1071,7 +1066,6 @@ class Launcher(QWidget):
             DATA_DIR.chmod(0o700)
         except Exception as exc:
             logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-            pass
 
         if self._wait_thread is not None:
             try:
@@ -1079,7 +1073,6 @@ class Launcher(QWidget):
                 self._wait_thread.timeout.disconnect()
             except Exception as exc:
                 logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                pass
             self._wait_thread.quit()
             self._wait_thread.wait(2000)
             self._wait_thread = None
@@ -1089,7 +1082,6 @@ class Launcher(QWidget):
                 self._watch_thread.crashed.disconnect()
             except Exception as exc:
                 logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                pass
             self._watch_thread.cancel()
             self._watch_thread.quit()
             self._watch_thread.wait(2000)

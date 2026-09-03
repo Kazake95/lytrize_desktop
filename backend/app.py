@@ -138,8 +138,6 @@ def main() -> None:
     inject_css()
 
 
-    url_page       = st.query_params.get("p", "")
-    url_session_id = st.query_params.get("sid", "")
     url_nav        = st.query_params.get("nav", "")
 
 

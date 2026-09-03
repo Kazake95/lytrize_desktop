@@ -15,7 +15,6 @@ import plotly.express as px
 
 
 from modules.charts import chart_layout, COLORS
-from modules.utils.perf import sample_for_plot
 
 log = logging.getLogger(__name__)
 
@@ -226,33 +225,53 @@ def _build_country_map() -> dict[str, str]:
 
 
 
-@lru_cache(maxsize=1)
+_US_STATES: dict[str, str] = {
+    "Alabama": "AL", "Alaska": "AK", "Arizona": "AZ", "Arkansas": "AR",
+    "California": "CA", "Colorado": "CO", "Connecticut": "CT",
+    "Delaware": "DE", "Florida": "FL", "Georgia": "GA",
+    "Hawaii": "HI", "Idaho": "ID", "Illinois": "IL", "Indiana": "IN",
+    "Iowa": "IA", "Kansas": "KS", "Kentucky": "KY", "Louisiana": "LA",
+    "Maine": "ME", "Maryland": "MD", "Massachusetts": "MA", "Michigan": "MI",
+    "Minnesota": "MN", "Mississippi": "MS", "Missouri": "MO", "Montana": "MT",
+    "Nebraska": "NE", "Nevada": "NV", "New Hampshire": "NH",
+    "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY",
+    "North Carolina": "NC", "North Dakota": "ND", "Ohio": "OH",
+    "Oklahoma": "OK", "Oregon": "OR", "Pennsylvania": "PA",
+    "Rhode Island": "RI", "South Carolina": "SC", "South Dakota": "SD",
+    "Tennessee": "TN", "Texas": "TX", "Utah": "UT", "Vermont": "VT",
+    "Virginia": "VA", "Washington": "WA", "West Virginia": "WV",
+    "Wisconsin": "WI", "Wyoming": "WY",
+    "District of Columbia": "DC", "Washington DC": "DC",
+    "Puerto Rico": "PR",
+}
+
+
 def _build_us_state_map() -> dict[str, str]:
     """Return {normalised_name_or_abbr: US state ISO 3166-2 code e.g. 'US-CA'}."""
-    _STATES = {
-        "Alabama": "AL", "Alaska": "AK", "Arizona": "AZ", "Arkansas": "AR",
-        "California": "CA", "Colorado": "CO", "Connecticut": "CT",
-        "Delaware": "DE", "Florida": "FL", "Georgia": "GA",
-        "Hawaii": "HI", "Idaho": "ID", "Illinois": "IL", "Indiana": "IN",
-        "Iowa": "IA", "Kansas": "KS", "Kentucky": "KY", "Louisiana": "LA",
-        "Maine": "ME", "Maryland": "MD", "Massachusetts": "MA", "Michigan": "MI",
-        "Minnesota": "MN", "Mississippi": "MS", "Missouri": "MO", "Montana": "MT",
-        "Nebraska": "NE", "Nevada": "NV", "New Hampshire": "NH",
-        "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY",
-        "North Carolina": "NC", "North Dakota": "ND", "Ohio": "OH",
-        "Oklahoma": "OK", "Oregon": "OR", "Pennsylvania": "PA",
-        "Rhode Island": "RI", "South Carolina": "SC", "South Dakota": "SD",
-        "Tennessee": "TN", "Texas": "TX", "Utah": "UT", "Vermont": "VT",
-        "Virginia": "VA", "Washington": "WA", "West Virginia": "WV",
-        "Wisconsin": "WI", "Wyoming": "WY",
-        "District of Columbia": "DC", "Washington DC": "DC",
-        "Puerto Rico": "PR",
-    }
     mapping: dict[str, str] = {}
-    for name, abbr in _STATES.items():
+    for name, abbr in _US_STATES.items():
         mapping[_norm(name)] = f"US-{abbr}"
         mapping[_norm(abbr)] = f"US-{abbr}"
     return mapping
+
+
+@lru_cache(maxsize=1)
+def known_geo_display_names() -> list[str]:
+    """Return a sorted list of canonical country + US state names.
+
+    Used by UIs (e.g. the geo remap tool) to offer a validated,
+    searchable set of names guaranteed to resolve via
+    :func:`resolve_geo_names`, instead of free-text entry that may
+    still fail to match.
+    """
+    names: list[str] = []
+    try:
+        import pycountry
+        names.extend(c.name for c in pycountry.countries)
+    except ImportError:
+        pass
+    names.extend(_US_STATES.keys())
+    return sorted(set(names))
 
 
 

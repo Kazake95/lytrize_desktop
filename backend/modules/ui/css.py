@@ -26,7 +26,6 @@ from __future__ import annotations
 import logging
 
 import base64
-import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -56,7 +55,6 @@ def set_theme_mode(mode: str) -> None:
         _css_block.cache_clear()
     except Exception as exc:
         logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-        pass
 
 
 
