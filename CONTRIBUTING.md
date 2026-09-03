@@ -30,7 +30,7 @@ Thanks for your interest! This guide covers the repository layout, local develop
 
 ## Project Overview
 
-Lytrize is a **local-first, offline desktop analytics application** for Linux. It lets users upload CSV or Excel files and generate interactive Plotly charts and shareable dashboards — all without an internet connection, cloud account, or telemetry.
+Lytrize is a **local-first, offline desktop analytics application** for Linux & Windows. It lets users upload CSV or Excel files and generate interactive Plotly charts and shareable dashboards — all without an internet connection, cloud account, or telemetry.
 
 ### Key Design Principles
 
@@ -245,6 +245,7 @@ Lytrize has a **two-layer architecture**: a PySide6 desktop launcher that manage
 
 ### Quick Start
 
+**Linux / macOS (bash):**
 ```bash
 # 1. Clone the repository
 git clone https://github.com/Kazake95/lytrize_desktop.git
@@ -261,32 +262,61 @@ pip install -r requirements.txt
 streamlit run backend/app.py --server.port 8501 --server.address 127.0.0.1
 ```
 
+**Windows (PowerShell):**
+```powershell
+# 1. Clone the repository
+git clone https://github.com/Kazake95/lytrize_desktop.git
+cd lytrize_desktop
+
+# 2. Create a virtual environment
+python -m venv venv
+venv\Scripts\Activate.ps1
+
+# 3. Install dependencies
+pip install -r requirements.txt
+
+# 4. Run the app in development
+streamlit run backend/app.py --server.port 8501 --server.address 127.0.0.1
+```
+
 Open `http://127.0.0.1:8501` in your browser.
 
-> **Note:** The packaged launcher under `desktop/launcher.py` is for installed builds only. It expects the app at `/opt/lytrize`, so do not use it for a source checkout. For development, use `streamlit run backend/app.py` directly.
+> **Note:** The packaged launcher under `desktop/launcher.py` is for installed builds only. It expects the app at `/opt/lytrize` (Linux) or `Program Files\Lytrize` (Windows), so do not use it for a source checkout. For development, use `streamlit run backend/app.py` directly.
 
 ### Development Environment Variables
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `LYTRIZE_DB_PATH` | `~/.local/share/lytrize/lytrize.db` | Override the SQLite database path (useful for testing) |
-| `XDG_RUNTIME_DIR` | (system default) | Controls where parquet snapshots are stored (tmpfs if available) |
-| `XDG_CACHE_HOME` | `~/.cache` | Fallback cache directory for parquet snapshots |
+| Variable | Default (Linux) | Default (Windows) | Purpose |
+|---|---|---|---|
+| `LYTRIZE_DB_PATH` | `~/.local/share/lytrize/lytrize.db` | `%APPDATA%\Lytrize\lytrize.db` | Override the SQLite database path (useful for testing) |
+| `XDG_RUNTIME_DIR` | (system default) | — | Controls where parquet snapshots are stored (tmpfs if available) |
+| `XDG_CACHE_HOME` | `~/.cache` | — | Fallback cache directory for parquet snapshots |
 
 Example for testing with a throwaway database:
 ```bash
+# Linux
 LYTRIZE_DB_PATH=/tmp/lytrize_test.db streamlit run backend/app.py
+```
+```powershell
+# Windows (PowerShell)
+$env:LYTRIZE_DB_PATH = "$env:TEMP\lytrize_test.db"
+streamlit run backend/app.py
 ```
 
 ### Running the Desktop Launcher from Source
 
 To test the PySide6 launcher from a source checkout:
 
+**Linux:**
 ```bash
 python desktop/gui.py
 ```
 
-This will use the source tree's `backend/app.py` directly (no `/opt/lytrize` needed).
+**Windows:**
+```powershell
+python desktop\gui.py
+```
+
+This will use the source tree's `backend/app.py` directly (no `/opt/lytrize` or `Program Files\Lytrize` needed).
 
 ---
 
@@ -911,7 +941,7 @@ The build script (`build.sh`):
 7. Bakes icons at standard sizes (16-256px)
 8. Sets permissions and builds the `.deb` with `dpkg-deb`
 
-Output: `build/lytrize_1.0_amd64.deb`
+Output: `build/lytrize_1.1_amd64.deb`
 
 ### .rpm Package
 
@@ -926,7 +956,7 @@ The build script (`build_rpm.sh`):
 4. Slims the venv
 5. Builds the RPM with `rpmbuild` using the spec file at `packaging/rpm/lytrize.spec`
 
-Output: `build/lytrize-1.0-1.x86_64.rpm`
+Output: `build/lytrize-1.1-1.x86_64.rpm`
 
 ### What Gets Bundled
 
@@ -1021,7 +1051,7 @@ Currently, the project does not include an automated test suite. When adding new
 3. **Check auto-save** — Verify the draft is saved on every chart mutation and restored after a browser tab refresh.
 4. **Check draft cleanup** — Verify drafts are cleared after a successful session save.
 6. **Check export** — Verify the HTML export is self-contained (no external CDN dependencies) and renders correctly in Chrome and Firefox.
-7. **Check cross-platform** — If possible, test on both Ubuntu and Fedora.
+7. **Check cross-platform** — If possible, test on both Linux (Ubuntu/Fedora) and Windows 10/11.
 8. **Check re-upload auto-update** — If you modify chart runners or KPIs, verify that saved charts/KPIs regenerate correctly when re-uploading a modified version of the same dataset. Check that missing columns are reported as warnings.
 9. **Check notes persistence** — Verify that chart notes survive page navigation, reruns, and session saves/loads.
 
@@ -1033,24 +1063,44 @@ Currently, the project does not include an automated test suite. When adding new
 
 - Run with `streamlit run backend/app.py --server.port 8501 --server.address 127.0.0.1` to see live logs in the terminal.
 - Use `st.write()` or `st.json()` to inspect `st.session_state` during development.
-- The launcher writes backend logs to `~/.local/share/lytrize/streamlit.log` when launched from the desktop entry.
-- Use `LYTRIZE_DB_PATH=/tmp/lytrize_test.db` to use a throwaway database.
+- The launcher writes backend logs to:
+  - Linux: `~/.local/share/lytrize/streamlit.log`
+  - Windows: `%APPDATA%\Lytrize\streamlit.log`
+- Use `LYTRIZE_DB_PATH` to use a throwaway database:
+  - Linux: `LYTRIZE_DB_PATH=/tmp/lytrize_test.db streamlit run backend/app.py`
+  - Windows: `$env:LYTRIZE_DB_PATH="$env:TEMP\lytrize_test.db"; streamlit run backend/app.py`
 
 ### Desktop Launcher
 
-- Launch from a terminal with `python desktop/gui.py` to see Qt debug output.
-- Browser profiles are stored under `~/.local/share/lytrize/browser-profiles/`. Delete a profile to reset browser state.
-- If the launcher hangs, check for a stale Streamlit process: `pkill -f streamlit` and restart.
+- Launch from a terminal to see Qt debug output:
+  - Linux: `python desktop/gui.py`
+  - Windows: `python desktop\gui.py`
+- Browser profiles are stored under:
+  - Linux: `~/.local/share/lytrize/browser-profiles/`
+  - Windows: `%APPDATA%\Lytrize\browser-profiles\`
+- Delete a profile to reset browser state.
+- If the launcher hangs, check for a stale Streamlit process and restart:
+  - Linux: `pkill -f streamlit`
+  - Windows: Open Task Manager and end `pythonw.exe` / `python.exe` processes, or run `taskkill /F /IM pythonw.exe` in PowerShell.
 - The launcher polls TCP port 8501 with a 30-second timeout. If Streamlit takes longer to start, increase `_POLL_MAX_TRIES` in `gui.py`.
 
 ### Database
 
-- The SQLite database lives at `~/.local/share/lytrize/lytrize.db`. Inspect it with:
+- The SQLite database lives at:
+  - Linux: `~/.local/share/lytrize/lytrize.db`
+  - Windows: `%APPDATA%\Lytrize\lytrize.db`
+- Inspect it with:
   ```bash
+  # Linux
   sqlite3 ~/.local/share/lytrize/lytrize.db ".tables"
   sqlite3 ~/.local/share/lytrize/lytrize.db "SELECT * FROM sessions LIMIT 5;"
   ```
-- Set `LYTRIZE_DB_PATH=/tmp/lytrize_test.db` to use a throwaway database.
+  ```powershell
+  # Windows (install SQLite CLI if needed, e.g. via scoop: scoop install sqlite)
+  sqlite3 "$env:APPDATA\Lytrize\lytrize.db" ".tables"
+  sqlite3 "$env:APPDATA\Lytrize\lytrize.db" "SELECT * FROM sessions LIMIT 5;"
+  ```
+- Set `LYTRIZE_DB_PATH` to use a throwaway database.
 - Drafts are stored in `draft_sessions`. If the app feels slow, verify that draft cleanup is happening after saves.
 - The database uses WAL mode for concurrent read/write access.
 - The `analysed_datasets` table is backfilled from existing sessions on first run. If you need to reset it, delete the row and restart.
@@ -1060,7 +1110,12 @@ Currently, the project does not include an automated test suite. When adding new
 - The `transform_log` is stored in both `draft_sessions` and `sessions` tables as `transform_log_json`.
 - To inspect the transform log for a session:
   ```bash
+  # Linux
   sqlite3 ~/.local/share/lytrize/lytrize.db "SELECT transform_log_json FROM sessions WHERE id=1;"
+  ```
+  ```powershell
+  # Windows
+  sqlite3 "$env:APPDATA\Lytrize\lytrize.db" "SELECT transform_log_json FROM sessions WHERE id=1;"
   ```
 - The `regenerate.py` module logs warnings when charts/KPIs can't be regenerated (missing columns, count mismatch). Check the terminal output for details.
 

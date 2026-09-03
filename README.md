@@ -95,10 +95,10 @@ Lytrize includes a native desktop launcher (PySide6) that manages the backend an
 
 ## Install
 
-### Option 1 — Debian / Ubuntu (.deb) 
+### Option 1 — Debian / Ubuntu (.deb)
 
 ```bash
-sudo dpkg -i lytrize_1.0_amd64.deb
+sudo dpkg -i lytrize_1.1_amd64.deb
 ```
 
 If `dpkg` reports missing dependencies:
@@ -118,9 +118,9 @@ No manual Python setup, no `pip install`, no virtual environment to activate. Th
 ### Option 2 — Fedora / RHEL / openSUSE (.rpm)
 
 ```bash
-sudo dnf install lytrize-1.0-1.x86_64.rpm
+sudo dnf install lytrize-1.1-1.x86_64.rpm
 # or on older systems:
-sudo rpm -i lytrize-1.0-1.x86_64.rpm
+sudo rpm -i lytrize-1.1-1.x86_64.rpm
 ```
 
 ### Option 3 — Windows (.exe)
@@ -129,9 +129,13 @@ sudo rpm -i lytrize-1.0-1.x86_64.rpm
 LytrizeSetup_1.1.exe
 ```
 
-Double-click the installer. It requires administrator privileges and installs to `Program Files\Lytrize` (64-bit Windows only). The installer bundles its own Python virtual environment, so there's no separate Python setup.
+Double-click the installer. A Windows Defender SmartScreen warning may appear on some systems — click **More info** → **Run anyway** if you downloaded it from the official releases page.
+
+> **Note:** The installer requires **administrator privileges** (a UAC prompt will appear). Installs to `Program Files\Lytrize` (64-bit Windows only). The installer bundles its own Python virtual environment, so there is no separate Python setup.
 
 Launch **Lytrize** from the Start Menu or desktop shortcut. User data is written to `%APPDATA%\Lytrize` and `%LOCALAPPDATA%\Lytrize`.
+
+> **Windows tip:** If your antivirus software flags the installer (false positive), add an exclusion for the `Program Files\Lytrize` folder after installation. See [Troubleshooting](#troubleshooting) below.
 
 ### Option 4 — Build from source
 
@@ -142,7 +146,10 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md#development-setup) for the full develope
 ## How to Use Lytrize
 
 ### 1. Open the app
-Launch Lytrize from your application menu or run `lytrize` in a terminal. A launcher window appears while the Streamlit backend starts, then your browser opens automatically.
+- **Linux:** Launch Lytrize from your application menu or run `lytrize` in a terminal.
+- **Windows:** Launch **Lytrize** from the Start Menu or desktop shortcut.
+
+A launcher window appears while the Streamlit backend starts, then your browser opens automatically in an isolated window.
 
 ### 2. Upload a file
 Click **Start New Analysis** on the home screen and choose a CSV or Excel file. Lytrize shows a preview and lets you rename columns, add calculated columns, fix data types and flag outliers before proceeding.
@@ -282,11 +289,23 @@ sudo dnf remove lytrize       # Fedora / RHEL
 
 ## Troubleshooting
 
-**The app does not start**
+**The app does not start (Linux)**
 Run `lytrize` from a terminal to see live output. Check the terminal for Python tracebacks. The backend log is also written to `~/.local/share/lytrize/streamlit.log`.
+
+**The app does not start (Windows)**
+Launch **Lytrize** from the Start Menu and check the launcher window for errors. The backend log is written to `%APPDATA%\Lytrize\streamlit.log`. If the app fails to start, try right-clicking the shortcut and selecting **Run as administrator**.
 
 **Missing dependencies after install**
 Run `sudo apt-get install -f` (Debian/Ubuntu) or `sudo dnf install -f` (Fedora/RHEL) then try again.
+
+**Windows Defender SmartScreen warning**
+If SmartScreen blocks the installer, click **More info** → **Run anyway**. This is a false positive — the installer is not signed with an EV certificate.
+
+**Antivirus interference (Windows)**
+Some antivirus programs may flag the installer or interfere with the build process. Add an exclusion for `Program Files\Lytrize` (installed app) or the `build` folder (during development). For Windows Defender (run as Administrator):
+```powershell
+Add-MpPreference -ExclusionPath "C:\Program Files\Lytrize"
+```
 
 **Downloading as PNG / image**
 The app exports a standalone HTML file. To save that page as a PNG, use your browser's built-in screenshot tools:
@@ -301,13 +320,22 @@ If no supported browser is detected, copy `http://127.0.0.1:8501` into any brows
 Lytrize uses smart sampling for scatter plots (8,000 points) and maps (5,000 points), plus chunked reading for CSVs over 30 MB. For best performance with files over 100 MB, use 8 GB+ RAM.
 
 **Something looks broken**
-Check the terminal output for Python tracebacks. If the issue happens again, open an issue and attach the log.
+- **Linux:** Check the terminal output for Python tracebacks. If the issue happens again, open an issue and attach the log at `~/.local/share/lytrize/streamlit.log`.
+- **Windows:** Check the backend log at `%APPDATA%\Lytrize\streamlit.log`. If the issue happens again, open an issue and attach the log.
 
 **Database corruption**
 If the app fails to start with a SQLite error, your database may be corrupt. Close the app completely, then:
+
+*Linux:*
 ```bash
 rm ~/.local/share/lytrize/lytrize.db
 ```
+
+*Windows:*
+```powershell
+Remove-Item "$env:APPDATA\Lytrize\lytrize.db"
+```
+
 Restart the app — a fresh database will be created automatically. Your saved sessions will be lost (use **Restore Backup** to recover from a JSON backup if you have one).
 
 ---
