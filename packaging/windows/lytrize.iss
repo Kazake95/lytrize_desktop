@@ -14,7 +14,7 @@
 ;      file locks. (Single-user-per-PC assumption.)
 ; =============================================================================
 #ifndef AppVersion
-  #define AppVersion "1.1"
+  #define AppVersion "1.2"
 #endif
 #ifndef Staging
   #define Staging "packaging\windows\Staging"

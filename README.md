@@ -98,7 +98,7 @@ Lytrize includes a native desktop launcher (PySide6) that manages the backend an
 ### Option 1 — Debian / Ubuntu (.deb)
 
 ```bash
-sudo dpkg -i lytrize_1.1_amd64.deb
+sudo dpkg -i lytrize_1.2_amd64.deb
 ```
 
 If `dpkg` reports missing dependencies:
@@ -118,15 +118,15 @@ No manual Python setup, no `pip install`, no virtual environment to activate. Th
 ### Option 2 — Fedora / RHEL / openSUSE (.rpm)
 
 ```bash
-sudo dnf install lytrize-1.1-1.x86_64.rpm
+sudo dnf install lytrize-1.2-1.x86_64.rpm
 # or on older systems:
-sudo rpm -i lytrize-1.1-1.x86_64.rpm
+sudo rpm -i lytrize-1.2-1.x86_64.rpm
 ```
 
 ### Option 3 — Windows (.exe)
 
 ```text
-LytrizeSetup_1.1.exe
+LytrizeSetup_1.2.exe
 ```
 
 Double-click the installer. A Windows Defender SmartScreen warning may appear on some systems — click **More info** → **Run anyway** if you downloaded it from the official releases page.
@@ -139,7 +139,7 @@ Launch **Lytrize** from the Start Menu or desktop shortcut. User data is written
 
 ### Option 4 — Build from source
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md#development-setup) for the full developer setup.
+See [CONTRIBUTOR.md](./CONTRIBUTOR.md#development-setup) for the full developer setup.
 
 ---
 
@@ -353,7 +353,7 @@ Restart the app — a fresh database will be created automatically. Your saved s
 
 Lytrize is open source. Bug reports, feature requests and pull requests are welcome.
 
-Before opening a PR, please read [CONTRIBUTING.md](./CONTRIBUTING.md) for the full development setup, architecture overview and contribution guidelines.
+Before opening a PR, please read [CONTRIBUTOR.md](./CONTRIBUTOR.md) for the full development setup, architecture overview and contribution guidelines.
 
 ---
 

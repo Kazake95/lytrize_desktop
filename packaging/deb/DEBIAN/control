@@ -1,5 +1,5 @@
 Package: lytrize
-Version: 1.1
+Version: 1.2
 Architecture: amd64
 Maintainer: Lytrize <vnat8638@gmail.com>
 Depends: python3 (>= 3.11), libgl1, libegl1, libglib2.0-0, libxcb-cursor0, libdbus-1-3

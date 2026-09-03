@@ -73,7 +73,7 @@ def page_profile() -> None:
         if selected:
             payload = {
                 "lytrize_backup": True,
-                "version": "1.1",
+                "version": "1.2",
                 "username": st.session_state.get("username", getpass.getuser()),
                 "exported_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 "sessions": selected,

@@ -53,7 +53,7 @@ if ($UseTempStaging) {
 }
 
 $AppName = "Lytrize"
-$Version = "1.1"
+$Version = "1.2"
 
 Write-Host "================ Lytrize Windows installer builder ================"
 Write-Host "Repo root  : $Root"

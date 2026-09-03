@@ -46,12 +46,12 @@ Lytrize is open source and welcomes contributions from everyone. Here is how you
    git clone https://github.com/YOUR_USERNAME/lytrize_desktop.git
    cd lytrize_desktop
    ```
-3. **Set up your development environment** — see [CONTRIBUTING.md](./CONTRIBUTING.md#development-setup) for full instructions.
+3. **Set up your development environment** — see [CONTRIBUTOR.md](./CONTRIBUTOR.md#development-setup) for full instructions.
 4. **Create a branch** for your changes:
    ```bash
    git checkout -b feature/my-feature
    ```
-5. **Make your changes** following the code style and conventions in [CONTRIBUTING.md](./CONTRIBUTING.md#code-style-and-conventions).
+5. **Make your changes** following the code style and conventions in [CONTRIBUTOR.md](./CONTRIBUTOR.md#code-style).
 6. **Test** your changes on your platform:
    ```bash
    streamlit run backend/app.py
@@ -70,7 +70,7 @@ Lytrize is open source and welcomes contributions from everyone. Here is how you
 
 Improvements to documentation are always welcome:
 
-- Fix typos or unclear instructions in README.md or CONTRIBUTING.md
+- Fix typos or unclear instructions in README.md or CONTRIBUTOR.md
 - Add examples or screenshots
 - Translate documentation to other languages
 - Improve code comments and docstrings
@@ -104,6 +104,70 @@ Lytrize is developed and tested on:
 Contributions that improve compatibility with other platforms (e.g., macOS) are welcome, though the primary focus is Linux and Windows.
 
 ---
+
+## Development Setup
+
+### Prerequisites
+
+- **Python 3.11+**
+- **pip** (usually bundled with Python)
+- **Git**
+- **Inno Setup 7** (Windows builds only — download from https://jrsoftware.org/isdl.php)
+
+### Running Locally
+
+```bash
+git clone https://github.com/Kazake95/lytrize_desktop.git
+cd lytrize_desktop
+python -m venv venv
+source venv/bin/activate          # Linux/macOS
+# or: venv\Scripts\activate       # Windows
+pip install -r requirements.txt
+streamlit run backend/app.py
+```
+
+### Shared Configuration
+
+| Constant | Value |
+|---|---|
+| `APP_NAME` | `"Lytrize"` |
+| `APP_VERSION` | `"1.2"` |
+| `APP_HOST` | `"127.0.0.1"` |
+| `APP_PORT` | `8501` |
+
+## Building Packages
+
+### .deb (Debian/Ubuntu)
+
+```bash
+bash packaging/deb/build_deb.sh
+# Output: build/lytrize_1.2_amd64.deb
+```
+
+### .rpm (Fedora/RHEL/openSUSE)
+
+```bash
+bash packaging/rpm/build_rpm.sh
+# Output: build/lytrize-1.2-1.x86_64.rpm
+```
+
+### Windows .exe Installer
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build_windows.ps1
+# Output: build\LytrizeSetup_1.2.exe
+```
+
+Requires Python 3.11+ and Inno Setup 7. The script stages the app, slims the venv, and compiles the installer via ISCC.
+
+## Code Style
+
+- **Python 3.11+**
+- **Docstrings:** Google-style (`Args`, `Returns`, `Raises`)
+- **Naming:** `snake_case` functions/variables, `PascalCase` classes, `UPPER_SNAKE` constants
+- **Imports:** stdlib → third-party → local (each group alphabetized)
+- **Line length:** ~100 chars max
+- **Type hints:** preferred on public functions
 
 ## License
 
