@@ -245,6 +245,22 @@ def _add_charts(new_charts, active):
             widget_state={k: _widget_state.get(k) for k in _widget_state},
             **_initial_labels,
         )
+        # For choropleth figures, seed the merged chart-settings Colorscale
+        # control with the actual generation-time scale, so the "Colorscale"
+        # dropdown reflects what is currently rendered (otherwise it falls back
+        # to the generic default).  Scatter map plots are left untouched.
+        try:
+            _first_tr = fig.data[0]
+            _is_choropleth = str(getattr(_first_tr, "type", "") or "").lower() == "choropleth"
+        except Exception:
+            _is_choropleth = False
+        if _is_choropleth:
+            _chrom = _gen_kwargs.get("choropleth_colorscale") or "Blues"
+            _meta = st.session_state[f"chart_meta_{uid}"]
+            _disp = dict(_meta.get("display_options", {}) or {})
+            if not _disp.get("heatmap_colorscale"):
+                _disp["heatmap_colorscale"] = _chrom
+            _meta["display_options"] = _disp
     st.session_state.charts.extend(new_charts)
     st.session_state._last_analysis_type = active
     if active not in st.session_state.selected_analyses:

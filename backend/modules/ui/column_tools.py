@@ -410,7 +410,7 @@ def show_dtype_transformer(df):
                                 # Break out of the fragment scope so the rest of
                                 # the page re-renders against the remapped data.
                                 st.rerun(scope="app")
-                        else:
+                        elif _geo_type != "unknown":
                             st.success("🎉 All values in this column resolve cleanly — ready for Map Plot.")
 
 

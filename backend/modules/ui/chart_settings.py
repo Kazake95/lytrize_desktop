@@ -655,6 +655,12 @@ def _detect_map_encoding(fig) -> str:
         and getattr(fig.layout.coloraxis, "showscale", None)
     )
     for tr in getattr(fig, "data", []) or []:
+        # Choropleth always renders its colour ramp through the LAYOUT
+        # coloraxis (no marker.color / marker.coloraxis).  It is inherently
+        # continuous, so the Colorbar / Colorscale controls must apply.  This
+        # also survives serialisation round-trips that drop _lytrize_meta.
+        if str(getattr(tr, "type", "") or "").lower() == "choropleth":
+            return "continuous"
         m = getattr(tr, "marker", None)
         if m is None:
             continue
@@ -1377,7 +1383,9 @@ def apply_chart_display_options(
                     _continuous = True
                 else:
                     _continuous = ttype == "choropleth" or _map_marker_is_continuous(marker)
-                if _continuous and getattr(marker, "coloraxis", None):
+                # Choropleth always uses the LAYOUT coloraxis for its colorbar,
+                # even if marker.coloraxis is absent after a JSON round-trip.
+                if _continuous and (ttype == "choropleth" or getattr(marker, "coloraxis", None)):
                     _uses_coloraxis = True
                 # show_colorbar toggle -- drive EVERY mechanism that can render
                 # a colorbar for this trace, because px sets BOTH

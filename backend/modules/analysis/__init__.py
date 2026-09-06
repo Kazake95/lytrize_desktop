@@ -4,6 +4,7 @@
 import uuid
 from typing import Optional
 
+import pandas as pd
 import streamlit as st
 
 
@@ -391,7 +392,7 @@ def _render_config_panel_body(aid: str, df, sk) -> None:
                                   help="Limit to the top N rows after sorting. 0 shows all rows.")
 
     elif aid == "map_plot":
-        from modules.analysis.map_plot import _CHOROPLETH_SCALES, _PROJECTIONS, _SCOPES, MAP_STYLES, detect_geo_column
+        from modules.analysis.map_plot import _PROJECTIONS, _SCOPES, MAP_STYLES, detect_geo_column
         _map_mode_opts = ["Scatter (Lat/Lon)", "Choropleth (Location Names)"]
         _df_sig = f"{df.shape}_{list(df.columns)}"
         _geo_cache_key = "_detected_geo_col"
@@ -417,18 +418,22 @@ def _render_config_panel_body(aid: str, df, sk) -> None:
             with mp10: st.checkbox("Invert", key=sk("invert_colorscale"))
             with mp11: st.checkbox("Borders", value=True, key=sk("show_borders"))
         else:
-            _all_cols_str = [c for c in df.columns if df[c].dtype == object]
+            _all_cols_str = [
+                c for c in df.columns
+                if (pd.api.types.is_object_dtype(df[c])
+                    or pd.api.types.is_string_dtype(df[c])
+                    or isinstance(df[c].dtype, pd.CategoricalDtype))
+            ]
             _geo_default_idx = (_all_cols_str.index(_detected_geo)
                                 if _detected_geo and _detected_geo in _all_cols_str else 0)
-            cg0, cg1, cg2, cg3, cg4, cg5, cg6 = st.columns(7)
+            cg0, cg1, cg2, cg3, cg4, cg5 = st.columns(6)
             with cg0: st.selectbox("Mode", _map_mode_opts, index=_default_mode, key=sk("map_mode"))
             with cg1: st.selectbox("Location", _all_cols_str if _all_cols_str else df.columns.tolist(),
                                    index=_geo_default_idx, key=sk("geo_col"))
             with cg2: st.selectbox("Value", [NONE] + num, key=sk("value_col"))
             with cg3: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=sk("agg_func"))
-            with cg4: st.selectbox("Scale", _CHOROPLETH_SCALES, key=sk("choropleth_colorscale"))
-            with cg5: st.selectbox("Projection", _PROJECTIONS, key=sk("choropleth_projection"))
-            with cg6: st.selectbox("Scope", _SCOPES, key=sk("choropleth_scope"))
+            with cg4: st.selectbox("Projection", _PROJECTIONS, key=sk("choropleth_projection"))
+            with cg5: st.selectbox("Scope", _SCOPES, key=sk("choropleth_scope"))
             # Borders checkbox placed below columns to avoid overflow
             st.checkbox("Borders", value=True, key=sk("choropleth_show_borders"))
 
