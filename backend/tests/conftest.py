@@ -1,0 +1,7 @@
+"""Pytest bootstrap: make `modules.*` importable when tests run from the repo root."""
+import sys
+from pathlib import Path
+
+_BACKEND_DIR = Path(__file__).resolve().parents[1]
+if str(_BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_DIR))

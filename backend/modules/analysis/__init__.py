@@ -142,6 +142,7 @@ _WIDGET_SPEC = {
         ("marker_opacity", "marker_opacity", "number"),
         ("invert_colorscale", "invert_colorscale", "bool"),
         ("show_borders", "show_borders", "bool"),
+        ("size_by_value", "size_by_value", "bool"),
         ("geo_col", "geo_col", "scalar"),
         ("choropleth_colorscale", "choropleth_colorscale", "scalar"),
         ("choropleth_projection", "choropleth_projection", "scalar"),
@@ -412,7 +413,7 @@ def _render_config_panel_body(aid: str, df, sk) -> None:
             with mp6: st.selectbox("Value", [NONE] + num, key=sk("value_col"))
             with mp7: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=sk("agg_func"))
             with mp8: st.selectbox("Style", MAP_STYLES, index=0, key=sk("map_style"))
-            with mp9: st.slider("Opacity", 0.3, 1.0, 0.82, 0.05, key=sk("marker_opacity"))
+            with mp9: st.slider("Opacity", 0.3, 1.0, 1.0, 0.05, key=sk("marker_opacity"))
             with mp10: st.checkbox("Invert", key=sk("invert_colorscale"))
             with mp11: st.checkbox("Borders", value=True, key=sk("show_borders"))
         else:
@@ -589,7 +590,8 @@ def _collect_kwargs(aid: str, df, uid: Optional[str] = None) -> dict:
                 invert_colorscale=bool(g("invert_colorscale", False)),
                 show_borders=bool(g("show_borders", True)),
                 map_style=g("map_style", "OpenStreetMap (Light)"),
-                marker_opacity=float(g("marker_opacity", 0.82)),
+                marker_opacity=float(g("marker_opacity", 1.0)),
+                size_by_value=bool(g("size_by_value", False)),
             )
 
     elif aid == "time_series":

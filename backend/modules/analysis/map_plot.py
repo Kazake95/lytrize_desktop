@@ -137,6 +137,7 @@ def _density_aggregate(
     lon: str,
     n_cells: int = _DENSITY_CELLS,
     extra_cols: Optional[list] = None,
+    agg_overrides: Optional[dict] = None,
 ) -> pd.DataFrame:
     """Bin ALL points into a spatial grid and aggregate counts per cell.
 
@@ -145,7 +146,10 @@ def _density_aggregate(
     mean lat/lon per cell and a '_count' column for colouring/sizing.
     ``extra_cols`` (e.g. the location / colour columns) are carried per
     cell using their most frequent value so hover tooltips keep showing
-    meaningful labels instead of an empty box.
+    meaningful labels instead of an empty box.  ``agg_overrides`` maps a
+    column name to a pandas aggregation (e.g. {"is_fraud": "max"}) to
+    replace the modal default — used so binary colour columns surface
+    minority classes (any cell containing a 1 shows as 1).
     """
     lat_min, lat_max = float(df[lat].min()), float(df[lat].max())
     lon_min, lon_max = float(df[lon].min()), float(df[lon].max())
@@ -181,6 +185,9 @@ def _density_aggregate(
     for c in (extra_cols or []):
         if c and c in df.columns and c not in agg_dict and c != "cell":
             agg_dict[c] = (c, _modal)
+    for c, how in (agg_overrides or {}).items():
+        if c in agg_dict:
+            agg_dict[c] = (c, how)
     agg = agg.groupby("cell", as_index=False).agg(**agg_dict)
     return agg
 
@@ -684,6 +691,98 @@ def _normalise_size(series: pd.Series, lo: float, hi: float) -> pd.Series:
     return lo + (series - mn) / (mx - mn) * (hi - lo)
 
 
+# Text pairs recognised as "binary text" colour columns (case-insensitive).
+_BINARY_TEXT_SETS = (
+    {"yes", "no"}, {"true", "false"}, {"y", "n"}, {"0", "1"},
+)
+
+
+def classify_colour_column(series: pd.Series) -> str:
+    """Classify a colour column into one of four encoding classes.
+
+    Returns
+    -------
+    "binary_numeric" : numeric column with <= 2 distinct values (e.g. 0/1)
+    "binary_text"    : boolean dtype, or strings forming a yes/no style pair
+    "categorical"    : non-numeric string column (discrete legend)
+    "continuous"     : numeric column with > 2 distinct values (coloraxis)
+    """
+    s = series.dropna()
+    if s.empty:
+        return "categorical"
+    if pd.api.types.is_bool_dtype(series):
+        return "binary_text"
+    if pd.api.types.is_numeric_dtype(series):
+        if s.nunique() <= 2:
+            return "binary_numeric"
+        return "continuous"
+    vals = {str(v).strip().lower() for v in pd.unique(s)}
+    if len(vals) <= 2 and any(vals == pair for pair in _BINARY_TEXT_SETS):
+        return "binary_text"
+    return "categorical"
+
+
+def _canonical_binary_label(v) -> str:
+    """Map yes/no / true/false style values onto canonical "Yes"/"No" labels."""
+    if pd.isna(v):
+        return "(unknown)"
+    t = str(v).strip().lower()
+    if t in ("yes", "y", "true", "t", "1"):
+        return "Yes"
+    if t in ("no", "n", "false", "f", "0"):
+        return "No"
+    return str(v)
+
+
+def _binary_colour_map(pal, invert=False, colour_class="binary_numeric"):
+    """Two flat colours for binary colour columns — no scale, no variation.
+
+    Category "1" (or "Yes") gets the TOP colour of the palette range and
+    "0" (or "No") gets the BOTTOM colour, honouring the Invert toggle.
+    """
+    colors = list(reversed(pal)) if invert else list(pal)
+    bottom, top = colors[0], colors[-1]
+    if colour_class == "binary_text":
+        return {"No": bottom, "Yes": top}
+    return {"0": bottom, "1": top}
+
+
+def _format_colour_labels(plot_df: pd.DataFrame, color: str, colour_class: str) -> str:
+    """Convert a colour column in-place to its renderable form.
+
+    Binary (numeric 0/1 or text) and categorical columns become clean string
+    categories so plotly always renders a DISCRETE legend with one entry per
+    value — this is what guarantees every point is drawn (points can no
+    longer fall "off" a continuous colour ramp).  Continuous columns are
+    left untouched for the coloraxis path.
+
+    Returns the effective colour class ("continuous" keeps numeric encoding).
+    """
+    if colour_class == "binary_text":
+        _bt = plot_df[color].astype(object)
+        # Treat literal nan-like strings ("NaN", "None", ...) as real NaN.
+        _bt = _bt.mask(
+            _bt.astype(str).str.strip().str.lower().isin({"nan", "none", "null", ""})
+        )
+        _bt = _bt.where(_bt.notna(), "(unknown)")
+        plot_df[color] = _bt.map(_canonical_binary_label).astype(str)
+    elif colour_class == "binary_numeric":
+        plot_df[color] = plot_df[color].map(
+            lambda v: "(unknown)" if pd.isna(v) else (
+                str(int(v)) if float(v).is_integer() else str(v))
+        ).astype(str)
+    elif colour_class == "categorical":
+        _s = plot_df[color].astype(object).where(plot_df[color].notna(), "(unknown)")
+        _s = _s.astype(str).str.strip()
+        # CSVs often carry literal nan-like strings ("NaN", "nan", "None",
+        # "") — treat them exactly like real NaN so they never leak into the
+        # legend / hover as a bogus "NaN" category.
+        _nanlike = {"", "nan", "NaN", "NAN", "Nan", "none", "None", "null", "NULL", "Null", "<NA>"}
+        _s = _s.where(~_s.isin(_nanlike), "(unknown)")
+        plot_df[color] = _s
+    return colour_class
+
+
 
 
 def _pal_to_continuous(colors, invert=False):
@@ -707,14 +806,15 @@ def run_map_plot(
     invert_colorscale=False,
     palette=None,
     map_style: str = "OpenStreetMap (Light)",
-    marker_opacity: float = 0.82,
+    marker_opacity: float = 1.00,
     marker_size_min: int = 4,
     marker_size_max: int = 22,
-    show_borders: bool = True,
+    show_borders: bool = False,
     choropleth_colorscale: str = "Blues",
     choropleth_projection: str = "natural earth",
     choropleth_scope: str = "world",
     choropleth_show_borders: bool = True,
+    size_by_value: bool = False,
     **kwargs,
 ):
     """Unified map runner."""
@@ -772,6 +872,7 @@ def run_map_plot(
         marker_size_min=marker_size_min,
         marker_size_max=marker_size_max,
         show_borders=show_borders,
+        size_by_value=size_by_value,
     )
 
 
@@ -783,6 +884,7 @@ def _run_scatter_map(
     agg_func, invert_colorscale, pal,
     map_style, marker_opacity, marker_size_min, marker_size_max,
     show_borders=True,
+    size_by_value=False,
 ):
     needed = list({lat, lon})
     for c in (size_col, color_col, location_col, value_col):
@@ -804,9 +906,29 @@ def _run_scatter_map(
 
     if loc_col and val_col:
         agg = agg_func or "mean"
+        # Classify the colour column on the RAW data BEFORE grouping.  The
+        # value column's aggregation (e.g. mean of 0/1 = 0.37) must never
+        # re-encode a binary colour column as a continuous scale — the value
+        # column only affects the tooltip / (optional) marker size, never the
+        # colour encoding.
+        _raw_colour_class = (
+            classify_colour_column(clean_df[color_col])
+            if color_col and color_col in clean_df.columns else None
+        )
         agg_dict: dict = {lat: "first", lon: "first", val_col: agg}
         if color_col and color_col in clean_df.columns:
-            agg_dict[color_col] = "first"
+            if _raw_colour_class in ("binary_numeric", "binary_text"):
+                # Binary colour: a group containing ANY 1s must render as "1"
+                # (max).  A "mean" collapse would produce 0.0-1.0 floats that
+                # re-classify as continuous and hide the fraud category.
+                agg_dict[color_col] = (
+                    "max" if pd.api.types.is_numeric_dtype(clean_df[color_col])
+                    else "first"
+                )
+            elif pd.api.types.is_numeric_dtype(clean_df[color_col]):
+                agg_dict[color_col] = agg
+            else:
+                agg_dict[color_col] = "first"
         if size_col and size_col in clean_df.columns and size_col != val_col:
             agg_dict[size_col] = agg
         plot_df   = clean_df.groupby(loc_col, as_index=False).agg(agg_dict)
@@ -819,7 +941,9 @@ def _run_scatter_map(
             new_size_name = f"{agg}({size_col})"
             plot_df.rename(columns={size_col: new_size_name}, inplace=True)
             size_col = new_size_name
-        elif not size_col and val_col in plot_df.columns:
+        # Value column drives marker size ONLY when the user ticks
+        # "Size by value" — otherwise it appears in the tooltip only.
+        if size_by_value and not size_col and val_col in plot_df.columns:
             size_col = val_col
     else:
         if len(clean_df) > _MAP_SAMPLE:
@@ -831,13 +955,42 @@ def _run_scatter_map(
             _hover_extra = [
                 c for c in (loc_col, color_col) if c and c in clean_df.columns
             ]
-            plot_df = _density_aggregate(clean_df, lat, lon,
-                                         extra_cols=_hover_extra)
+            # Classify the colour column so categorical colour columns survive
+            # density aggregation (kept as discrete categories with a legend)
+            # instead of being replaced by a "Points count" colour scale.
+            _density_colour_class = (
+                classify_colour_column(clean_df[color_col])
+                if color_col and color_col in clean_df.columns else None
+            )
+            _density_binary_colour = (
+                _density_colour_class in ("binary_numeric", "binary_text")
+            )
+            _density_categorical_colour = (
+                _density_colour_class == "categorical"
+            )
+            plot_df = _density_aggregate(
+                clean_df, lat, lon,
+                extra_cols=_hover_extra,
+                agg_overrides=(
+                    # Binary colour: a cell containing ANY 1s must render as
+                    # "1" — modal would hide minority fraud cells entirely.
+                    {color_col: "max"}
+                    if (_density_binary_colour
+                        and (pd.api.types.is_numeric_dtype(clean_df[color_col])
+                             or pd.api.types.is_bool_dtype(clean_df[color_col])))
+                    else None
+                ),
+            )
             sampled = True
             density = True
-            _density_color = True   # colour comes from the cell point count
             plot_df.rename(columns={"_count": "Points"}, inplace=True)
-            color_col = "Points"
+            if _density_binary_colour or _density_categorical_colour:
+                # Binary / categorical colour: the column drives the legend,
+                # not the point-count scale.  "Points" is only a hover helper.
+                _density_color = False
+            else:
+                _density_color = True    # colour comes from the cell point count
+                color_col = "Points"
             if size_col and size_col in clean_df.columns:
                 size_col = None
         else:
@@ -852,36 +1005,73 @@ def _run_scatter_map(
     color = color_col if color_col and color_col in plot_df.columns else None
     hover = loc_col   if loc_col   and loc_col   in plot_df.columns else None
 
+    # "Size by value": the numeric value column drives marker size.
+    if size_by_value and val_col and val_col in plot_df.columns:
+        size = val_col
 
-    if color and plot_df[color].nunique() > 25 and not _density_color:
+    # Classify the colour column BEFORE any encoding decision.
+    colour_class = classify_colour_column(plot_df[color]) if color else None
+
+    # Binary colour columns are never dropped.  Very wide categoricals are
+    # collapsed (25+ legend entries are unreadable).  Continuous columns
+    # keep the colouraxis encoding regardless of unique count — they render
+    # a colour scale, not a legend.
+    if color and colour_class == "categorical" \
+            and plot_df[color].nunique() > 25 and not _density_color:
         color = None
 
+    if color:
+        colour_class = _format_colour_labels(plot_df, color, colour_class)
 
+    # Value-driven marker sizes are written to a DERIVED column so the raw
+    # value column stays intact for the hover tooltip.
     if size:
         try:
             raw = pd.to_numeric(plot_df[size], errors="coerce")
             if raw.dropna().nunique() > 1:
                 plot_df = plot_df.copy()
-                plot_df[size] = _normalise_size(
+                plot_df["_lytrize_size"] = _normalise_size(
                     raw.fillna(raw.median()),
                     float(marker_size_min),
                     float(marker_size_max),
                 )
+                size = "_lytrize_size"
             else:
                 size = None
         except Exception:
             size = None
 
+    # Explicit numeric custom-data column so the Chart Settings "Size by
+    # value" toggle can (re)build per-point marker sizes from the raw value
+    # without re-running the analysis. Hidden from hover tooltips above.
+    if val_col and val_col in plot_df.columns:
+        plot_df = plot_df.copy()
+        plot_df["_lytrize_val"] = pd.to_numeric(plot_df[val_col], errors="coerce")
+
 
     hover_data: dict = {}
     for col in (val_col, size_col, color_col):
         if col and col in plot_df.columns and col != hover:
+            # Value, size and colour columns are ALWAYS shown in the hover
+            # tooltip (requirement: value column appears in the tooltip
+            # alongside location and colour-column values).
             hover_data[col] = True
     for col in plot_df.columns:
         if col not in (hover, val_col, size_col, color_col, lat, lon):
             hover_data[col] = False
     hover_data[lat] = False
     hover_data[lon] = False
+    # The normalised marker-size helper column must never appear in tooltips.
+    if "_lytrize_size" in plot_df.columns:
+        hover_data["_lytrize_size"] = False
+    if "_lytrize_val" in plot_df.columns:
+        hover_data["_lytrize_val"] = False
+    # Density cells: only show the point count when the density path itself
+    # colours by point count (i.e. NO colour column selected).  When a real
+    # colour column drives the colours, "Points" is an internal helper and
+    # must NOT appear in the hover tooltip.
+    if density and _density_color and "Points" in plot_df.columns:
+        hover_data["Points"] = True
     if density:
         # Density maps: show the carried location / colour columns in the
         # hover (otherwise the tooltip is empty). NOTE: must run AFTER the
@@ -904,9 +1094,13 @@ def _run_scatter_map(
     title     = f"Map: {loc_label}{agg_label}{sample_str}"
 
 
+    # Discrete (legend) vs continuous (coloraxis) colour encoding — decided
+    # by the classifier, not raw dtype, so binary 0/1 columns render as two
+    # clearly-labelled legend categories instead of a colour ramp.
     color_is_numeric = (
-        color is not None and color in plot_df.columns
-        and pd.api.types.is_numeric_dtype(plot_df[color])
+        color is not None
+        and color in plot_df.columns
+        and colour_class == "continuous"
     )
 
 
@@ -957,6 +1151,8 @@ def _run_scatter_map(
                 size_max=int(marker_size_max),
                 hover_name=hover,
                 hover_data=hover_data,
+                custom_data=(["_lytrize_val"]
+                             if "_lytrize_val" in plot_df.columns else None),
                 title=title,
                 zoom=zoom,
                 center=dict(lat=lat_med, lon=lon_med),
@@ -966,6 +1162,11 @@ def _run_scatter_map(
                 if color_is_numeric:
                     map_kwargs["color_continuous_scale"] = _pal_to_continuous(
                         pal, invert=invert_colorscale)
+                elif colour_class in ("binary_numeric", "binary_text"):
+                    # Binary: exactly two flat palette endpoint colours —
+                    # no colour scale, no variation.
+                    map_kwargs["color_discrete_map"] = _binary_colour_map(
+                        pal, invert=invert_colorscale, colour_class=colour_class)
                 else:
                     map_kwargs["color_discrete_sequence"] = (
                         list(reversed(pal)) if invert_colorscale else pal)
@@ -976,6 +1177,22 @@ def _run_scatter_map(
             # optional borders overlay.
             fig.update_layout(mapbox_layers=_layers)
             fig.update_traces(marker=dict(opacity=float(marker_opacity)))
+            if color and not color_is_numeric:
+                # Binary / categorical maps are pure discrete legends — no
+                # colorbar may ever render (guards against stale display
+                # options forcing a colour scale onto category colours).
+                try:
+                    if getattr(fig.layout.coloraxis, "showscale", None):
+                        fig.update_coloraxes(showscale=False)
+                except Exception as exc:
+                    log.debug("map coloraxis suppression error: %s", exc)
+                for _tr in fig.data:
+                    _m = getattr(_tr, "marker", None)
+                    if _m is not None and hasattr(_m, "showscale"):
+                        try:
+                            _m.showscale = False
+                        except Exception:
+                            pass
             if color_is_numeric:
                 # Continuous color renders through the layout coloraxis; style
                 # the rendered colorbar there (theme-neutral: tiles carry the
@@ -1023,6 +1240,13 @@ def _run_scatter_map(
                 "supports_notes": True,
                 "supports_axis_editing": False,
                 "supports_legend_editing": True,
+                # Tells chart_settings which colour encoding this figure uses
+                # so the Colorbar/Colorscale controls can never force a colour
+                # scale onto a discrete (binary/categorical) legend.
+                "colour_encoding": "continuous" if color_is_numeric else "discrete",
+                # Value-driven sizes use an array of per-point sizes; the
+                # manual "M. size" slider must not override them.
+                "value_sized": bool(size_by_value and val_col and size == "_lytrize_size"),
             }
             return [(f"Map: {loc_label}", fig)]
         except Exception:
@@ -1037,6 +1261,8 @@ def _run_scatter_map(
         size_max=int(marker_size_max),
         hover_name=hover,
         hover_data=hover_data,
+        custom_data=(["_lytrize_val"]
+                     if "_lytrize_val" in plot_df.columns else None),
         title=title,
         projection="natural earth",
         fitbounds="locations",
@@ -1045,6 +1271,9 @@ def _run_scatter_map(
         geo_kwargs["color"] = color
         if color_is_numeric:
             geo_kwargs["color_continuous_scale"] = _pal_to_continuous(pal, invert=invert_colorscale)
+        elif colour_class in ("binary_numeric", "binary_text"):
+            geo_kwargs["color_discrete_map"] = _binary_colour_map(
+                pal, invert=invert_colorscale, colour_class=colour_class)
         else:
             geo_kwargs["color_discrete_sequence"] = list(reversed(pal)) if invert_colorscale else pal
     if size and size in plot_df.columns:
@@ -1058,6 +1287,20 @@ def _run_scatter_map(
 
     # scatter_geo has no opacity kwarg; apply marker opacity directly.
     fig.update_traces(marker=dict(opacity=float(marker_opacity)))
+    if color and not color_is_numeric:
+        # Same discrete-colour colorbar suppression as the tile path.
+        try:
+            if getattr(fig.layout.coloraxis, "showscale", None):
+                fig.update_coloraxes(showscale=False)
+        except Exception as exc:
+            log.debug("map coloraxis suppression error: %s", exc)
+        for _tr in fig.data:
+            _m = getattr(_tr, "marker", None)
+            if _m is not None and hasattr(_m, "showscale"):
+                try:
+                    _m.showscale = False
+                except Exception:
+                    pass
     # ``map_style`` selects the base map theme. scatter_geo ships no mapbox
     # tiles, so the (light/dark) style is translated into equivalent geo
     # surface colors instead of always forcing a dark base map.
@@ -1147,6 +1390,8 @@ def _run_scatter_map(
         "supports_notes": True,
         "supports_axis_editing": False,
         "supports_legend_editing": True,
+        "colour_encoding": "continuous" if color_is_numeric else "discrete",
+        "value_sized": bool(size_by_value and val_col and size == "_lytrize_size"),
     }
     return [(f"Map: {loc_label}", fig)]
 
