@@ -1,0 +1,21 @@
+# Shell scripts must always be checked out with LF line endings so they run
+# on Linux/Unix even when edits happen on Windows (CRLF breaks bash).
+*.sh     text eol=lf
+
+# PowerShell scripts stay CRLF (the native Windows convention).
+*.ps1    text eol=crlf
+
+# Python files are cross-platform; force LF to avoid mixed-ending churn and
+# keep byte-identical behaviour on Linux and Windows.
+*.py     text eol=lf
+
+# Package/deployment descriptors use CRLF on Windows, LF on Linux — let Git
+# auto-normalise and store them consistently as text.
+*.iss    text
+# RPM spec parsed by awk/rpmbuild — CRLF here would break variable extraction.
+*.spec   text eol=lf
+
+# Bash-only helpers (deb/rpm maintainer scripts) must be LF.
+postinst text eol=lf
+postrm   text eol=lf
+service  text eol=lf
