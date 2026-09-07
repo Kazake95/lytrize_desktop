@@ -15,7 +15,6 @@ from modules.utils.perf import sample_for_plot
 # ---------------------------------------------------------------------------
 _HAS_SCIPY = False
 try:
-    import scipy
     _HAS_SCIPY = True
 except ImportError:
     pass
@@ -63,7 +62,6 @@ def _add_trendline(fig, plot_df, x: str, y: str, tl_type: str) -> None:
     trend_meta: dict = {"type": tl_type, "n_points": min_len, "active": True}
 
     if tl_type == "lowess" and _HAS_SCIPY:
-        from scipy.interpolate import interp1d
         from scipy.ndimage import gaussian_filter1d
         # Simple LOWESS approximation using gaussian filter
         order = np.argsort(x_vals)
@@ -192,7 +190,6 @@ def run_scatter_plot(df, x_col=None, y_col=None, color_col=None, size_col=None,
                 size_arr = _normalise_size(raw.fillna(raw.median()))
         except Exception as exc:
             logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-            pass
 
 
     r_val = None
@@ -259,7 +256,6 @@ def run_scatter_plot(df, x_col=None, y_col=None, color_col=None, size_col=None,
                         trace.marker.size = size_arr.values
                 except Exception as exc:
                     logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                    pass
 
 
     fig.update_traces(

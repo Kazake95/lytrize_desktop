@@ -4,7 +4,6 @@ import logging
 """modules/analysis/apply_lytrize_standard.py -- Universal chart standardiser."""
 
 
-import importlib.metadata
 
 
 from modules.charts import chart_layout
@@ -67,7 +66,6 @@ def apply_lytrize_standard(
                 )
         except Exception as exc:
             logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-            pass
 
 
     fig._lytrize_meta = {

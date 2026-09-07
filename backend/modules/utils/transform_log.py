@@ -9,13 +9,12 @@ Row-value cleaning done in modules/ui/data_cleaner.py (text clean,
 find & replace, numeric clean) is NOT logged here -- those don't affect
 whether a chart's or KPI's referenced column still exists, which is the
 specific failure mode this module protects against. See README note in
-CONTRIBUTING.md / PR description for the follow-up if row-value replay is
+CONTRIBUTOR.md / PR description for the follow-up if row-value replay is
 wanted later.
 """
 
 import json
 import logging
-from typing import Optional
 
 import pandas as pd
 import streamlit as st

@@ -19,8 +19,6 @@ from __future__ import annotations
 import copy
 import html
 import json
-import re
-from typing import Any
 
 import streamlit as st
 
@@ -124,7 +122,6 @@ from modules.ui.chart_settings import (
     apply_chart_display_options,
     compute_meta_hash,
     _apply_font_only,
-    _font_only_hash,
 )
 
 
@@ -349,8 +346,6 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
                     # this run, then merge typography updates onto the existing
                     # text_style so keys from other tabs are never dropped.
                     from modules.ui.font_manager import inject_font_preview_css
-                    # Only inject the fonts actually in use to avoid browser crash
-                    _current_font = text_style.get("family", "Inter")
                     inject_font_preview_css()  # session-guarded; idempotent
                     _meta_for_typo = st.session_state.get(f"chart_meta_{uid}", meta)
                     text_updates = render_typography_controls(
@@ -381,19 +376,28 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
                 unsafe_allow_html=True,
             )
 
-        # Optimize plotly config for performance
+        # Optimize plotly config for performance. Map figures (tiles / geo /
+        # choropleth) always get the modebar + scroll zoom -- deriving this
+        # from the FIGURE's trace types (not the session key, which can be
+        # stale) so map zoom never silently stays disabled.
+        _fig_types = {
+            str(getattr(_t, "type", "")).lower() for _t in getattr(fig_show, "data", ())
+        }
+        _is_map_fig = bool(_fig_types & {
+            "scattermap", "scattermapbox", "scattergeo", "choropleth",
+        })
         st.plotly_chart(
             fig_show,
             use_container_width=True,
             key=f"plotly_{key_prefix}_{uid}",
             config={
                 "responsive": True,
-                "displayModeBar": "hover",
+                "displayModeBar": True if _is_map_fig else "hover",
                 "mathjax": False,
                 "staticPlot": False,
-                "scrollZoom": False,
+                "scrollZoom": _is_map_fig,
                 "doubleClick": "reset",
-                "showTips": False,
+                "showTips": True if _is_map_fig else False,
             },
         )
 
@@ -427,8 +431,6 @@ def render_chart_card(uid: str, title: str, fig, chart_type: str,
                             # Rebuild charts list from _view_charts with current notes from session state
                             charts_list = []
                             for c_uid, c_title, c_fig, c_desc, c_ctype, c_meta in st.session_state._view_charts:
-                                # Get the latest note from session state
-                                current_desc = st.session_state.get(f"desc_{c_uid}", c_desc)
                                 charts_list.append((c_uid, c_title, c_fig))
                         update_session_db(
                             vid,

@@ -2,6 +2,7 @@
 import base64
 import getpass
 import json
+import os
 
 
 import streamlit as st
@@ -28,11 +29,31 @@ USE_RIGHT_IMAGE  = True
 
 @st.cache_resource(show_spinner=False)
 def _local_username() -> str:
-    """Read the OS username once per process — getpass.getuser() is an OS syscall."""
+    """Return the current user's account name (cross-platform).
+
+    Tries multiple detection methods for reliability on both Windows and Linux:
+    1. getpass.getuser() — standard library, checks USERNAME/USER/LOGNAME env vars
+    2. os.getlogin() — queries the controlling terminal (fallback)
+    3. Environment variables directly (USERNAME, USER, LOGNAME)
+    4. Final fallback: 'Local user'
+    """
     try:
-        return getpass.getuser() or "Local user"
+        name = getpass.getuser()
+        if name:
+            return name
     except Exception:
-        return "Local user"
+        pass
+    try:
+        name = os.getlogin()
+        if name:
+            return name
+    except Exception:
+        pass
+    for env_var in ("USERNAME", "USER", "LOGNAME"):
+        val = os.environ.get(env_var)
+        if val:
+            return val
+    return "Local user"
 
 
 

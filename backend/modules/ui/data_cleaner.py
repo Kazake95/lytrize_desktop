@@ -9,7 +9,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-from modules.utils.session_cache import set_df, update_df
+from modules.utils.session_cache import update_df
 
 
 

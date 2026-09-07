@@ -3,7 +3,6 @@ a lightweight Streamlit session_state-backed memo decorator for pure functions."
 
 
 import logging
-import os
 from pathlib import Path
 from typing import Optional, List
 
@@ -125,19 +124,14 @@ _MAX_SNAPSHOT_BYTES = 512 * 1_048_576
 
 def df_cache_path(user_id: int) -> Path:
     """Return the path for the per-user DataFrame parquet snapshot."""
-    runtime = os.environ.get("XDG_RUNTIME_DIR")
-    if runtime:
-        base = Path(runtime) / "lytrize"
-    else:
-        cache_home = os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))
-        base = Path(cache_home) / "lytrize"
+    from modules.utils.paths import snapshot_dir
+    base = snapshot_dir()
 
     base.mkdir(parents=True, exist_ok=True)
     try:
         base.chmod(0o700)
     except Exception as exc:
         logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-        pass
 
     return base / f"df_{user_id}.parquet"
 
@@ -158,7 +152,6 @@ def save_df_snapshot(user_id: int, df=None) -> None:
             path.chmod(0o600)
         except Exception as exc:
             logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-            pass
     except Exception as exc:
         log.warning(
             "save_df_snapshot: failed to write parquet for user %s "
@@ -193,7 +186,6 @@ def load_df_snapshot(user_id: int) -> Optional[pd.DataFrame]:
             return None
     except Exception as exc:
         logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-        pass
 
     try:
         return pd.read_parquet(str(path), engine="pyarrow")

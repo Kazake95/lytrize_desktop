@@ -3,7 +3,6 @@ import logging
 
 
 import json
-import re
 import streamlit as st
 import pandas as pd
 import plotly.io as pio
@@ -174,7 +173,6 @@ def _fig_json_cached(uid: str, fig) -> str:
 @session_cached
 def _charts_json_cached(chart_uids_tuple, notes_hash):
     """Recompute charts_json only when the chart set or notes change."""
-    from modules.ui.chart_settings import compute_meta_hash  # local to avoid circular
     # Rebuild the list from session_state live (charts tuple covers identity).
     charts = st.session_state.get("charts", [])
     # Attach fresh meta so the serialized payload is always up-to-date.
@@ -194,7 +192,6 @@ def _charts_json_cached(chart_uids_tuple, notes_hash):
             })
         except Exception as exc:
             logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-            pass
     return json.dumps(out)
 
 
@@ -233,7 +230,6 @@ def charts_to_json(charts: list) -> str:
             })
         except Exception as exc:
             logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-            pass
     return json.dumps(out)
 
 
@@ -479,7 +475,6 @@ def _fmt_label(value) -> str:
             return ts.strftime("%d %b %Y")
     except Exception as exc:
         logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-        pass
     return str(value)
 
 

@@ -319,9 +319,6 @@ def generate_html_report(
         )
 
 
-    plotly_guard = ""
-
-
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -441,7 +438,7 @@ def generate_html_report(
     }}
 
 
-    @page {{ margin: 12mm 10mm; }}
+    @page {{ size: {"landscape" if is_landscape else "portrait"}; margin: 12mm 10mm; }}
     @media print {{
       * {{ -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }}
       body {{

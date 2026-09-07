@@ -15,7 +15,6 @@ import plotly.express as px
 
 
 from modules.charts import chart_layout, COLORS
-from modules.utils.perf import sample_for_plot
 
 log = logging.getLogger(__name__)
 
@@ -39,6 +38,88 @@ _PROJECTIONS = [
 _SCOPES = ["world", "usa", "europe", "asia", "africa", "north america", "south america"]
 
 
+# The three user-facing base maps.  ALL of them render the same proven way:
+# scatter_mapbox "white-bg" + a custom RASTER tile layer.  We deliberately do
+# NOT use plotly's named vector styles (carto-positron etc.) -- the plotly.js
+# bundled by the installed Streamlit (2.28.x, mapbox-gl fork) cannot load the
+# vector GL style JSON they now serve, which produced the "API key needed"
+# watermark.  Plain raster tiles have no keys, no watermarks and always work.
+MAP_STYLES = ["OpenStreetMap (Light)", "OpenStreetMap (Dark)", "Satellite (Earth)"]
+
+_MAP_DEFAULT = "OpenStreetMap (Light)"
+
+# Raster tile templates per style.  All free, no API key.
+_MAP_TILE_TEMPLATES = {
+    "OpenStreetMap (Light)": [
+        "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+    ],
+    "OpenStreetMap (Dark)": [  # Esri Dark Gray Canvas -- free, no key
+        "https://server.arcgisonline.com/ArcGIS/rest/services/"
+        "Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+    ],
+    "Satellite (Earth)": [  # Esri World Imagery -- free, no key
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/"
+        "MapServer/tile/{z}/{y}/{x}",
+    ],
+}
+
+# Free, key-less Esri reference layer that draws translucent country borders +
+# place labels on top of any raster basemap.  Used to honour the "Borders" checkbox
+# on the tile (scatter_mapbox) path, where the borders toggle is otherwise
+# meaningless because they are baked into the base raster imagery.
+_MAP_BORDERS_OVERLAY = [
+    "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/"
+    "World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+]
+
+
+def _normalize_map_style(map_style) -> str:
+    """Map any stored/legacy style value onto one of the three MAP_STYLES.
+
+    Keeps older saved charts working: anything dark-ish -> Dark OSM,
+    satellite/earth/terrain-ish -> Satellite, everything else -> Light OSM.
+    """
+    s = str(map_style or "").lower()
+    if any(k in s for k in ("dark", "matter", "night", "moon")):
+        return "OpenStreetMap (Dark)"
+    if any(k in s for k in ("satellite", "earth", "terrain", "imagery", "esri")):
+        return "Satellite (Earth)"
+    return "OpenStreetMap (Light)"
+
+
+_TILE_PROBE_HOSTS = (
+    ("server.arcgisonline.com", 443),  # dark canvas + satellite tiles
+    ("tile.openstreetmap.org", 443),   # light OSM raster tiles
+)
+_TILE_PROBE_TIMEOUT = 1.5
+_tiles_online_cache: Optional[bool] = None
+
+
+def _tiles_online() -> bool:
+    """One-shot (cached) probe: are raster tile servers reachable?
+
+    Tile basemaps are rendered client-side by plotly.js, so Python cannot know
+    whether the browser can load them -- but if this machine can open a TCP
+    connection to a tile host, the tiles will resolve too.  Falls back to the
+    offline scatter_geo renderer when every host is unreachable.
+    """
+    global _tiles_online_cache
+    if _tiles_online_cache is not None:
+        return _tiles_online_cache
+    import socket
+    _online = False
+    for host, port in _TILE_PROBE_HOSTS:
+        try:
+            with socket.create_connection((host, port), timeout=_TILE_PROBE_TIMEOUT):
+                _online = True
+                break
+        except OSError:
+            continue
+    _tiles_online_cache = _online
+    log.info("Tile basemap probe: online=%s", _online)
+    return _online
+
+
 
 
 def _norm(s: str) -> str:
@@ -55,12 +136,20 @@ def _density_aggregate(
     lat: str,
     lon: str,
     n_cells: int = _DENSITY_CELLS,
+    extra_cols: Optional[list] = None,
+    agg_overrides: Optional[dict] = None,
 ) -> pd.DataFrame:
     """Bin ALL points into a spatial grid and aggregate counts per cell.
 
     Uses the full dataset (no random sampling) so the spatial density
     pattern is accurate. Returns a small DataFrame (~n_cells rows) with
     mean lat/lon per cell and a '_count' column for colouring/sizing.
+    ``extra_cols`` (e.g. the location / colour columns) are carried per
+    cell using their most frequent value so hover tooltips keep showing
+    meaningful labels instead of an empty box.  ``agg_overrides`` maps a
+    column name to a pandas aggregation (e.g. {"is_fraud": "max"}) to
+    replace the modal default — used so binary colour columns surface
+    minority classes (any cell containing a 1 shows as 1).
     """
     lat_min, lat_max = float(df[lat].min()), float(df[lat].max())
     lon_min, lon_max = float(df[lon].min()), float(df[lon].max())
@@ -80,13 +169,26 @@ def _density_aggregate(
     lon_bin = np.clip(np.digitize(df[lon].values, lon_edges) - 1, 0, side - 1)
     cell_id = lat_bin * side + lon_bin
 
-    agg = pd.DataFrame({
-        "cell": cell_id,
-        lat: df[lat].values,
-        lon: df[lon].values,
-    }).groupby("cell", as_index=False).agg(
-        **{lat: (lat, "mean"), lon: (lon, "mean"), "_count": (lat, "size")}
-    )
+    def _modal(s: pd.Series):
+        """Most frequent value in the cell (falls back to first)."""
+        if s.empty:
+            return None
+        m = s.mode()
+        return m.iat[0] if not m.empty else s.iloc[0]
+
+    data = {"cell": cell_id, lat: df[lat].values, lon: df[lon].values}
+    for c in (extra_cols or []):
+        if c and c in df.columns and c not in data and c != "cell":
+            data[c] = df[c].values
+    agg = pd.DataFrame(data)
+    agg_dict = {lat: (lat, "mean"), lon: (lon, "mean"), "_count": (lat, "size")}
+    for c in (extra_cols or []):
+        if c and c in df.columns and c not in agg_dict and c != "cell":
+            agg_dict[c] = (c, _modal)
+    for c, how in (agg_overrides or {}).items():
+        if c in agg_dict:
+            agg_dict[c] = (c, how)
+    agg = agg.groupby("cell", as_index=False).agg(**agg_dict)
     return agg
 
 
@@ -130,33 +232,57 @@ def _build_country_map() -> dict[str, str]:
 
 
 
-@lru_cache(maxsize=1)
+_US_STATES: dict[str, str] = {
+    "Alabama": "AL", "Alaska": "AK", "Arizona": "AZ", "Arkansas": "AR",
+    "California": "CA", "Colorado": "CO", "Connecticut": "CT",
+    "Delaware": "DE", "Florida": "FL", "Georgia": "GA",
+    "Hawaii": "HI", "Idaho": "ID", "Illinois": "IL", "Indiana": "IN",
+    "Iowa": "IA", "Kansas": "KS", "Kentucky": "KY", "Louisiana": "LA",
+    "Maine": "ME", "Maryland": "MD", "Massachusetts": "MA", "Michigan": "MI",
+    "Minnesota": "MN", "Mississippi": "MS", "Missouri": "MO", "Montana": "MT",
+    "Nebraska": "NE", "Nevada": "NV", "New Hampshire": "NH",
+    "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY",
+    "North Carolina": "NC", "North Dakota": "ND", "Ohio": "OH",
+    "Oklahoma": "OK", "Oregon": "OR", "Pennsylvania": "PA",
+    "Rhode Island": "RI", "South Carolina": "SC", "South Dakota": "SD",
+    "Tennessee": "TN", "Texas": "TX", "Utah": "UT", "Vermont": "VT",
+    "Virginia": "VA", "Washington": "WA", "West Virginia": "WV",
+    "Wisconsin": "WI", "Wyoming": "WY",
+    "District of Columbia": "DC", "Washington DC": "DC",
+    "Puerto Rico": "PR",
+}
+
+
 def _build_us_state_map() -> dict[str, str]:
     """Return {normalised_name_or_abbr: US state ISO 3166-2 code e.g. 'US-CA'}."""
-    _STATES = {
-        "Alabama": "AL", "Alaska": "AK", "Arizona": "AZ", "Arkansas": "AR",
-        "California": "CA", "Colorado": "CO", "Connecticut": "CT",
-        "Delaware": "DE", "Florida": "FL", "Georgia": "GA",
-        "Hawaii": "HI", "Idaho": "ID", "Illinois": "IL", "Indiana": "IN",
-        "Iowa": "IA", "Kansas": "KS", "Kentucky": "KY", "Louisiana": "LA",
-        "Maine": "ME", "Maryland": "MD", "Massachusetts": "MA", "Michigan": "MI",
-        "Minnesota": "MN", "Mississippi": "MS", "Missouri": "MO", "Montana": "MT",
-        "Nebraska": "NE", "Nevada": "NV", "New Hampshire": "NH",
-        "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY",
-        "North Carolina": "NC", "North Dakota": "ND", "Ohio": "OH",
-        "Oklahoma": "OK", "Oregon": "OR", "Pennsylvania": "PA",
-        "Rhode Island": "RI", "South Carolina": "SC", "South Dakota": "SD",
-        "Tennessee": "TN", "Texas": "TX", "Utah": "UT", "Vermont": "VT",
-        "Virginia": "VA", "Washington": "WA", "West Virginia": "WV",
-        "Wisconsin": "WI", "Wyoming": "WY",
-        "District of Columbia": "DC", "Washington DC": "DC",
-        "Puerto Rico": "PR",
-    }
     mapping: dict[str, str] = {}
-    for name, abbr in _STATES.items():
+    for name, abbr in _US_STATES.items():
         mapping[_norm(name)] = f"US-{abbr}"
         mapping[_norm(abbr)] = f"US-{abbr}"
     return mapping
+
+
+@lru_cache(maxsize=1)
+def known_geo_display_names() -> list[str]:
+    """Return a sorted list of canonical country, US state, and world region names.
+
+    Used by UIs (e.g. the geo remap tool) to offer a validated,
+    searchable set of names guaranteed to resolve via
+    :func:`resolve_geo_names`, instead of free-text entry that may
+    still fail to match.  Includes European/Indian/Canadian/Australian
+    states and provinces so users can remap to sub-national regions.
+    """
+    names: list[str] = []
+    try:
+        import pycountry
+        names.extend(c.name for c in pycountry.countries)
+    except ImportError:
+        pass
+    names.extend(_US_STATES.keys())
+    # Include world region names (European states, Indian provinces, etc.)
+    region_map = _build_world_regions_map()
+    names.extend(entry[2] for entry in region_map.values())
+    return sorted(set(names))
 
 
 
@@ -238,6 +364,229 @@ def _build_world_regions_map() -> dict[str, tuple[float, float, str]]:
         "wales": (52.1307, -3.7837), "northern ireland": (54.7877, -6.4923),
         "london": (51.5074, -0.1278), "yorkshire": (53.9591, -1.0815),
         "lancashire": (53.7632, -2.7044), "midlands": (52.4862, -1.8904),
+        # ── France ──
+        "ile-de-france": (48.8499, 2.6410), "provence-alpes-cote d'azur": (43.9352, 6.0679),
+        "occitanie": (43.8927, 3.2828), "nouvelle-aquitaine": (45.7087, 0.6261),
+        "auvergne-rhone-alpes": (45.4473, 4.3859), "grand est": (48.5802, 5.8144),
+        "brittany": (48.2020, -2.9326), "normandy": (48.8797, 0.1712),
+        "pays de la loire": (47.7633, -0.3299), "centre-val de loire": (47.7516, 1.6751),
+        "burgundy": (47.0833, 4.2667), "franche-comte": (47.1343, 6.0222),
+        "hauts-de-france": (49.9662, 2.7782), "corse": (42.0396, 9.0129),
+        # ── Italy ──
+        "lombardy": (45.4791, 9.8452), "lazio": (41.8933, 12.4828),
+        "campania": (40.8518, 14.2681), "sicily": (37.6000, 14.0154),
+        "veneto": (45.4414, 12.3153), "emilia-romagna": (44.4949, 11.3426),
+        "piedmont": (45.0703, 7.6869), "tuscany": (43.7711, 11.2486),
+        "apulia": (41.1259, 16.8672), "calabria": (38.9060, 16.5942),
+        "liguria": (44.4478, 8.7503), "marche": (43.6168, 13.5189),
+        "umbria": (42.9380, 12.6216), "trentino-alto adige": (46.4337, 11.1693),
+        "friuli-venezia giulia": (46.2255, 13.1043), "sardinia": (40.1209, 9.0129),
+        "aosta valley": (45.7372, 7.3205), "basilicata": (40.6333, 15.8000),
+        "molise": (41.6739, 14.7521),
+        # ── Spain ──
+        "catalonia": (41.5912, 1.5209), "andalusia": (37.5443, -4.7278),
+        "madrid": (40.4168, -3.7038), "basque country": (42.9896, -2.6189),
+        "galicia": (42.5751, -8.1339), "castile and leon": (41.8357, -4.3976),
+        "valencia": (39.4840, -0.7533), "murcia": (37.9922, -1.1307),
+        "aragon": (41.5976, -0.9057), "castilla-la mancha": (39.2796, -3.0977),
+        "canary islands": (28.1235, -15.4363), "navarre": (42.6954, -1.6761),
+        "cantabria": (43.1829, -3.9878), "asturias": (43.3614, -5.8593),
+        "balearic islands": (39.5696, 2.6502), "extremadura": (39.4937, -6.0679),
+        "la rioja": (42.2871, -2.5396),
+        # ── Netherlands ──
+        "north holland": (52.5206, 4.7885), "south holland": (52.0206, 4.4938),
+        "utrecht": (52.0908, 5.1214), "gelderland": (52.0452, 5.8718),
+        "north brabant": (51.4826, 5.2323), "limburg": (51.4427, 6.0609),
+        "overijssel": (52.4388, 6.5016), "friesland": (53.1642, 5.7815),
+        "groningen": (53.2194, 6.5665), "drenthe": (52.9476, 6.6231),
+        "zeeland": (51.4940, 3.8497), "flevoland": (52.5279, 5.5953),
+        # ── Switzerland ──
+        "zurich": (47.3769, 8.5417), "geneva": (46.2044, 6.1432),
+        "bern": (46.9480, 7.4474), "vaud": (46.5613, 6.5366),
+        "aargau": (47.3887, 8.0457), "basel-stadt": (47.5596, 7.5886),
+        "lucerne": (47.0502, 8.3093), "ticino": (46.3168, 8.8093),
+        "solothurn": (47.2088, 7.5323), "thurgau": (47.5529, 9.0703),
+        "graubunden": (46.6570, 9.6960), "schwyz": (47.0207, 8.6530),
+        "zug": (47.1662, 8.5154), "nidwalden": (46.9267, 8.3850),
+        "obwalden": (46.8544, 8.2444), "glarus": (47.0411, 9.0680),
+        "schaffhausen": (47.6960, 8.6350), "jura": (47.3663, 7.1560),
+        "appenzell ausserrhoden": (47.3661, 9.3000), "appenzell innerrhoden": (47.3167, 9.4333),
+        "uri": (46.8833, 8.6333), "valais": (46.2333, 7.6333),
+        "st. gallen": (47.4245, 9.3767), "fribourg": (46.8065, 7.1620),
+        "neuchatel": (46.9900, 6.9293),
+        # ── Austria ──
+        "vienna": (48.2082, 16.3738), "tyrol": (47.2537, 11.6019),
+        "styria": (47.3333, 14.9667), "upper austria": (48.2500, 13.7500),
+        "lower austria": (48.1667, 15.6667), "salzburg": (47.8095, 13.0550),
+        "carinthia": (46.7500, 13.8333), "vorarlberg": (47.2500, 9.8667),
+        "burgenland": (47.5000, 16.4167),
+        # ── Poland ──
+        "masovian": (52.2297, 21.0122), "lesser poland": (49.7833, 20.2333),
+        "silesian": (50.2649, 19.0238), "greater poland": (52.4064, 16.9252),
+        "lodz": (51.7592, 19.4560), "pomeranian": (54.3520, 18.6466),
+        "kuyavian-pomeranian": (53.1235, 18.0084), "lower silesian": (51.1079, 17.0385),
+        "west pomeranian": (53.4285, 14.5528), "podkarpackie": (49.8525, 22.0008),
+        "swietokrzyskie": (50.8661, 20.6286), "lublin": (51.2465, 22.5684),
+        "opole": (50.6751, 17.9213), "warmian-masurian": (53.8671, 20.7029),
+        "podlaskie": (53.1325, 23.1617),
+        # ── Portugal ──
+        "lisbon": (38.7223, -9.1393), "porto": (41.1579, -8.6291),
+        "algarve": (37.0179, -7.9308), "central portugal": (40.2033, -8.4103),
+        "northern portugal": (41.1496, -8.6110), "alentejo": (38.5667, -7.9000),
+        "coimbra": (40.2033, -8.4103), "madeira": (32.6669, -16.9241),
+        "azores": (37.7412, -25.6756),
+        # ── Belgium ──
+        "brussels": (50.8503, 4.3517), "flanders": (51.0110, 3.7225),
+        "wallonia": (50.4175, 4.4511), "antwerp": (51.2194, 4.4025),
+        "liege": (50.6326, 5.5797), "namur": (50.4669, 4.8675),
+        "east flanders": (51.0333, 3.7333), "west flanders": (51.0333, 3.1333),
+        "french brabant": (50.6667, 4.0667), "walloon brabant": (50.6333, 4.5333),
+        "limburg belgium": (50.9739, 5.3417), "luxembourg belgium": (49.8153, 5.7347),
+        "hainaut": (50.5257, 3.5695),
+        # ── Sweden ──
+        "stockholm": (59.3293, 18.0686), "skane": (55.9903, 13.5958),
+        "vastra gotaland": (58.2528, 13.0578), "uppsala": (59.8586, 17.6389),
+        "orebro": (59.2753, 15.2134), "jonkoping": (57.7826, 14.1618),
+        "kronoberg": (56.8790, 14.8059), "kalmar": (56.6616, 16.2875),
+        "gotland": (57.5000, 18.5500), "blekinge": (56.2781, 15.0180),
+        "halland": (56.8967, 12.8069), "varmland": (59.7594, 13.2574),
+        "dalarna": (61.0917, 14.6664), "gavleborg": (60.6749, 16.8078),
+        "vasternorrland": (63.4276, 17.7292), "jamtland": (63.1792, 14.6357),
+        "norrbotten": (66.8309, 20.3992), "vasterbotten": (64.7500, 17.5000),
+        # ── Norway ──
+        "oslo": (59.9139, 10.7522), "viken": (60.0000, 10.0000),
+        "vestland": (60.5000, 6.5000), "rogaland": (59.1488, 6.0143),
+        "more og romsdal": (62.6833, 7.1500), "trondelag": (63.5000, 10.5000),
+        "nordland": (67.2833, 14.4000), "troms": (69.6496, 18.9560),
+        "innlandet": (61.2000, 10.0000), "agder": (58.1667, 8.0000),
+        "vestfold og telemark": (59.2600, 9.6300),
+        # ── Denmark ──
+        "capital region": (55.6761, 12.5683), "central jutland": (56.1572, 9.5032),
+        "north jutland": (57.0488, 9.9217), "zealand": (55.4633, 11.7215),
+        "south denmark": (55.3308, 9.1077), "bornholm": (55.1271, 14.9128),
+        # ── Finland ──
+        "uusimaa": (60.2500, 25.0000), "pirkanmaa": (61.5000, 23.7500),
+        "southwest finland": (60.4500, 22.2500), "satakunta": (61.5000, 22.0000),
+        "kanta-hame": (61.0000, 24.5000), "paijat-hame": (61.0000, 25.5000),
+        "kymenlaakso": (60.7500, 27.0000), "south karelia": (61.0000, 28.0000),
+        "south savo": (62.0000, 27.5000), "north savo": (62.7500, 27.5000),
+        "north karelia": (63.0000, 29.7500), "central finland": (62.5000, 25.5000),
+        "central ostrobothnia": (63.5000, 24.0000), "north ostrobothnia": (65.0000, 25.5000),
+        "kainuu": (64.2500, 27.5000), "lapland": (67.5000, 26.0000),
+        "aland": (60.1167, 19.9000),
+        # ── Czech Republic ──
+        "prague": (50.0755, 14.4378), "central bohemian": (49.8175, 14.7678),
+        "moravian-silesian": (49.8209, 18.2625), "south bohemian": (48.9758, 14.4811),
+        "plzen": (49.7384, 13.3736), "olomouc": (49.5938, 17.2508),
+        "pardubice": (50.0407, 15.7766), "hradec kralove": (50.2092, 15.8328),
+        "liberec": (50.7671, 15.0566), "vysocina": (49.4490, 15.6406),
+        "zlin": (49.2248, 17.6627), "south moravian": (48.9544, 16.7672),
+        "usti nad labem": (50.6119, 14.0403),
+        # ── Hungary ──
+        "budapest": (47.4979, 19.0402), "pest": (47.4480, 19.4622),
+        "baranya": (46.0484, 18.2320), "bacs-kiskun": (46.5589, 19.5950),
+        "borsod-abauj-zemplen": (48.2063, 20.8560), "bekes": (46.6715, 21.0857),
+        "csongrad": (46.2530, 20.1414), "fejer": (47.1867, 18.4622),
+        "gyor-moson-sopron": (47.6292, 17.0927), "hajdu-bihar": (47.5250, 21.6247),
+        "heves": (47.9025, 20.3772), "jasz-nagykun-szolnok": (47.1746, 20.4174),
+        "komarom-esztergom": (47.7329, 18.7695), "nograd": (48.0053, 19.5257),
+        "somogy": (46.4142, 17.5754), "szabolcs-szatmar-bereg": (48.1004, 22.0833),
+        "tolna": (46.4273, 18.5537), "vas": (47.0930, 16.6816),
+        "veszprem": (47.1028, 17.9093), "zala": (46.7333, 16.7833),
+        # ── Romania ──
+        "bucharest": (44.4268, 26.1025), "cluj": (46.7712, 23.6236),
+        "timis": (45.7489, 21.2087), "iasi": (47.1585, 27.6014),
+        "constanta": (44.1598, 28.6348), "brasov": (45.6556, 25.6099),
+        "sibiu": (45.7983, 24.1256), "galati": (45.4353, 28.0072),
+        "maramures": (47.6583, 24.0000), "banat": (45.5000, 21.0000),
+        "transylvania": (46.5000, 24.5000), "arges": (44.8500, 24.8667),
+        "dolj": (44.3333, 23.8333), "prahova": (45.0889, 26.0847),
+        "braila": (45.2692, 27.9575), "suceava": (47.6514, 26.2556),
+        "bihor": (47.0622, 22.0000), "arad": (46.1667, 21.3167),
+        # ── Bulgaria ──
+        "sofia": (42.6977, 23.3219), "plovdiv": (42.1354, 24.7453),
+        "varna": (43.2141, 27.9147), "burgas": (42.5048, 27.4626),
+        "northeast bulgaria": (43.5000, 26.5000), "southwest bulgaria": (42.0000, 24.0000),
+        "central bulgaria": (42.7000, 25.3000), "montana": (43.4085, 23.2257),
+        "vratsa": (43.2100, 23.5523), "pleven": (43.4170, 24.6065),
+        "ruse": (43.8567, 25.9706), "dobrich": (43.5667, 27.8333),
+        "shumen": (43.2714, 26.9228), "veliko tarnovo": (43.0757, 25.6172),
+        "blagoevgrad": (42.0167, 23.1000), "stara zagora": (42.4258, 25.6345),
+        "lovech": (43.1368, 24.7142),
+        # ── Croatia ──
+        "zagreb": (45.8150, 15.9819), "split-dalmatia": (43.5081, 16.4402),
+        "istria": (45.1667, 13.9333), "primorje-gorski kotar": (45.3272, 14.4422),
+        "sisak-moslavina": (45.4833, 16.3667), "dubrovnik-neretva": (42.6507, 17.8944),
+        "zadar": (44.1194, 15.2314), "osijek-baranja": (45.5511, 18.6939),
+        "varazdin": (46.3057, 16.3366), "bjelovar-bilogora": (45.8986, 16.8425),
+        "pozega-slavonia": (45.3403, 17.6694), "vukovar-srijem": (45.3381, 18.8047),
+        "karlovac": (45.4929, 15.5553), "krapina-zagorje": (46.1619, 15.8742),
+        "međimurje": (46.3781, 16.4264),
+        # ── Greece ──
+        "attica": (37.9838, 23.7275), "central macedonia": (40.6401, 22.9444),
+        "thessaly": (39.6362, 22.4175), "crete": (35.2401, 24.4709),
+        "peloponnese": (37.5079, 22.3733), "epirus": (39.6650, 20.8537),
+        "western greece": (38.5000, 21.7500), "eastern macedonia and thrace": (41.1333, 24.8833),
+        "south aegean": (37.0853, 25.1489), "north aegean": (39.3540, 25.9545),
+        "ionian islands": (38.8333, 20.7667), "western macedonia": (40.3000, 21.7833),
+        "central greece": (38.6000, 22.5000), "thessaloniki": (40.6401, 22.9444),
+        "larissa": (39.6362, 22.4175), "patras": (38.2466, 21.7346),
+        "ioannina": (39.6650, 20.8537), "heraklion": (35.3387, 25.1442),
+        "volos": (39.3610, 22.9440), "kalamata": (37.0389, 22.1142),
+        "corfu": (39.6243, 19.9217), "rhodes": (36.4345, 28.2176),
+        # ── Ireland ──
+        "dublin": (53.3498, -6.2603), "cork": (51.8985, -8.4756),
+        "galway": (53.2707, -8.8572), "limerick": (52.6612, -8.6302),
+        "waterford": (52.2593, -7.1101), "donegal": (54.6538, -8.1096),
+        "kerry": (51.9978, -9.7437), "tipperary": (52.6738, -7.8984),
+        "clare": (52.8417, -8.9863), "mayo": (53.7633, -9.5011),
+        "sligo": (54.2766, -8.4761), "leitrim": (54.1155, -8.0775),
+        "roscommon": (53.7593, -8.2692), "longford": (53.7276, -7.7933),
+        "westmeath": (53.5354, -7.4653), "meath": (53.6055, -6.6564),
+        "kildare": (53.2125, -6.8195), "wicklow": (52.9808, -6.3642),
+        "louth": (53.9508, -6.5400), "monaghan": (54.2492, -6.9683),
+        "cavan": (53.9918, -7.3603), "offaly": (53.2360, -7.7127),
+        "laois": (53.0476, -7.5582), "kilkenny": (52.6541, -7.2448),
+        "wexford": (52.3369, -6.4633),
+        # ── Slovakia ──
+        "bratislava": (48.1486, 17.1077), "kosice": (48.7164, 21.2611),
+        "presov": (49.0000, 21.2333), "nitra": (48.3069, 18.0864),
+        "zilina": (49.2233, 18.7394), "banska bystrica": (48.7358, 19.1461),
+        "trencin": (48.8945, 18.0440), "trnava": (48.3774, 17.5885),
+        # ── Slovenia ──
+        "ljubljana": (46.0569, 14.5058), "maribor": (46.5547, 15.6459),
+        "celje": (46.2397, 15.2677), "kranj": (46.2390, 14.3556),
+        "velenje": (46.3592, 15.1101), "novo mesto": (45.8040, 15.1690),
+        "koper": (45.5481, 13.7302), "ptuj": (46.4200, 15.8700),
+        # ── Estonia ──
+        "harju": (59.4370, 24.7536), "tartu": (58.3780, 26.7290),
+        "ida-viru": (59.3539, 27.4000), "parnu": (58.3859, 24.4971),
+        "laane": (58.9367, 23.5333), "voru": (57.8339, 27.0064),
+        "viljandi": (58.3677, 25.5897), "saare": (58.3667, 22.5000),
+        "jogeva": (58.7500, 26.3500), "rapla": (58.9975, 24.7531),
+        # ── Latvia ──
+        "riga": (56.9496, 24.1059), "daugavpils": (55.8697, 26.5361),
+        "liepaja": (56.5050, 21.0107), "jelgava": (56.6511, 23.7211),
+        "jurmala": (56.9681, 23.7706), "ventspils": (57.3939, 21.5606),
+        "rezekne": (56.5067, 27.3333), "valmiera": (57.5387, 25.4264),
+        # ── Lithuania ──
+        "vilnius": (54.6872, 25.2797), "kaunas": (54.8985, 23.9036),
+        "klaipeda": (55.7033, 21.1443), "siauliai": (55.9349, 23.3137),
+        "panevezys": (55.7348, 24.3575), "alytus": (54.3963, 24.0458),
+        "marijampole": (54.5597, 23.3500),
+        # ── Ukraine (oblasts) ──
+        "kyiv oblast": (50.4501, 30.5234), "lviv": (49.8397, 24.0297),
+        "odesa": (46.4825, 30.7233), "kharkiv": (49.9935, 36.2304),
+        "donetsk": (48.0159, 37.8028), "dnipro": (48.4647, 35.0462),
+        "zaporizhzhia": (47.8388, 35.1396), "mykolaiv": (46.9750, 31.9946),
+        "kherson": (46.6354, 32.6169), "poltava": (49.5883, 34.5514),
+        "chernihiv": (51.4982, 31.2893), "zhytomyr": (50.2547, 28.6587),
+        "vinnytsia": (49.2328, 28.4810), "khmelnytskyi": (49.4230, 26.9871),
+        "chernivtsi": (48.2908, 25.9353), "ivano-frankivsk": (48.9226, 24.7111),
+        "ternopil": (49.5535, 25.5948), "rivne": (50.6199, 26.2516),
+        "lutsk": (50.7472, 25.3254), "sumy": (50.9077, 34.7981),
+        "cherkasy": (49.4444, 32.0598), "kropyvnytskyi": (48.5079, 32.2623),
+        "uzhhorod": (48.6208, 22.2879),
     }
     result: dict[str, tuple[float, float, str]] = {}
     for name, (lat, lon) in _REGIONS.items():
@@ -379,6 +728,92 @@ _CITY_COORDS: dict[str, tuple[float, float]] = {
     "kuwait city": (29.3759, 47.9774), "muscat": (23.5880, 58.3829),
     "sanaa": (15.3694, 44.1910), "manama": (26.2172, 50.5934),
     "nicosia": (35.1856, 33.3823),
+    # ── Additional European cities ──
+    "lyon": (45.7640, 4.8357), "marseille": (43.2965, 5.3698),
+    "nice": (43.7102, 7.2620), "toulouse": (43.6047, 1.4442),
+    "nantes": (47.2184, -1.5536), "strasbourg": (48.5734, 7.7521),
+    "bordeaux": (44.8378, -0.5792), "lille": (50.6292, 3.0573),
+    "montpellier": (43.6108, 3.8767), "rennes": (48.1173, -1.6778),
+    "seville": (37.3891, -5.9845), "valencia spain": (39.4699, -0.3763),
+    "bilbao": (43.2630, -2.9350), "zaragoza": (41.6488, -0.8891),
+    "malaga": (36.7213, -4.4214), "murcia city": (37.9922, -1.1307),
+    "palma": (39.5696, 2.6502), "cordoba spain": (37.8882, -4.7794),
+    "valladolid": (41.6523, -4.7245), "vigo": (42.2406, -8.7207),
+    "gijon": (43.5322, -5.6611), "palermo": (38.1157, 13.3615),
+    "naples": (40.8518, 14.2681), "turin": (45.0703, 7.6869),
+    "bologna": (44.4949, 11.3426), "genoa": (44.4056, 8.9463),
+    "florence": (43.7696, 11.2558), "catania": (37.5079, 15.0830),
+    "bari": (41.1171, 16.8719), "venice": (45.4408, 12.3155),
+    "verona": (45.4384, 10.9916), "messina": (38.1938, 15.5540),
+    "padua": (45.4064, 11.8768), "trieste": (45.6495, 13.7768),
+    "brescia": (45.5416, 10.2118), "parma": (44.8015, 10.3279),
+    "modena": (44.6471, 10.9252), "perugia": (43.1107, 12.3908),
+    "livorno": (43.5485, 10.3106), "ravenna": (44.4184, 12.2035),
+    "cagliari": (39.2238, 9.1217), "foggia": (41.4622, 15.5446),
+    "rimini": (44.0678, 12.5695), "salerno": (40.6824, 14.7681),
+    "ferrara": (44.8381, 11.6198), "sassari": (40.7259, 8.5559),
+    "latina": (41.4676, 12.9037), "monza": (45.5845, 9.2744),
+    "siracusa": (37.0755, 15.2866), "bergamo": (45.6983, 9.6773),
+    "pescara": (42.4618, 14.2161), "trento": (46.0748, 11.1217),
+    "vicenza": (45.5455, 11.5354), "terni": (42.5636, 12.6427),
+    "bolzano": (46.4983, 11.3548), "piacenza": (45.0526, 9.6930),
+    "ancona": (43.6158, 13.5189), "udine": (46.0711, 13.2346),
+    "lecce": (40.3516, 18.1750), "arezzo": (43.4633, 11.8798),
+    "cesena": (44.1396, 12.2464), "pesaro": (43.9098, 12.9131),
+    "como": (45.8081, 9.0852), "prato": (43.8777, 11.1024),
+    "san sebastian": (43.3183, -1.9812), "pamplona": (42.8125, -1.6458),
+    "innsbruck": (47.2692, 11.4041), "salzburg city": (47.8095, 13.0550),
+    "graz": (47.0707, 15.4395), "linz": (48.3069, 14.2858),
+    "klagenfurt": (46.6247, 14.3053), "villach": (46.6111, 13.8558),
+    "wels": (48.1600, 14.0267), "sankt polten": (48.2047, 15.6225),
+    "dornbirn": (47.4143, 9.7419), "wiener neustadt": (47.8167, 16.2500),
+    "steyr": (48.0422, 14.4214), "feldkirch": (47.2371, 9.5972),
+    "bregenz": (47.5031, 9.7471), "kufstein": (47.5833, 12.1667),
+    "leoben": (47.3769, 15.0911), "krems": (48.4111, 15.6056),
+    "tampere": (61.4978, 23.7610), "turku": (60.4518, 22.2666),
+    "espoo": (60.2055, 24.6520), "vantaa": (60.2934, 25.0378),
+    "oulu": (65.0121, 25.4651), "jyvaskyla": (62.2426, 25.7473),
+    "kuopio": (62.8924, 27.6783), "lahti": (60.9827, 25.6615),
+    "kouvola": (60.8681, 26.7042), "pori": (61.4851, 21.7974),
+    "joensuu": (62.6010, 29.7636), "lappeenranta": (61.0587, 28.1887),
+    "hameenlinna": (60.9960, 24.4667), "vaasa": (63.0960, 21.6158),
+    "rovaniemi": (66.5039, 25.7294), "kajaani": (64.2273, 27.7300),
+    "mikkeli": (61.6886, 27.2723), "kokkola": (63.8385, 23.1300),
+    "seinajoki": (62.7905, 22.8390), "aarhus": (56.1629, 10.2039),
+    "odense": (55.4038, 10.4024), "aalborg": (57.0488, 9.9217),
+    "esbjerg": (55.4669, 8.4516), "randers": (56.4606, 10.0367),
+    "kolding": (55.4904, 9.4720), "horsens": (55.8607, 9.8503),
+    "vejle": (55.7113, 9.5357), "roskilde": (55.6415, 12.0803),
+    "herning": (56.1392, 8.9738), "silkeborg": (56.1700, 9.5451),
+    "naestved": (55.2299, 11.7601), "fredericia": (55.5676, 9.7480),
+    "viborg": (56.4532, 9.4020),
+    # ── Additional Indian cities ──
+    "raipur": (21.2514, 81.6296), "bilaspur": (22.0797, 82.1391),
+    "kota": (25.2138, 75.8648), "jodhpur": (26.2389, 73.0243),
+    "udaipur": (24.5854, 73.7125), "ajmer": (26.4499, 74.6399),
+    "amritsar": (31.6340, 74.8723), "ludhiana": (30.9010, 75.8573),
+    "jalandhar": (31.3260, 75.5762), "patiala": (30.3398, 76.3869),
+    "bathinda": (30.2110, 74.9455), "jalandhar": (31.3260, 75.5762),
+    "srinagar": (34.0837, 74.7973), "jammu": (32.7266, 74.8570),
+    "anantnag": (33.7311, 75.1487), "baramulla": (34.1999, 74.3499),
+    "shimla": (31.1048, 77.1734), "dehradun": (30.3165, 78.0322),
+    "haridwar": (29.9457, 78.1642), "roorkee": (29.8542, 77.8884),
+    "rudrapur": (28.9875, 79.4036), "haldwani": (29.2197, 79.5128),
+    "nainital": (29.3803, 79.4636), "almora": (29.5971, 79.6591),
+    "mussoorie": (30.4598, 78.0648), "dharamshala": (32.2190, 76.3234),
+    "kullu": (31.9579, 77.1095), "manali": (32.2396, 77.1887),
+    "chandigarh": (30.7333, 76.7794), "mohali": (30.6597, 76.7150),
+    "panchkula": (30.6942, 76.8606), "ambala": (30.3782, 76.7765),
+    "karnal": (29.6857, 76.9905), "panipat": (29.3909, 76.9635),
+    "sonipat": (28.9931, 77.0151), "rohtak": (28.8955, 76.6066),
+    "hisar": (29.1531, 75.7115), "sirsa": (29.5349, 75.0282),
+    "kurukshetra": (29.9695, 76.8783), "yamunanagar": (30.1290, 77.2674),
+    "saharanpur": (29.9680, 77.5510), "muzaffarnagar": (29.4727, 77.7085),
+    "meerut": (28.9845, 77.7064), "ghaziabad": (28.6692, 77.4538),
+    "noida": (28.5355, 77.3910), "faridabad": (28.4089, 77.3178),
+    "gurgaon": (28.4595, 77.0266), "rewari": (28.1970, 76.6160),
+    "palwal": (28.1487, 77.3320), "hathin": (28.0500, 77.1833),
+    "baddi": (30.9297, 76.7917), "parwanoo": (30.8379, 76.9614),
 }
 
 
@@ -530,14 +965,32 @@ def get_unresolved_values(series: pd.Series, col_name: str = "") -> list[str]:
 
 
 def detect_geo_column(df: pd.DataFrame) -> Optional[str]:
-    """Heuristically find a likely geographic name column (string dtype, ≥ 10"""
+    """Heuristically find a likely geographic name column (string dtype, ≥ 2 unique values).
+
+    Checks against countries, US states, world regions (European states,
+    Indian provinces, etc.), and known cities so that verified columns are
+    properly detected and selected by default in the choropleth dropdown.
+    """
     country_map = _build_country_map()
-    for col in df.select_dtypes("object").columns:
+    state_map = _build_us_state_map()
+    region_map = _build_world_regions_map()
+    city_map = _CITY_COORDS
+    # Combine all geo lookup sets for detection
+    all_geo_names: set[str] = set()
+    all_geo_names.update(country_map.keys())
+    all_geo_names.update(state_map.keys())
+    all_geo_names.update(region_map.keys())
+    all_geo_names.update(city_map.keys())
+    for col in df.columns:
+        if not (pd.api.types.is_object_dtype(df[col])
+                or pd.api.types.is_string_dtype(df[col])
+                or isinstance(df[col].dtype, pd.CategoricalDtype)):
+            continue
         unique_vals = df[col].dropna().unique()
         if len(unique_vals) < 2:
             continue
         sample = unique_vals[:50]
-        hits = sum(1 for v in sample if _norm(str(v)) in country_map)
+        hits = sum(1 for v in sample if _norm(str(v)) in all_geo_names)
         if hits / max(len(sample), 1) >= 0.5:
             return col
     return None
@@ -569,6 +1022,98 @@ def _normalise_size(series: pd.Series, lo: float, hi: float) -> pd.Series:
     return lo + (series - mn) / (mx - mn) * (hi - lo)
 
 
+# Text pairs recognised as "binary text" colour columns (case-insensitive).
+_BINARY_TEXT_SETS = (
+    {"yes", "no"}, {"true", "false"}, {"y", "n"}, {"0", "1"},
+)
+
+
+def classify_colour_column(series: pd.Series) -> str:
+    """Classify a colour column into one of four encoding classes.
+
+    Returns
+    -------
+    "binary_numeric" : numeric column with <= 2 distinct values (e.g. 0/1)
+    "binary_text"    : boolean dtype, or strings forming a yes/no style pair
+    "categorical"    : non-numeric string column (discrete legend)
+    "continuous"     : numeric column with > 2 distinct values (coloraxis)
+    """
+    s = series.dropna()
+    if s.empty:
+        return "categorical"
+    if pd.api.types.is_bool_dtype(series):
+        return "binary_text"
+    if pd.api.types.is_numeric_dtype(series):
+        if s.nunique() <= 2:
+            return "binary_numeric"
+        return "continuous"
+    vals = {str(v).strip().lower() for v in pd.unique(s)}
+    if len(vals) <= 2 and any(vals == pair for pair in _BINARY_TEXT_SETS):
+        return "binary_text"
+    return "categorical"
+
+
+def _canonical_binary_label(v) -> str:
+    """Map yes/no / true/false style values onto canonical "Yes"/"No" labels."""
+    if pd.isna(v):
+        return "(unknown)"
+    t = str(v).strip().lower()
+    if t in ("yes", "y", "true", "t", "1"):
+        return "Yes"
+    if t in ("no", "n", "false", "f", "0"):
+        return "No"
+    return str(v)
+
+
+def _binary_colour_map(pal, invert=False, colour_class="binary_numeric"):
+    """Two flat colours for binary colour columns — no scale, no variation.
+
+    Category "1" (or "Yes") gets the TOP colour of the palette range and
+    "0" (or "No") gets the BOTTOM colour, honouring the Invert toggle.
+    """
+    colors = list(reversed(pal)) if invert else list(pal)
+    bottom, top = colors[0], colors[-1]
+    if colour_class == "binary_text":
+        return {"No": bottom, "Yes": top}
+    return {"0": bottom, "1": top}
+
+
+def _format_colour_labels(plot_df: pd.DataFrame, color: str, colour_class: str) -> str:
+    """Convert a colour column in-place to its renderable form.
+
+    Binary (numeric 0/1 or text) and categorical columns become clean string
+    categories so plotly always renders a DISCRETE legend with one entry per
+    value — this is what guarantees every point is drawn (points can no
+    longer fall "off" a continuous colour ramp).  Continuous columns are
+    left untouched for the coloraxis path.
+
+    Returns the effective colour class ("continuous" keeps numeric encoding).
+    """
+    if colour_class == "binary_text":
+        _bt = plot_df[color].astype(object)
+        # Treat literal nan-like strings ("NaN", "None", ...) as real NaN.
+        _bt = _bt.mask(
+            _bt.astype(str).str.strip().str.lower().isin({"nan", "none", "null", ""})
+        )
+        _bt = _bt.where(_bt.notna(), "(unknown)")
+        plot_df[color] = _bt.map(_canonical_binary_label).astype(str)
+    elif colour_class == "binary_numeric":
+        plot_df[color] = plot_df[color].map(
+            lambda v: "(unknown)" if pd.isna(v) else (
+                str(int(v)) if float(v).is_integer() else str(v))
+        ).astype(str)
+    elif colour_class == "categorical":
+        _s = plot_df[color].astype(object).where(plot_df[color].notna(), "(unknown)")
+        _s = _s.astype(str).str.strip()
+        # CSVs often carry literal nan-like strings ("NaN", "nan", "None",
+        # "") — treat them exactly like real NaN so they never leak into the
+        # legend / hover as a bogus "NaN" category.
+        _nanlike = {"", "nan", "NaN", "NAN", "Nan", "none", "None", "null", "NULL", "Null", "<NA>"}
+        _s = _s.where(~_s.isin(_nanlike), "(unknown)")
+        plot_df[color] = _s
+    return colour_class
+
+
 
 
 def _pal_to_continuous(colors, invert=False):
@@ -591,18 +1136,34 @@ def run_map_plot(
     agg_func=None,
     invert_colorscale=False,
     palette=None,
-    map_style: str = "carto-positron",
-    marker_opacity: float = 0.82,
+    map_style: str = "OpenStreetMap (Light)",
+    marker_opacity: float = 1.00,
     marker_size_min: int = 4,
     marker_size_max: int = 22,
+    show_borders: bool = False,
     choropleth_colorscale: str = "Blues",
     choropleth_projection: str = "natural earth",
     choropleth_scope: str = "world",
     choropleth_show_borders: bool = True,
+    size_by_value: bool = False,
+    hover_dims: Optional[list] = None,
+    hover_values: Optional[list] = None,
     **kwargs,
 ):
-    """Unified map runner."""
+    """Unified map runner.
+
+    ``hover_dims``: optional list of extra categorical columns to show in
+    hover tooltips (most frequent value per location).
+    ``hover_values``: optional list of ``(column, agg)`` tuples aggregated
+    per location and shown in hover tooltips.
+    """
     pal = palette or COLORS
+
+    hover_dims = [d for d in (hover_dims or []) if d and d in df.columns]
+    hover_values = [
+        (c, (a or "sum")) for c, a in (hover_values or [])
+        if c and c in df.columns and c not in (hover_dims or [])
+    ]
 
 
     if geo_col and geo_col in df.columns and not (lat_col and lon_col):
@@ -615,6 +1176,7 @@ def run_map_plot(
             show_borders=choropleth_show_borders,
             invert=invert_colorscale,
             pal=pal,
+            hover_dims=hover_dims, hover_values=hover_values,
         )
 
 
@@ -642,6 +1204,7 @@ def run_map_plot(
                 show_borders=choropleth_show_borders,
                 invert=invert_colorscale,
                 pal=pal,
+                hover_dims=hover_dims, hover_values=hover_values,
             )
         return []
 
@@ -655,6 +1218,9 @@ def run_map_plot(
         marker_opacity=marker_opacity,
         marker_size_min=marker_size_min,
         marker_size_max=marker_size_max,
+        show_borders=show_borders,
+        size_by_value=size_by_value,
+        hover_dims=hover_dims, hover_values=hover_values,
     )
 
 
@@ -665,10 +1231,20 @@ def _run_scatter_map(
     location_col, value_col, size_col, color_col,
     agg_func, invert_colorscale, pal,
     map_style, marker_opacity, marker_size_min, marker_size_max,
+    show_borders=True,
+    size_by_value=False,
+    hover_dims=None, hover_values=None,
 ):
+    _hover_triples = _hover_agg_extras(
+        df, location_col, hover_dims, hover_values, skip_cols=(value_col,)
+    )
+    _hover_srcs = list(dict.fromkeys(t[0] for t in _hover_triples))
     needed = list({lat, lon})
     for c in (size_col, color_col, location_col, value_col):
         if c and c in df.columns:
+            needed.append(c)
+    for c in _hover_srcs:
+        if c in df.columns:
             needed.append(c)
     clean_df = df[list(set(needed))].dropna(subset=[lat, lon]).copy()
     clean_df = clean_df[~((clean_df[lat] == 0) & (clean_df[lon] == 0))]
@@ -679,18 +1255,43 @@ def _run_scatter_map(
     agg_label = ""
     sampled   = False
     density   = False
+    _density_color = False
     loc_col   = location_col if location_col and location_col in clean_df.columns else None
     val_col   = value_col    if value_col    and value_col    in clean_df.columns else None
 
 
     if loc_col and val_col:
         agg = agg_func or "mean"
+        # Classify the colour column on the RAW data BEFORE grouping.  The
+        # value column's aggregation (e.g. mean of 0/1 = 0.37) must never
+        # re-encode a binary colour column as a continuous scale — the value
+        # column only affects the tooltip / (optional) marker size, never the
+        # colour encoding.
+        _raw_colour_class = (
+            classify_colour_column(clean_df[color_col])
+            if color_col and color_col in clean_df.columns else None
+        )
         agg_dict: dict = {lat: "first", lon: "first", val_col: agg}
         if color_col and color_col in clean_df.columns:
-            agg_dict[color_col] = "first"
+            if _raw_colour_class in ("binary_numeric", "binary_text"):
+                # Binary colour: a group containing ANY 1s must render as "1"
+                # (max).  A "mean" collapse would produce 0.0-1.0 floats that
+                # re-classify as continuous and hide the fraud category.
+                agg_dict[color_col] = (
+                    "max" if pd.api.types.is_numeric_dtype(clean_df[color_col])
+                    else "first"
+                )
+            elif pd.api.types.is_numeric_dtype(clean_df[color_col]):
+                agg_dict[color_col] = agg
+            else:
+                agg_dict[color_col] = "first"
         if size_col and size_col in clean_df.columns and size_col != val_col:
             agg_dict[size_col] = agg
+        _hamap, _hren = _add_hover_temp_cols(clean_df, _hover_triples)
+        agg_dict.update(_hamap)
         plot_df   = clean_df.groupby(loc_col, as_index=False).agg(agg_dict)
+        # Aggregated hover extras get their tooltip display names.
+        plot_df.rename(columns=_hren, inplace=True)
         agg_label = f" · {agg.upper()}({val_col})"
         if val_col in plot_df.columns:
             new_val_name = f"{agg}({val_col})"
@@ -700,18 +1301,56 @@ def _run_scatter_map(
             new_size_name = f"{agg}({size_col})"
             plot_df.rename(columns={size_col: new_size_name}, inplace=True)
             size_col = new_size_name
-        elif not size_col and val_col in plot_df.columns:
+        # Value column drives marker size ONLY when the user ticks
+        # "Size by value" — otherwise it appears in the tooltip only.
+        if size_by_value and not size_col and val_col in plot_df.columns:
             size_col = val_col
     else:
         if len(clean_df) > _MAP_SAMPLE:
             # Aggregate ALL points into spatial cells (full data, no random
             # sampling) so the density pattern is accurate and render cost is
-            # bounded. Colour/size by cell count.
-            plot_df = _density_aggregate(clean_df, lat, lon)
+            # bounded. Colour/size by cell count. The location / colour
+            # columns are carried per cell (modal value) so hover tooltips
+            # still show meaningful labels.
+            _hover_extra = [
+                c for c in (loc_col, color_col) if c and c in clean_df.columns
+            ]
+            # Classify the colour column so categorical colour columns survive
+            # density aggregation (kept as discrete categories with a legend)
+            # instead of being replaced by a "Points count" colour scale.
+            _density_colour_class = (
+                classify_colour_column(clean_df[color_col])
+                if color_col and color_col in clean_df.columns else None
+            )
+            _density_binary_colour = (
+                _density_colour_class in ("binary_numeric", "binary_text")
+            )
+            _density_categorical_colour = (
+                _density_colour_class == "categorical"
+            )
+            plot_df = _density_aggregate(
+                clean_df, lat, lon,
+                extra_cols=_hover_extra,
+                agg_overrides=(
+                    # Binary colour: a cell containing ANY 1s must render as
+                    # "1" — modal would hide minority fraud cells entirely.
+                    {color_col: "max"}
+                    if (_density_binary_colour
+                        and (pd.api.types.is_numeric_dtype(clean_df[color_col])
+                             or pd.api.types.is_bool_dtype(clean_df[color_col])))
+                    else None
+                ),
+            )
             sampled = True
             density = True
-            if color_col and color_col in clean_df.columns:
-                color_col = None  # density map colours by count instead
+            plot_df.rename(columns={"_count": "Points"}, inplace=True)
+            if _density_binary_colour or _density_categorical_colour:
+                # Binary / categorical colour: the column drives the legend,
+                # not the point-count scale.  "Points" is only a hover helper.
+                _density_color = False
+            else:
+                _density_color = True    # colour comes from the cell point count
+                color_col = "Points"
             if size_col and size_col in clean_df.columns:
                 size_col = None
         else:
@@ -722,54 +1361,101 @@ def _run_scatter_map(
         return []
 
 
+    # Hover extras that survived into the plotted frame: prefer the aggregated
+    # display name (grouped paths), fall back to the raw source column
+    # (ungrouped points).  Density cells cannot carry raw dim values, so the
+    # extras are naturally absent there.
+    _hover_extra_cols = []
+    for src, _fn, disp in _hover_triples:
+        for cand in (disp, src):
+            if cand in plot_df.columns and cand not in _hover_extra_cols:
+                _hover_extra_cols.append(cand)
+                break
+
+
     size  = size_col  if size_col  and size_col  in plot_df.columns else None
     color = color_col if color_col and color_col in plot_df.columns else None
     hover = loc_col   if loc_col   and loc_col   in plot_df.columns else None
 
+    # "Size by value": the numeric value column drives marker size.
+    if size_by_value and val_col and val_col in plot_df.columns:
+        size = val_col
 
-    if color and plot_df[color].nunique() > 25:
+    # Classify the colour column BEFORE any encoding decision.
+    colour_class = classify_colour_column(plot_df[color]) if color else None
+
+    # Binary colour columns are never dropped.  Very wide categoricals are
+    # collapsed (25+ legend entries are unreadable).  Continuous columns
+    # keep the colouraxis encoding regardless of unique count — they render
+    # a colour scale, not a legend.
+    if color and colour_class == "categorical" \
+            and plot_df[color].nunique() > 25 and not _density_color:
         color = None
 
+    if color:
+        colour_class = _format_colour_labels(plot_df, color, colour_class)
 
+    # Value-driven marker sizes are written to a DERIVED column so the raw
+    # value column stays intact for the hover tooltip.
     if size:
         try:
             raw = pd.to_numeric(plot_df[size], errors="coerce")
             if raw.dropna().nunique() > 1:
                 plot_df = plot_df.copy()
-                plot_df[size] = _normalise_size(
+                plot_df["_lytrize_size"] = _normalise_size(
                     raw.fillna(raw.median()),
                     float(marker_size_min),
                     float(marker_size_max),
                 )
+                size = "_lytrize_size"
             else:
                 size = None
         except Exception:
             size = None
 
-
-    lat_q = plot_df[lat].quantile([0.02, 0.98])
-    lon_q = plot_df[lon].quantile([0.02, 0.98])
-    _zoom_df = plot_df[
-        plot_df[lat].between(float(lat_q.iloc[0]), float(lat_q.iloc[1])) &
-        plot_df[lon].between(float(lon_q.iloc[0]), float(lon_q.iloc[1]))
-    ]
-    if len(_zoom_df) > 0:
-        centre_lat = float(_zoom_df[lat].mean())
-        centre_lon = float(_zoom_df[lon].mean())
-        _, _, zoom = _auto_zoom(_zoom_df[lat], _zoom_df[lon])
-    else:
-        centre_lat, centre_lon, zoom = _auto_zoom(plot_df[lat], plot_df[lon])
+    # Explicit numeric custom-data column so the Chart Settings "Size by
+    # value" toggle can (re)build per-point marker sizes from the raw value
+    # without re-running the analysis. Hidden from hover tooltips above.
+    if val_col and val_col in plot_df.columns:
+        plot_df = plot_df.copy()
+        plot_df["_lytrize_val"] = pd.to_numeric(plot_df[val_col], errors="coerce")
 
 
     hover_data: dict = {}
     for col in (val_col, size_col, color_col):
         if col and col in plot_df.columns and col != hover:
+            # Value, size and colour columns are ALWAYS shown in the hover
+            # tooltip (requirement: value column appears in the tooltip
+            # alongside location and colour-column values).
             hover_data[col] = True
     for col in plot_df.columns:
         if col not in (hover, val_col, size_col, color_col, lat, lon):
             hover_data[col] = False
     hover_data[lat] = False
     hover_data[lon] = False
+    # The normalised marker-size helper column must never appear in tooltips.
+    if "_lytrize_size" in plot_df.columns:
+        hover_data["_lytrize_size"] = False
+    if "_lytrize_val" in plot_df.columns:
+        hover_data["_lytrize_val"] = False
+    # Extra hover dimensions / values requested at generate time.
+    for col in _hover_extra_cols:
+        hover_data[col] = True
+    # Density cells: only show the point count when the density path itself
+    # colours by point count (i.e. NO colour column selected).  When a real
+    # colour column drives the colours, "Points" is an internal helper and
+    # must NOT appear in the hover tooltip.
+    if density and _density_color and "Points" in plot_df.columns:
+        hover_data["Points"] = True
+    if density:
+        # Density maps: show the carried location / colour columns in the
+        # hover (otherwise the tooltip is empty). NOTE: must run AFTER the
+        # hide-all loop above, which would otherwise reset these entries
+        # back to False. The cell point count ("Points") is already included
+        # as the colour column.
+        for col in _hover_extra:
+            if col and col in plot_df.columns and col != hover:
+                hover_data[col] = True
 
 
     n_pts     = len(plot_df)
@@ -783,55 +1469,264 @@ def _run_scatter_map(
     title     = f"Map: {loc_label}{agg_label}{sample_str}"
 
 
+    # Discrete (legend) vs continuous (coloraxis) colour encoding — decided
+    # by the classifier, not raw dtype, so binary 0/1 columns render as two
+    # clearly-labelled legend categories instead of a colour ramp.
     color_is_numeric = (
-        color is not None and color in plot_df.columns
-        and pd.api.types.is_numeric_dtype(plot_df[color])
+        color is not None
+        and color in plot_df.columns
+        and colour_class == "continuous"
     )
 
 
-    map_kwargs = dict(
+    # --- Tile basemap path (real raster tiles) -----------------------------
+    # scatter_geo is a vector-outline projection with NO tile basemap, so the
+    # Style dropdown can never look like a real map on it.  When the tile
+    # servers are reachable we render px.scatter_mapbox with "white-bg" plus a
+    # custom RASTER tile layer (see _MAP_TILE_TEMPLATES) -- the only mechanism
+    # that works on the bundled plotly.js 2.28.x without keys or watermarks.
+    # NOTE: we deliberately use scatter_mapbox (NOT scatter_map): the plotly.js
+    # bundled by the installed Streamlit (2.28.x) predates the maplibre "map"
+    # subplot (plotly.js >= 2.35) and silently drops scattermap traces,
+    # leaving a blank canvas with a stray colorbar. scatter_mapbox works on
+    # every plotly.js the app can serve.  Offline we fall through to the
+    # themed scatter_geo renderer below.
+    style = _normalize_map_style(map_style)
+    if _tiles_online():
+        try:
+            lat_med = float(plot_df[lat].median())
+            lon_med = float(plot_df[lon].median())
+            lat_span = float(plot_df[lat].max() - plot_df[lat].min())
+            lon_span = float(plot_df[lon].max() - plot_df[lon].min())
+            # Rough cos correction so high-latitude lon spans don't over-zoom.
+            _cos = max(abs(np.cos(np.radians(lat_med))), 0.1)
+            span = max(lat_span, lon_span / _cos, 0.02)
+            zoom = float(min(max(round(np.log2(360.0 / span), 1), 1), 16))
+            _tile_urls = _MAP_TILE_TEMPLATES.get(style) or \
+                _MAP_TILE_TEMPLATES[_MAP_DEFAULT]
+            raster_layer = {
+                "sourcetype": "raster",
+                "source": list(_tile_urls),
+                "below": "traces",
+            }
+            # Tile basemap + (optional) country-border overlay honouring the
+            # "Borders" checkbox.  On the tile path the base raster already
+            # carries borders, so we overlay a translucent boundaries layer so
+            # the toggle actually draws/removes them instead of being a no-op.
+            _layers = [raster_layer]
+            if show_borders and _MAP_BORDERS_OVERLAY:
+                _layers.append({
+                    "sourcetype": "raster",
+                    "source": list(_MAP_BORDERS_OVERLAY),
+                    "below": "traces",
+                })
+            map_kwargs = dict(mapbox_style="white-bg")
+            map_kwargs.update(
+                lat=lat, lon=lon,
+                size_max=int(marker_size_max),
+                hover_name=hover,
+                hover_data=hover_data,
+                custom_data=(["_lytrize_val"]
+                             if "_lytrize_val" in plot_df.columns else None),
+                title=title,
+                zoom=zoom,
+                center=dict(lat=lat_med, lon=lon_med),
+            )
+            if color and color in plot_df.columns:
+                map_kwargs["color"] = color
+                if color_is_numeric:
+                    map_kwargs["color_continuous_scale"] = _pal_to_continuous(
+                        pal, invert=invert_colorscale)
+                elif colour_class in ("binary_numeric", "binary_text"):
+                    # Binary: exactly two flat palette endpoint colours —
+                    # no colour scale, no variation.
+                    map_kwargs["color_discrete_map"] = _binary_colour_map(
+                        pal, invert=invert_colorscale, colour_class=colour_class)
+                else:
+                    map_kwargs["color_discrete_sequence"] = (
+                        list(reversed(pal)) if invert_colorscale else pal)
+            if size and size in plot_df.columns:
+                map_kwargs["size"] = size
+            fig = px.scatter_mapbox(plot_df, **map_kwargs)
+            # The raster basemap layer (OSM light/dark or satellite tiles) plus
+            # optional borders overlay.
+            fig.update_layout(mapbox_layers=_layers)
+            fig.update_traces(marker=dict(opacity=float(marker_opacity)))
+            if color and not color_is_numeric:
+                # Binary / categorical maps are pure discrete legends — no
+                # colorbar may ever render (guards against stale display
+                # options forcing a colour scale onto category colours).
+                try:
+                    if getattr(fig.layout.coloraxis, "showscale", None):
+                        fig.update_coloraxes(showscale=False)
+                except Exception as exc:
+                    log.debug("map coloraxis suppression error: %s", exc)
+                for _tr in fig.data:
+                    _m = getattr(_tr, "marker", None)
+                    if _m is not None and hasattr(_m, "showscale"):
+                        try:
+                            _m.showscale = False
+                        except Exception:
+                            pass
+            if color_is_numeric:
+                # Continuous color renders through the layout coloraxis; style
+                # the rendered colorbar there (theme-neutral: tiles carry the
+                # light/dark look, so keep the bar readable on both).
+                fig.update_coloraxes(
+                    colorbar=dict(
+                        title=dict(text=str(color)),
+                        thickness=14, len=0.80,
+                        bgcolor="rgba(0,0,0,0)",
+                        bordercolor="rgba(0,0,0,0)",
+                        borderwidth=0, x=1.01,
+                    )
+                )
+            layout = chart_layout(height=520)
+            for key in ("plot_bgcolor", "bargap", "bargroupgap", "xaxis", "yaxis"):
+                layout.pop(key, None)
+            layout["margin"] = dict(l=0, r=0, t=52, b=0)
+            fig.update_layout(
+                **layout,
+                dragmode="pan",
+                legend=dict(
+                    title=dict(text=str(color) if color else ""),
+                    orientation="v",
+                    bgcolor="rgba(0,0,0,0)",
+                ),
+            )
+            if density:
+                fig.add_annotation(
+                    text=f"⚠ Density map — {n_pts:,} cells from {len(clean_df):,} points",
+                    xref="paper", yref="paper", x=0.5, y=0.0,
+                    showarrow=False, xanchor="center", yanchor="bottom",
+                    font=dict(size=10, color="#f59e0b"),
+                )
+            elif sampled:
+                fig.add_annotation(
+                    text=f"⚠ {n_pts:,}-point sample — zoom in for detail",
+                    xref="paper", yref="paper", x=0.5, y=0.0,
+                    showarrow=False, xanchor="center", yanchor="bottom",
+                    font=dict(size=10, color="#f59e0b"),
+                )
+            fig._lytrize_meta = {
+                "analysis_type": "map_plot",
+                "x_axis": None, "y_axis": None,
+                "legend": color,
+                "supports_notes": True,
+                "supports_axis_editing": False,
+                "supports_legend_editing": True,
+                # Tells chart_settings which colour encoding this figure uses
+                # so the Colorbar/Colorscale controls can never force a colour
+                # scale onto a discrete (binary/categorical) legend.
+                "colour_encoding": "continuous" if color_is_numeric else "discrete",
+                # Value-driven sizes use an array of per-point sizes; the
+                # manual "M. size" slider must not override them.
+                "value_sized": bool(size_by_value and val_col and size == "_lytrize_size"),
+            }
+            return [(f"Map: {loc_label}", fig)]
+        except Exception:
+            log.exception("scatter_map (tile) render failed; falling back to scatter_geo")
+
+    # --- Offline fallback: bundled-geo scatter_geo (no tiles) --------------
+    # Plotly ships the world/region geojson inside the package, so it needs no
+    # network.  map_style is translated into an equivalent light/dark geo
+    # theme because scatter_geo cannot draw tiles.
+    geo_kwargs = dict(
         lat=lat, lon=lon,
         size_max=int(marker_size_max),
         hover_name=hover,
         hover_data=hover_data,
+        custom_data=(["_lytrize_val"]
+                     if "_lytrize_val" in plot_df.columns else None),
         title=title,
-        opacity=float(marker_opacity),
-        zoom=zoom,
-        center={"lat": centre_lat, "lon": centre_lon},
+        projection="natural earth",
+        fitbounds="locations",
     )
     if color and color in plot_df.columns:
-        map_kwargs["color"] = color
+        geo_kwargs["color"] = color
         if color_is_numeric:
-            map_kwargs["color_continuous_scale"] = _pal_to_continuous(pal, invert=invert_colorscale)
+            geo_kwargs["color_continuous_scale"] = _pal_to_continuous(pal, invert=invert_colorscale)
+        elif colour_class in ("binary_numeric", "binary_text"):
+            geo_kwargs["color_discrete_map"] = _binary_colour_map(
+                pal, invert=invert_colorscale, colour_class=colour_class)
         else:
-            map_kwargs["color_discrete_sequence"] = list(reversed(pal)) if invert_colorscale else pal
+            geo_kwargs["color_discrete_sequence"] = list(reversed(pal)) if invert_colorscale else pal
     if size and size in plot_df.columns:
-        map_kwargs["size"] = size
-
+        geo_kwargs["size"] = size
 
     try:
-        try:
-            fig = px.scatter_map(plot_df, **map_kwargs, map_style=map_style)
-            fig.update_layout(map=dict(style=map_style))
-        except AttributeError:
-            fig = px.scatter_mapbox(plot_df, **map_kwargs, mapbox_style=map_style)
+        fig = px.scatter_geo(plot_df, **geo_kwargs)
     except Exception:
-        log.exception("scatter map error")
+        log.exception("scatter_geo error")
         return []
+
+    # scatter_geo has no opacity kwarg; apply marker opacity directly.
+    fig.update_traces(marker=dict(opacity=float(marker_opacity)))
+    if color and not color_is_numeric:
+        # Same discrete-colour colorbar suppression as the tile path.
+        try:
+            if getattr(fig.layout.coloraxis, "showscale", None):
+                fig.update_coloraxes(showscale=False)
+        except Exception as exc:
+            log.debug("map coloraxis suppression error: %s", exc)
+        for _tr in fig.data:
+            _m = getattr(_tr, "marker", None)
+            if _m is not None and hasattr(_m, "showscale"):
+                try:
+                    _m.showscale = False
+                except Exception:
+                    pass
+    # ``map_style`` selects the base map theme. scatter_geo ships no mapbox
+    # tiles, so the (light/dark) style is translated into equivalent geo
+    # surface colors instead of always forcing a dark base map.
+    _is_dark = "dark" in str(map_style).lower()
+    if _is_dark:
+        _geo = dict(
+            bgcolor="rgba(0,0,0,0)",
+            showcoastlines=True, coastlinecolor="rgba(148,163,184,0.4)",
+            showland=True, landcolor="rgba(30,41,59,0.8)",
+            showocean=True, oceancolor="rgba(14,20,38,0.9)",
+            showlakes=True, lakecolor="rgba(14,20,38,0.9)",
+            showframe=False,
+            showcountries=show_borders,
+            countrycolor="rgba(255,255,255,0.4)" if show_borders else "rgba(0,0,0,0)",
+        )
+        _cb_tick  = "#94a3b8"
+        _cb_title = "#cbd5e1"
+    else:
+        # Light base map (open-street-map / carto-positron).
+        _geo = dict(
+            bgcolor="rgba(0,0,0,0)",
+            showcoastlines=True, coastlinecolor="rgba(100,116,139,0.6)",
+            showland=True, landcolor="#f1f5f9",
+            showocean=True, oceancolor="#bfdbfe",
+            showlakes=True, lakecolor="#bae6fd",
+            showframe=False,
+            showcountries=show_borders,
+            countrycolor="rgba(100,116,139,0.6)" if show_borders else "rgba(0,0,0,0)",
+        )
+        _cb_tick  = "#475569"
+        _cb_title = "#1e293b"
+    fig.update_geos(**_geo)
 
 
     if color_is_numeric:
-        fig.update_coloraxes(
-            colorbar=dict(
-                title=dict(text=str(color), font=dict(color="#cbd5e1")),
-                tickfont=dict(color="#94a3b8"),
-                thickness=14, len=0.80,
-                bgcolor="rgba(0,0,0,0)",
-                bordercolor="rgba(0,0,0,0)",
-                borderwidth=0, x=1.01,
+        # scatter_geo with a continuous color renders its colorbar through the
+        # LAYOUT coloraxis (the trace`s marker.colorbar is unused). update_coloraxes
+        # is the correct, rendered colorbar API. (Re-applied by chart_settings.)
+        try:
+            fig.update_coloraxes(
+                colorbar=dict(
+                    title=dict(text=str(color), font=dict(color=_cb_title)),
+                    tickfont=dict(color=_cb_tick),
+                    thickness=14, len=0.80,
+                    bgcolor="rgba(0,0,0,0)",
+                    bordercolor="rgba(0,0,0,0)",
+                    borderwidth=0, x=1.01,
+                )
             )
-        )
-
+        except Exception as exc:
+            log.debug("map colorbar styling error: %s", exc)
 
     layout = chart_layout(height=520)
     for key in ("plot_bgcolor", "bargap", "bargroupgap", "xaxis", "yaxis"):
@@ -870,38 +1765,109 @@ def _run_scatter_map(
         "supports_notes": True,
         "supports_axis_editing": False,
         "supports_legend_editing": True,
+        "colour_encoding": "continuous" if color_is_numeric else "discrete",
+        "value_sized": bool(size_by_value and val_col and size == "_lytrize_size"),
     }
     return [(f"Map: {loc_label}", fig)]
 
 
 
 
+_HOVER_AGG_FUNCS = {
+    "sum": "sum", "mean": "mean", "median": "median",
+    "count": "count", "max": "max", "min": "min",
+}
+
+
+def _modal(s):
+    """Most frequent non-null value of a Series (for categorical hover dims)."""
+    m = s.dropna().mode()
+    return m.iloc[0] if not m.empty else None
+
+
+def _hover_agg_extras(df, group_col, hover_dims, hover_values, skip_cols=()):
+    """Return a list of ``(source_col, agg_fn, display_name)`` hover extras.
+
+    Dims → modal value per group; values → the requested aggregation with an
+    ``AGG(col)`` display name.  The same column may appear more than once
+    (e.g. ``amount``/Sum and ``amount``/Mean) — callers aggregate temp copies
+    of the source column so nothing is silently dropped.
+    """
+    triples, seen = [], set()
+    for c in (hover_dims or []):
+        if c in df.columns and c != group_col and c not in skip_cols and c not in seen:
+            seen.add(c)
+            triples.append((c, _modal, c))
+    for c, a in (hover_values or []):
+        if c in df.columns and c != group_col and c not in skip_cols:
+            disp = f"{a.upper()}({c})"
+            if disp in seen:
+                continue
+            seen.add(disp)
+            triples.append((c, _HOVER_AGG_FUNCS.get(a, "sum"), disp))
+    return triples
+
+
+def _add_hover_temp_cols(frame, triples):
+    """Create temp copies of the extras' source columns for aggregation.
+
+    Returns ``(agg_map, rename_map)``: extra entries for a groupby agg
+    mapping and the post-aggregation rename to the tooltip display names.
+    Temp copies allow the same source column to be aggregated several times
+    (pandas dicts cannot repeat keys).
+    """
+    agg_map, rename_map = {}, {}
+    for i, (src, fn, disp) in enumerate(triples):
+        if src not in frame.columns:
+            continue
+        tcol = f"__hx_{i}"
+        frame[tcol] = frame[src]
+        agg_map[tcol] = fn
+        rename_map[tcol] = disp
+    return agg_map, rename_map
+
+
 def _run_choropleth(
     df, geo_col, value_col, color_col, agg_func,
     colorscale, projection, scope, show_borders, invert, pal,
+    hover_dims=None, hover_values=None,
 ):
+    _hover_triples = _hover_agg_extras(
+        df, geo_col, hover_dims, hover_values, skip_cols=(value_col,)
+    )
+    _hover_srcs = list(dict.fromkeys(t[0] for t in _hover_triples))
+
     if not value_col or value_col not in df.columns:
-        plot_df = df[[geo_col]].copy().dropna()
+        needed = [geo_col] + [c for c in _hover_srcs if c in df.columns]
+        plot_df = df[needed].dropna(subset=[geo_col]).copy()
         plot_df["_count"] = 1
-        plot_df = plot_df.groupby(geo_col, as_index=False)["_count"].sum()
+        agg_map = {"_count": "sum"}
+        _hamap, _hren = _add_hover_temp_cols(plot_df, _hover_triples)
+        agg_map.update(_hamap)
+        plot_df = plot_df.groupby(geo_col, as_index=False).agg(agg_map)
+        plot_df.rename(columns=_hren, inplace=True)
         value_col = "_count"
         agg_label = "COUNT"
     else:
-        needed = [geo_col, value_col]
+        needed = [geo_col, value_col] + [c for c in _hover_srcs if c in df.columns]
         plot_df = df[needed].dropna(subset=[geo_col, value_col]).copy()
         agg = agg_func or "sum"
         agg_label = agg.upper()
         if pd.api.types.is_numeric_dtype(plot_df[value_col]):
             agg_funcs = {"sum": "sum", "mean": "mean", "median": "median",
                          "count": "count", "max": "max", "min": "min"}
-            plot_df = plot_df.groupby(geo_col, as_index=False).agg(
-                {value_col: agg_funcs.get(agg, "sum")}
-            )
+            _agg_map = {value_col: agg_funcs.get(agg, "sum")}
         else:
-            plot_df = plot_df.groupby(geo_col, as_index=False).agg(
-                {value_col: "count"}
-            )
+            _agg_map = {value_col: "count"}
             agg_label = "COUNT"
+        _hamap, _hren = _add_hover_temp_cols(plot_df, _hover_triples)
+        _agg_map.update(_hamap)
+        plot_df = plot_df.groupby(geo_col, as_index=False).agg(_agg_map)
+        plot_df.rename(columns=_hren, inplace=True)
+
+    # Tooltip columns contributed by the hover extras (display names).
+    _hover_extra_cols = [disp for _, _, disp in _hover_triples
+                         if disp in plot_df.columns]
 
 
     if plot_df.empty:
@@ -924,6 +1890,7 @@ def _run_choropleth(
                 name_col="_region_name",
                 colorscale=colorscale, invert=invert,
                 show_borders=show_borders, projection=projection, scope=scope,
+                hover_extra_cols=_hover_extra_cols,
             )
 
 
@@ -937,6 +1904,7 @@ def _run_choropleth(
                 name_col="_city_name",
                 colorscale=colorscale, invert=invert,
                 show_borders=show_borders, projection=projection, scope=scope,
+                hover_extra_cols=_hover_extra_cols,
             )
 
 
@@ -967,6 +1935,11 @@ def _run_choropleth(
     else:
         locationmode = "ISO-3"
         plot_df["_iso_code"] = plot_df["_iso_code"].apply(_ensure_alpha3)
+        # Drop rows where _ensure_alpha3 returned None (invalid ISO codes)
+        _invalid_mask = plot_df["_iso_code"].isna()
+        if _invalid_mask.any():
+            unresolved_count += int(_invalid_mask.sum())
+            plot_df = plot_df[~_invalid_mask]
 
 
     _cs = colorscale if colorscale in _CHOROPLETH_SCALES else "Blues"
@@ -989,7 +1962,14 @@ def _run_choropleth(
             locationmode=locationmode,
             color=value_col,
             hover_name=geo_col,
-            hover_data={value_col: True, "_iso_code": False},
+            hover_data={
+                value_col: True,
+                "_iso_code": False,
+                **{c: True for c in _hover_extra_cols if c in plot_df.columns},
+                **{c: False for c in plot_df.columns
+                   if c not in (geo_col, value_col, "_iso_code")
+                   and c not in _hover_extra_cols},
+            },
             color_continuous_scale=_cs,
             projection=projection if geo_type != "us_states" else "albers usa",
             scope=scope,
@@ -1037,6 +2017,12 @@ def _run_choropleth(
         "analysis_type": "map_plot", "x_axis": None, "y_axis": None,
         "supports_notes": True, "supports_axis_editing": False,
         "supports_legend_editing": False,
+        # Choropleth always renders its colour ramp through the LAYOUT
+        # coloraxis; tag it so _detect_map_encoding treats it as continuous
+        # and the Colorbar / Colorscale controls are applied (without this the
+        # choropleth was mistaken for a discrete legend and those controls did
+        # nothing).
+        "colour_encoding": "continuous",
     }
     return [(f"Choropleth: {geo_col}", fig)]
 
@@ -1047,11 +2033,18 @@ def _render_scatter_geo(
     plot_df, geo_col, value_col, agg_label,
     lat_col, lon_col, coord_df, name_col,
     colorscale, invert, show_borders, projection, scope,
+    hover_extra_cols=None,
 ):
     """Render a scatter_geo for world regions / cities where Plotly choropleth"""
     merged = pd.concat(
         [plot_df.reset_index(drop=True), coord_df.reset_index(drop=True)], axis=1
     ).dropna(subset=[lat_col, lon_col])
+
+    _geo_hover = {value_col: True, lat_col: False, lon_col: False,
+                  name_col: False}
+    for _c in (hover_extra_cols or []):
+        if _c in merged.columns:
+            _geo_hover[_c] = True
 
 
     if merged.empty:
@@ -1075,8 +2068,7 @@ def _render_scatter_geo(
             size=value_col,
             color=value_col,
             hover_name=geo_col,
-            hover_data={value_col: True, lat_col: False, lon_col: False,
-                        name_col: False},
+            hover_data=_geo_hover,
             color_continuous_scale=_cs,
             projection=projection,
             title=title,
@@ -1123,16 +2115,28 @@ def _render_scatter_geo(
 
 
 
-def _ensure_alpha3(code: str) -> str:
-    """If code looks like a 2-letter ISO alpha-2, convert to alpha-3."""
+def _ensure_alpha3(code: str) -> Optional[str]:
+    """Convert a 2-letter ISO alpha-2 code to alpha-3, or validate an alpha-3 code.
+
+    Returns the uppercase alpha-3 code if valid, or None if the code cannot be
+    resolved to a known ISO-3166-1 alpha-3 code.  This prevents invalid 3-letter
+    strings from reaching the choropleth renderer.
+    """
     if not code or not isinstance(code, str):
-        return code
+        return None
     code = code.strip().upper()
     if len(code) == 2:
         try:
             import pycountry
             c = pycountry.countries.get(alpha_2=code)
-            return c.alpha_3 if c else code
+            return c.alpha_3 if c else None
         except Exception:
-            return code
-    return code
+            return None
+    if len(code) == 3:
+        try:
+            import pycountry
+            c = pycountry.countries.get(alpha_3=code)
+            return c.alpha_3 if c else None
+        except Exception:
+            return None
+    return None

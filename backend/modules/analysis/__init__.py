@@ -4,6 +4,7 @@
 import uuid
 from typing import Optional
 
+import pandas as pd
 import streamlit as st
 
 
@@ -14,7 +15,7 @@ from modules.analysis.correlation  import run_correlation
 from modules.analysis.categorical  import run_categorical
 from modules.analysis.pie_chart    import run_pie_chart
 from modules.analysis.time_series  import run_time_series
-from modules.analysis.outlier       import run_outlier, OUTLIER_HELP
+from modules.analysis.outlier       import run_outlier
 from modules.analysis.scatter_plot  import run_scatter_plot
 from modules.analysis.matrix_table  import run_matrix_heatmap, run_matrix_table
 from modules.analysis.map_plot      import run_map_plot
@@ -142,11 +143,18 @@ _WIDGET_SPEC = {
         ("marker_opacity", "marker_opacity", "number"),
         ("invert_colorscale", "invert_colorscale", "bool"),
         ("show_borders", "show_borders", "bool"),
+        ("size_by_value", "size_by_value", "bool"),
         ("geo_col", "geo_col", "scalar"),
         ("choropleth_colorscale", "choropleth_colorscale", "scalar"),
         ("choropleth_projection", "choropleth_projection", "scalar"),
         ("choropleth_scope", "choropleth_scope", "scalar"),
         ("choropleth_show_borders", "choropleth_show_borders", "bool"),
+        ("hover_dim1", "hover_dim1", "scalar"),
+        ("hover_dim2", "hover_dim2", "scalar"),
+        ("hover_val1", "hover_val1", "scalar"),
+        ("hover_val1_agg", "hover_val1_agg", "scalar"),
+        ("hover_val2", "hover_val2", "scalar"),
+        ("hover_val2_agg", "hover_val2_agg", "scalar"),
     ],
 }
 
@@ -390,7 +398,7 @@ def _render_config_panel_body(aid: str, df, sk) -> None:
                                   help="Limit to the top N rows after sorting. 0 shows all rows.")
 
     elif aid == "map_plot":
-        from modules.analysis.map_plot import _CHOROPLETH_SCALES, _PROJECTIONS, _SCOPES, detect_geo_column
+        from modules.analysis.map_plot import _PROJECTIONS, _SCOPES, MAP_STYLES, detect_geo_column
         _map_mode_opts = ["Scatter (Lat/Lon)", "Choropleth (Location Names)"]
         _df_sig = f"{df.shape}_{list(df.columns)}"
         _geo_cache_key = "_detected_geo_col"
@@ -411,26 +419,54 @@ def _render_config_panel_body(aid: str, df, sk) -> None:
             with mp5: st.selectbox("Colour", [NONE] + cat + num, key=sk("color_col"))
             with mp6: st.selectbox("Value", [NONE] + num, key=sk("value_col"))
             with mp7: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=sk("agg_func"))
-            with mp8: st.selectbox("Style", ["carto-positron", "open-street-map", "carto-darkmatter"],
-                                   key=sk("map_style"))
-            with mp9: st.slider("Opacity", 0.3, 1.0, 0.82, 0.05, key=sk("marker_opacity"))
+            with mp8: st.selectbox("Style", MAP_STYLES, index=0, key=sk("map_style"))
+            with mp9: st.slider("Opacity", 0.3, 1.0, 1.0, 0.05, key=sk("marker_opacity"))
             with mp10: st.checkbox("Invert", key=sk("invert_colorscale"))
             with mp11: st.checkbox("Borders", value=True, key=sk("show_borders"))
+            # Extra hover annotations (second row): 2 dimensions + 2 values
+            # each with its own aggregation — purely additive tooltips.
+            hs1, hs2, hs3, hs4, hs5, hs6 = st.columns(6)
+            with hs1: st.selectbox("Hover Dim 1", [NONE] + list(df.columns),
+                                   key=sk("hover_dim1"),
+                                   help="Extra column shown in each point's hover tooltip (modal value per group)")
+            with hs2: st.selectbox("Hover Dim 2", [NONE] + list(df.columns), key=sk("hover_dim2"))
+            with hs3: st.selectbox("Hover Value 1", [NONE] + num, key=sk("hover_val1"))
+            with hs4: st.selectbox("Agg 1", list(_AGG_FUNCS.keys()), key=sk("hover_val1_agg"))
+            with hs5: st.selectbox("Hover Value 2", [NONE] + num, key=sk("hover_val2"))
+            with hs6: st.selectbox("Agg 2", list(_AGG_FUNCS.keys()), key=sk("hover_val2_agg"))
         else:
-            _all_cols_str = [c for c in df.columns if df[c].dtype == object]
+            _all_cols_str = [
+                c for c in df.columns
+                if (pd.api.types.is_object_dtype(df[c])
+                    or pd.api.types.is_string_dtype(df[c])
+                    or isinstance(df[c].dtype, pd.CategoricalDtype))
+            ]
             _geo_default_idx = (_all_cols_str.index(_detected_geo)
                                 if _detected_geo and _detected_geo in _all_cols_str else 0)
-            cg0, cg1, cg2, cg3, cg4, cg5, cg6 = st.columns(7)
+            cg0, cg1, cg2, cg3, cg4, cg5 = st.columns(6)
             with cg0: st.selectbox("Mode", _map_mode_opts, index=_default_mode, key=sk("map_mode"))
             with cg1: st.selectbox("Location", _all_cols_str if _all_cols_str else df.columns.tolist(),
                                    index=_geo_default_idx, key=sk("geo_col"))
             with cg2: st.selectbox("Value", [NONE] + num, key=sk("value_col"))
             with cg3: st.selectbox("Aggregation", list(_AGG_FUNCS.keys()), key=sk("agg_func"))
-            with cg4: st.selectbox("Scale", _CHOROPLETH_SCALES, key=sk("choropleth_colorscale"))
-            with cg5: st.selectbox("Projection", _PROJECTIONS, key=sk("choropleth_projection"))
-            with cg6: st.selectbox("Scope", _SCOPES, key=sk("choropleth_scope"))
+            with cg4: st.selectbox(
+                "Projection", _PROJECTIONS, key=sk("choropleth_projection"),
+                help="How the globe is flattened to the screen. NOTE: ignored for "
+                     "US-state data (always 'albers usa') and for tile map styles.")
+            with cg5: st.selectbox("Scope", _SCOPES, key=sk("choropleth_scope"))
             # Borders checkbox placed below columns to avoid overflow
             st.checkbox("Borders", value=True, key=sk("choropleth_show_borders"))
+            # Extra hover annotations (second row): 2 dimensions + 2 values
+            # each with its own aggregation — purely additive tooltips.
+            hc1, hc2, hc3, hc4, hc5, hc6 = st.columns(6)
+            with hc1: st.selectbox("Hover Dim 1", [NONE] + list(df.columns),
+                                   key=sk("hover_dim1"),
+                                   help="Extra column shown in each location's hover tooltip (modal value per location)")
+            with hc2: st.selectbox("Hover Dim 2", [NONE] + list(df.columns), key=sk("hover_dim2"))
+            with hc3: st.selectbox("Hover Value 1", [NONE] + num, key=sk("hover_val1"))
+            with hc4: st.selectbox("Agg 1", list(_AGG_FUNCS.keys()), key=sk("hover_val1_agg"))
+            with hc5: st.selectbox("Hover Value 2", [NONE] + num, key=sk("hover_val2"))
+            with hc6: st.selectbox("Agg 2", list(_AGG_FUNCS.keys()), key=sk("hover_val2_agg"))
 
 
 def render_config_panel(aid: str, df, uid: Optional[str] = None) -> None:
@@ -455,7 +491,7 @@ def _collect_kwargs(aid: str, df, uid: Optional[str] = None) -> dict:
     chart" panel; omit it (the default) to read from the plain
     per-analysis-type keys used when configuring a brand-new chart.
     """
-    num, cat, dt, all_cols = _num_cols(), _cat_cols(), _dt_cols(), df.columns.tolist()
+    num, cat = _num_cols(), _cat_cols()
     NONE = "None"
     g = (lambda key, default=None: _g_uid(uid, aid, key, default)) if uid is not None \
         else (lambda key, default=None: _g(aid, key, default))
@@ -567,6 +603,19 @@ def _collect_kwargs(aid: str, df, uid: Optional[str] = None) -> dict:
             v = g(key, NONE)
             return None if v in (NONE, None, "") else v
         _mp_mode = g("map_mode", "Scatter (Lat/Lon)")
+
+        def _mp_hover_extras():
+            """Read the extra hover-annotation dropdowns (dims + (col, agg) values)."""
+            dims = [d for d in (_mp_resolve("hover_dim1"), _mp_resolve("hover_dim2"))
+                    if d]
+            values = []
+            for vk, ak in (("hover_val1", "hover_val1_agg"),
+                           ("hover_val2", "hover_val2_agg")):
+                vc = _mp_resolve(vk)
+                if vc:
+                    values.append((vc, _AGG_FUNCS.get(g(ak, "Sum"), "sum")))
+            return dims, values
+
         if _mp_mode == "Choropleth (Location Names)":
             kwargs.update(
                 geo_col=_mp_resolve("geo_col"),
@@ -578,6 +627,11 @@ def _collect_kwargs(aid: str, df, uid: Optional[str] = None) -> dict:
                 choropleth_scope=g("choropleth_scope", "world"),
                 choropleth_show_borders=bool(g("choropleth_show_borders", True)),
             )
+            _hover_dims, _hover_values = _mp_hover_extras()
+            if _hover_dims:
+                kwargs["hover_dims"] = _hover_dims
+            if _hover_values:
+                kwargs["hover_values"] = _hover_values
         else:
             kwargs.update(
                 lat_col=_mp_resolve("lat_col"),
@@ -588,9 +642,16 @@ def _collect_kwargs(aid: str, df, uid: Optional[str] = None) -> dict:
                 color_col=_mp_resolve("color_col"),
                 agg_func=_AGG_FUNCS.get(g("agg_func", "Avg"), "mean"),
                 invert_colorscale=bool(g("invert_colorscale", False)),
-                map_style=g("map_style", "carto-positron"),
-                marker_opacity=float(g("marker_opacity", 0.82)),
+                show_borders=bool(g("show_borders", True)),
+                map_style=g("map_style", "OpenStreetMap (Light)"),
+                marker_opacity=float(g("marker_opacity", 1.0)),
+                size_by_value=bool(g("size_by_value", False)),
             )
+            _hover_dims, _hover_values = _mp_hover_extras()
+            if _hover_dims:
+                kwargs["hover_dims"] = _hover_dims
+            if _hover_values:
+                kwargs["hover_values"] = _hover_values
 
     elif aid == "time_series":
         x         = _single_choice_value(g("x", NONE), NONE)

@@ -7,7 +7,6 @@ import datetime
 import streamlit as st
 import numpy as np
 import pandas as pd
-from html import escape
 
 
 from modules.ui.column_manager import show_column_manager
@@ -16,7 +15,7 @@ from modules.ui.data_cleaner   import show_data_cleaner
 from modules.ui.excel_loader   import show_excel_loader
 from modules.ui.css            import inject_footer, render_logo
 from modules.utils.perf        import read_csv_fast, mem_mb
-from modules.utils.session_cache import set_df, update_df
+from modules.utils.session_cache import set_df
 from modules.analysis.data_quality import run_data_quality, count_duplicates
 from modules.analysis.outlier import run_outlier_upload
 from modules.utils.transform_log import replay_transform_log
@@ -56,7 +55,6 @@ def _uploaded_signature(uploaded) -> str:
             content_suffix = f":{content_hash}"
         except Exception as exc:
             logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-            pass
         finally:
             uploaded.seek(0)
 
@@ -254,7 +252,6 @@ def _save_upload_snapshot(df, file_name: str) -> None:
         if st.session_state.get("_last_draft_upload_cache") != draft_cache_key or sig_changed:
             from modules.utils.session_cache import save_df_snapshot
             from modules.database import save_draft
-            import json as _json
             import threading
 
             if sig_changed:

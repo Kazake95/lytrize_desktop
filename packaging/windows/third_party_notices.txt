@@ -1,0 +1,35 @@
+Lytrize bundles the following open-source libraries. Their full license
+texts are included with each package in this distribution, and are available
+online at the links below.
+
+A  Apache License 2.0                streamlit, pyarrow, pydeck, requests,
+                                      python-dateutil, uvicorn, starlette,
+                                      anyio, httptools, websockets
+B  BSD 3-Clause                      pandas, numpy, scipy, statsmodels,
+                                      altair, jinja2, charset-normalizer,
+                                      idna, click, watchdog, rpds-py
+C  MPL 2.0                           certifi
+D  LGPL-3.0+ / GPL-2.0+             PySide6 / Qt (includes shiboken6,
+                                      PySide6_Essentials, PySide6_Addons)
+E  LGPL-3.0+                          pycountry
+F  MIT Project / MIT-CMU             pillow, openpyxl, plotly, protobuf,
+                                      python-multipart, toml, six,
+                                      tzdata, pytz, tenacity
+
+The full text of each license is available in the corresponding package's
+dist-info folder, or from each project's website:
+
+  Streamlit (Apache-2.0)         https://streamlit.io
+  Pandas (BSD-3)                 https://pandas.pydata.org
+  NumPy (BSD-3)                  https://numpy.org
+  Plotly (MIT)                   https://plotly.com/python
+  SciPy (BSD-3)                  https://scipy.org
+  Statsmodels (BSD-3)            https://www.statsmodels.org
+  PySide6 / Qt (LGPL-3 / GPL-2)  https://www.qt.io
+  PyArrow (Apache-2.0)           https://arrow.apache.org
+  pycountry (LGPL-3)             https://pypi.org/project/pycountry
+  Openpyxl (MIT)                 https://openpyxl.readthedocs.io
+
+This third-party notice is provided for open-source compliance. It does not
+create any warranty: these components are provided "as is", without warranty
+of any kind, in accordance with their respective licenses.

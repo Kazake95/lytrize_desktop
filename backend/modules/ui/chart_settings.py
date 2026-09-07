@@ -6,7 +6,6 @@ import logging
 
 
 import copy
-import functools
 import json
 import re
 from typing import Any
@@ -148,7 +147,7 @@ CHART_TYPE_SETTINGS: dict[str, dict[str, Any]] = {
     "map_plot": {
         "has_axes": False, "has_legend": False,
         "controls": ["title",
-                    "show_colorbar", "colorbar_title",
+                    "show_colorbar", "size_by_value", "colorbar_title",
                     "colorbar_tick_size", "colorbar_tick_color",
                     "colorbar_title_size", "colorbar_title_color",
                     "heatmap_colorscale",
@@ -203,6 +202,7 @@ _CONTROL_META: dict[str, dict] = {
     "show_value_labels": {"t": "check", "l": "Value labels", "k": "svl", "d": False},
     "show_markers":      {"t": "check", "l": "Markers", "k": "sm", "d": True},
     "show_colorbar":     {"t": "check", "l": "Colorbar", "k": "scb", "d": True},
+    "size_by_value":     {"t": "check", "l": "Size by value", "k": "sbv", "d": False},
     "heatmap_show_text": {"t": "check", "l": "Annotations", "k": "hst", "d": True},
     # Selects
     "label_position":      {"t": "select", "l": "Label pos", "k": "lpos", "o": ["outside", "inside", "auto"], "d": "outside"},
@@ -585,7 +585,6 @@ def _apply_font_only(fig, meta: dict | None, chart_type: str = ""):
         fig.update_yaxes(title_font=axis_title_font, tickfont=axis_tick_font)
     except Exception as exc:
         logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-        pass
 
     # Pie label/value fonts are per-trace but pie charts have few slices, so a
     # light loop here is cheap and keeps pie typography live.
@@ -616,7 +615,6 @@ def _apply_font_only(fig, meta: dict | None, chart_type: str = ""):
                                 setattr(_pf, _k, _v)
                     except Exception as exc:
                         logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                        pass
     return fig
 
 
@@ -638,6 +636,109 @@ def _font_only_hash(meta: dict | None) -> str:
             relevant[key] = text_style[key]
     return json.dumps(relevant, sort_keys=True, default=str)
 
+
+
+def _detect_map_encoding(fig) -> str:
+    """Return "discrete" | "continuous" for a map figure.
+
+    Prefers the runner's ``_lytrize_meta.colour_encoding`` tag, but falls
+    back to inspecting the figure itself — the tag is lost when a figure
+    has been serialised/deserialised (saved dashboards, JSON round-trips),
+    which previously made the CB / Colorscale controls stop working on
+    category legends.
+    """
+    enc = (getattr(fig, "_lytrize_meta", {}) or {}).get("colour_encoding")
+    if enc in ("discrete", "continuous"):
+        return enc
+    has_scale = bool(
+        getattr(fig.layout, "coloraxis", None)
+        and getattr(fig.layout.coloraxis, "showscale", None)
+    )
+    for tr in getattr(fig, "data", []) or []:
+        # Choropleth always renders its colour ramp through the LAYOUT
+        # coloraxis (no marker.color / marker.coloraxis).  It is inherently
+        # continuous, so the Colorbar / Colorscale controls must apply.  This
+        # also survives serialisation round-trips that drop _lytrize_meta.
+        if str(getattr(tr, "type", "") or "").lower() == "choropleth":
+            return "continuous"
+        m = getattr(tr, "marker", None)
+        if m is None:
+            continue
+        if getattr(m, "coloraxis", None) or getattr(m, "colorscale", None):
+            has_scale = True
+            return "continuous"
+        c = getattr(m, "color", None)
+        if isinstance(c, str):
+            # Named solid colour per trace -> discrete category legend.
+            return "discrete"
+    return "continuous" if has_scale else "discrete"
+
+
+def _map_marker_is_continuous(marker) -> bool:
+    """True when a map trace's marker colour is a continuous scale.
+
+    Discrete (binary/categorical) map traces carry an array of literal
+    colour strings — no colorbar/colorscale must ever be forced onto them.
+    """
+    if marker is None:
+        return False
+    if getattr(marker, "coloraxis", None):
+        return True
+    c = getattr(marker, "color", None)
+    if c is None:
+        return False
+    if isinstance(c, (int, float)):
+        return True
+    if hasattr(c, "__len__") and not isinstance(c, str):
+        try:
+            sample = list(c)[:20]
+            return all(isinstance(v, (int, float)) for v in sample)
+        except Exception:
+            return False
+    return False
+
+
+def _apply_map_size_by_value(tr, opts: dict) -> None:
+    """Apply (or clear) value-driven marker sizes on a map trace.
+
+    The map runner embeds the raw numeric value column as customdata[:, 0]
+    (column "_lytrize_val"), so sizes can be derived at display time without
+    re-running the analysis.  Toggling off restores the manual scalar size.
+    """
+    marker = getattr(tr, "marker", None)
+    if marker is None:
+        return
+    cd = getattr(tr, "customdata", None)
+    vals = None
+    if cd is not None:
+        try:
+            # The raw value lives in customdata[:, 0], but the FULL customdata
+            # array is usually object-dtype (it mixes the numeric value with
+            # string colour categories / lat / lon).  Float-casting the whole
+            # array raises and silently kills value-driven sizes — convert
+            # ONLY the first column instead.
+            import numpy as _np
+            import pandas as _pd
+            arr = _np.asarray(cd, dtype=object)
+            if arr.ndim == 2 and arr.shape[1] >= 1:
+                col0 = _pd.to_numeric(
+                    _pd.Series([r[0] if hasattr(r, "__len__") else r for r in arr]),
+                    errors="coerce",
+                )
+                vals = col0.dropna().to_numpy(dtype=float)
+        except Exception:
+            vals = None
+    cur_size = getattr(marker, "size", None)
+    _is_array = hasattr(cur_size, "__len__") and not isinstance(cur_size, str)
+    if (bool(opts.get("size_by_value")) and vals is not None
+            and len(vals) > 1 and float(vals.max()) > float(vals.min())):
+        lo, hi = 4.0, 22.0
+        mn, mx = float(vals.min()), float(vals.max())
+        sizes = lo + (vals - mn) / (mx - mn) * (hi - lo)
+        marker.size = [round(float(s), 2) for s in sizes]
+    elif not bool(opts.get("size_by_value")) and _is_array:
+        # Toggle turned OFF: restore the manual scalar marker size.
+        marker.size = int(opts.get("marker_size") or 6)
 
 
 def apply_chart_display_options(
@@ -736,11 +837,27 @@ def apply_chart_display_options(
                     if opts.get("histogram_opacity") is not None:
                         tr.opacity = float(opts["histogram_opacity"])
 
-                if ttype in ("scatter", "scattergl", "scattermap", "scattermapbox"):
+                if ttype in ("scatter", "scattergl", "scattermap", "scattermapbox", "scattergeo"):
                     if opts.get("marker_opacity") is not None and hasattr(tr, "marker"):
+                        # The Chart Settings "M. opacity" slider always wins —
+                        # the 1.0 preset lives in the generation defaults.
                         tr.marker.opacity = float(opts["marker_opacity"])
+                    if chart_type == "map_plot" and "size_by_value" in opts:
+                        # "Size by value" tick in Chart Settings > Layout:
+                        # drives per-point sizes from the embedded value
+                        # column; toggling off restores the manual size.
+                        try:
+                            _apply_map_size_by_value(tr, opts)
+                        except Exception as exc:
+                            logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
                     if opts.get("marker_size") is not None and hasattr(tr, "marker"):
-                        tr.marker.size = int(opts["marker_size"])
+                        # Never override per-point (array) marker sizes — those
+                        # come from the "Size by value" column and the manual
+                        # M. size slider would clobber them.
+                        _cur_size = getattr(tr.marker, "size", None)
+                        _is_array = hasattr(_cur_size, "__len__") and not isinstance(_cur_size, str)
+                        if not _is_array:
+                            tr.marker.size = int(opts["marker_size"])
                     if "lines" in mode:
                         if opts.get("line_width") is not None:
                             tr.line.width = int(opts["line_width"])
@@ -808,7 +925,6 @@ def apply_chart_display_options(
                                     z_arr = z_raw
                             except Exception as exc:
                                 logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                                pass
                             if z_arr is not None:
                                 new_text = []
                                 for row in z_arr:
@@ -903,7 +1019,6 @@ def apply_chart_display_options(
                             tr.header.font.color = str(hdr_text_color)
                         except Exception as exc:
                             logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                            pass
 
                     stripe_even = opts.get("table_stripe_even_color")
                     stripe_odd  = opts.get("table_stripe_odd_color")
@@ -923,7 +1038,6 @@ def apply_chart_display_options(
                         tr.textfont.family = _font_family
                     except Exception as exc:
                         logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                        pass
 
             except Exception:
                 # One bad trace must not abort the rest of the figure.
@@ -1011,7 +1125,6 @@ def apply_chart_display_options(
         if _hdr_family_raw == "Inter" and _raw_family not in ("Inter", ""):
             _hdr_family_raw = _raw_family
         _hdr_family     = resolve_font_stack(_hdr_family_raw)
-        _hdr_style      = str(ts.get("header_font_style", "Normal"))
         _hdr_size       = int(ts.get("header_size", 28))
         _hdr_color      = str(ts.get("header_color", "#6163df"))
 
@@ -1052,7 +1165,6 @@ def apply_chart_display_options(
                         setattr(tr, font_attr, new_font)
             except Exception as exc:
                 logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                pass
 
         # The title is rendered in the HTML preview area (chart_card ctrl[0]),
         # so the Plotly native title is suppressed here to avoid the duplicate.
@@ -1064,7 +1176,7 @@ def apply_chart_display_options(
         )
 
         _is_map_chart = chart_type in ("map_plot",) or any(
-            str(getattr(t, "type", "")).lower() in ("choropleth", "scattermapbox", "scattermap")
+            str(getattr(t, "type", "")).lower() in ("choropleth", "scattermapbox", "scattermap", "scattergeo")
             for t in f2.data
         )
         if not _is_map_chart:
@@ -1120,7 +1232,6 @@ def apply_chart_display_options(
                                     setattr(_pf, _k, _v)
                         except Exception as exc:
                             logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                            pass
 
         _pie_val_clr = opts.get("pie_value_color") or ts.get("pie_value_color")
         _pie_val_sz  = opts.get("pie_value_size") or ts.get("pie_value_size")
@@ -1146,7 +1257,6 @@ def apply_chart_display_options(
                                     setattr(_pf, _k, _v)
                         except Exception as exc:
                             logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                            pass
 
     # ============================================================
     # COLORBAR / HEATMAP / MAP specific code
@@ -1159,35 +1269,198 @@ def apply_chart_display_options(
             cb_title_col = str(opts.get("colorbar_title_color", "#cbd5e1"))
             cb_family    = resolve_font_stack(str(opts.get("colorbar_font_family", _raw_family)))
             cb_title     = opts.get("colorbar_title", "")
+            _map_cs      = opts.get("heatmap_colorscale")
+            show_scb     = opts.get("show_colorbar")
             _cb_font_suffix = dict(weight=_weight, style=_style)
-            for tr in f2.data:
-                try:
-                    tr.colorbar.tickfont = dict(
-                        size=cb_tick_sz, color=cb_tick_col, family=cb_family, **_cb_font_suffix)
-                    if cb_title:
-                        tr.colorbar.title.text = cb_title
-                    tr.colorbar.title.font = dict(
-                        size=cb_title_sz, color=cb_title_col, family=cb_family, **_cb_font_suffix)
-                except Exception as exc:
-                    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                    pass
-            try:
-                cb_kwargs = dict(
-                    tickfont=dict(size=cb_tick_sz, color=cb_tick_col, family=cb_family, **_cb_font_suffix),
+
+            # "Invert" (a generation-time checkbox on the map) reverses the
+            # chosen Colorscale.  It lives in the chart's _generation_kwargs,
+            # so we read it here and reverse the display Colorscale in the
+            # FINAL layer -- otherwise the Layout Colorscale (e.g. default RdBu)
+            # silently overwrites the generation-time invert and the checkbox
+            # appears dead.  Built-in plotly scales support the "_r" suffix.
+            _gen_kw = meta.get("_generation_kwargs") if isinstance(meta, dict) else None
+            _inv_cs = bool((_gen_kw or {}).get("invert_colorscale", False))
+            _eff_cs = (f"{_map_cs}_r" if (_map_cs and _inv_cs) else _map_cs)
+
+            # scatter_geo & scattermapbox with a continuous color render their
+            # colorbar through the LAYOUT coloraxis (marker.colorbar is unused),
+            # so update_coloraxes is the right API for those. choropleth keeps a
+            # trace-level colorbar instead.
+            cb_kwargs = dict(
+                tickfont=dict(size=cb_tick_sz, color=cb_tick_col, family=cb_family, **_cb_font_suffix),
+            )
+            if cb_title:
+                cb_kwargs["title"] = dict(
+                    text=cb_title,
+                    font=dict(size=cb_title_sz, color=cb_title_col, family=cb_family, **_cb_font_suffix),
                 )
-                if cb_title:
-                    cb_kwargs["title"] = dict(text=cb_title, font=dict(size=cb_title_sz, color=cb_title_col, family=cb_family, **_cb_font_suffix))
-                f2.update_coloraxes(colorbar=cb_kwargs)
-            except Exception as exc:
-                logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                pass
-            _map_cs = opts.get("heatmap_colorscale")
-            if _map_cs:
+
+            _uses_coloraxis = False
+            # The runner tags each figure with its colour encoding; discrete
+            # (binary/categorical) maps must never receive colorbar or
+            # colorscale styling from these controls.
+            _fig_encoding = _detect_map_encoding(f2)
+
+            # ----------------------------------------------------------------
+            # Discrete maps (binary / categorical): the SAME "CB *" controls
+            # style the category legend instead of a colorbar (which does not
+            # exist on discrete maps).  CB title -> legend title, CB tick
+            # size/colour -> legend entry font.
+            # ----------------------------------------------------------------
+            if _fig_encoding == "discrete":
                 try:
-                    f2.update_coloraxes(colorscale=str(_map_cs))
+                    _leg_upd: dict = {}
+                    _leg_font = dict(
+                        size=cb_tick_sz, color=cb_tick_col,
+                        family=cb_family, **_cb_font_suffix,
+                    )
+                    if cb_title:
+                        _leg_upd["title"] = dict(
+                            text=str(cb_title),
+                            font=dict(
+                                size=cb_title_sz, color=cb_title_col,
+                                family=cb_family, **_cb_font_suffix,
+                            ),
+                        )
+                    else:
+                        # Keep the generation-time legend title (column name)
+                        # but restyle its font with the CB title controls.
+                        _cur_title = (getattr(f2.layout.legend, "title", None))
+                        _cur_txt = getattr(_cur_title, "text", None) if _cur_title else None
+                        if _cur_txt:
+                            _leg_upd["title"] = dict(
+                                text=str(_cur_txt),
+                                font=dict(
+                                    size=cb_title_sz, color=cb_title_col,
+                                    family=cb_family, **_cb_font_suffix,
+                                ),
+                            )
+                    _leg_upd["font"] = _leg_font
+                    f2.update_layout(legend=_leg_upd)
                 except Exception as exc:
                     logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                    pass
+
+                # Colorscale dropdown recolours category legends too: sample N
+                # colours evenly across the selected colorscale (N = number of
+                # category traces, in trace/legend order) and assign one solid
+                # colour per trace.  Binary maps sample at 0/1 -> the exact
+                # bottom/top endpoint colours.
+                if _eff_cs:
+                    try:
+                        import plotly.colors as _pc
+                        _cat_traces = [
+                            tr for tr in f2.data
+                            if str(getattr(tr, "type", "") or "").lower()
+                            in ("scattermapbox", "scattermap", "scattergeo")
+                            and getattr(tr, "name", None)
+                        ]
+                        _n = len(_cat_traces)
+                        if _n >= 2:
+                            _positions = [i / (_n - 1) for i in range(_n)]
+                            _samples = _pc.sample_colorscale(
+                                str(_eff_cs), _positions
+                            )
+                            for _tr, _col in zip(_cat_traces, _samples):
+                                _m = getattr(_tr, "marker", None)
+                                if _m is not None and hasattr(_m, "color"):
+                                    _m.color = _col
+                                    _m.showscale = False
+                                    if hasattr(_m, "colorscale"):
+                                        _m.colorscale = None
+                    except Exception as exc:
+                        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+
+            for tr in f2.data:
+                ttype = str(getattr(tr, "type", "") or "").lower()
+                marker = getattr(tr, "marker", None)
+                # Only continuous-colour traces may receive colorbar /
+                # colorscale styling — binary & categorical maps are pure
+                # discrete legends and must stay free of any colour scale.
+                if _fig_encoding == "discrete":
+                    _continuous = False
+                elif _fig_encoding == "continuous":
+                    _continuous = True
+                else:
+                    _continuous = ttype == "choropleth" or _map_marker_is_continuous(marker)
+                # Choropleth always uses the LAYOUT coloraxis for its colorbar,
+                # even if marker.coloraxis is absent after a JSON round-trip.
+                if _continuous and (ttype == "choropleth" or getattr(marker, "coloraxis", None)):
+                    _uses_coloraxis = True
+                # show_colorbar toggle -- drive EVERY mechanism that can render
+                # a colorbar for this trace, because px sets BOTH
+                # marker.coloraxis AND a trace-level marker.colorbar on
+                # scattermapbox/scattergeo traces, and which one the browser's
+                # plotly.js actually draws depends on its version.
+                # 1) trace-level showscale (choropleth)
+                if (_continuous and show_scb is not None
+                        and hasattr(tr, "showscale")):
+                    try:
+                        tr.showscale = bool(show_scb)
+                    except Exception as exc:
+                        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+                # 2) marker-level showscale -- only for traces that render a
+                #    TRACE-level colorbar (no marker.coloraxis); setting it on
+                #    coloraxis traces would create a SECOND colorbar.
+                if (_continuous and show_scb is not None and marker is not None
+                        and hasattr(marker, "showscale")
+                        and not getattr(marker, "coloraxis", None)):
+                    try:
+                        marker.showscale = bool(show_scb)
+                    except Exception as exc:
+                        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+                # 3) coloraxis.showscale -- applied below via update_coloraxes
+                # Trace-level colorbar styling (choropleth / marker.colorbar).
+                _cbar = (getattr(tr, "colorbar", None) or getattr(marker, "colorbar", None)
+                         ) if _continuous else None
+                if _cbar is not None:
+                    try:
+                        _cbar.tickfont = dict(size=cb_tick_sz, color=cb_tick_col, family=cb_family, **_cb_font_suffix)
+                        if cb_title:
+                            _cbar.title.text = cb_title
+                        _cbar.title.font = dict(size=cb_title_sz, color=cb_title_col, family=cb_family, **_cb_font_suffix)
+                    except Exception as exc:
+                        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+
+            if _uses_coloraxis:
+                try:
+                    f2.update_coloraxes(colorbar=cb_kwargs)
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+                # Colorbar visibility for coloraxis traces lives on the
+                # coloraxis itself (marker.showscale doesn't exist there).
+                if show_scb is not None:
+                    try:
+                        f2.update_coloraxes(showscale=bool(show_scb))
+                    except Exception as exc:
+                        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+                if _eff_cs:
+                    try:
+                        f2.update_coloraxes(colorscale=str(_eff_cs))
+                    except Exception as exc:
+                        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+            if _eff_cs:
+                # Also cover trace-level continuous color: px sets BOTH
+                # marker.coloraxis AND marker.color on scattermapbox traces,
+                # and older plotly.js (2.28.x) renders marker colors from the
+                # trace, NOT the coloraxis -- so marker.colorscale must ALWAYS
+                # be updated when marker.color holds values, or markers ignore
+                # the Colorscale dropdown while the colorbar still changes.
+                for tr in f2.data:
+                    ttype = str(getattr(tr, "type", "") or "").lower()
+                    marker = getattr(tr, "marker", None)
+                    try:
+                        if ttype == "choropleth" and hasattr(tr, "colorscale"):
+                            tr.colorscale = str(_eff_cs)
+                        elif (_fig_encoding != "discrete"
+                              and _map_marker_is_continuous(marker)
+                              and marker is not None and hasattr(marker, "colorscale")
+                              and getattr(marker, "color", None) is not None):
+                            marker.colorscale = str(_eff_cs)
+                    except Exception as exc:
+                        logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
+
+
             _hover_prec = int(opts.get("hover_decimals", 2))
             for _tr in f2.data:
                 try:
@@ -1195,12 +1468,38 @@ def apply_chart_display_options(
                     if not isinstance(_ht, str) or not _ht.strip():
                         raise ValueError("no template")
                     import re as _re2
+                    # Determine which customdata columns are genuinely NUMERIC.
+                    # The colour category column is a STRING on discrete maps —
+                    # float-formatting it ("{customdata[k]:.2f}") makes plotly
+                    # render the category as "NaN" in the hover tooltip.
+                    _num_idx: set = set()
+                    _cd = getattr(_tr, "customdata", None)
+                    if _cd is not None:
+                        try:
+                            import numpy as _np3
+                            import pandas as _pd3
+                            _arr = _np3.asarray(_cd, dtype=object)
+                            if _arr.ndim == 2:
+                                for _k in range(_arr.shape[1]):
+                                    _coerced = _pd3.to_numeric(
+                                        _pd3.Series([r[_k] for r in _arr[:80]]),
+                                        errors="coerce",
+                                    )
+                                    if _coerced.notna().mean() > 0.9:
+                                        _num_idx.add(_k)
+                        except Exception:
+                            _num_idx = set()
                     def _fmt(m):
                         _tok = (m.group(1) or m.group(2) or "").strip()
                         if _tok == "hovertext":
                             return "%{hovertext}"
-                        if _tok in ("customdata[1]", "customdata[2]",
-                                    "customdata[0]", "marker.color"):
+                        _cdm = _re2.match(r"customdata\[(\d+)\]", _tok)
+                        if _cdm:
+                            # Only numeric columns may receive a float format.
+                            if int(_cdm.group(1)) in _num_idx:
+                                return f"%{{{_tok}:.{_hover_prec}f}}"
+                            return f"%{{{_tok}}}"
+                        if _tok == "marker.color" and _fig_encoding != "discrete":
                             return f"%{{{_tok}:.{_hover_prec}f}}"
                         return m.group(0)
                     _tr.hovertemplate = _re2.sub(
@@ -1209,7 +1508,6 @@ def apply_chart_display_options(
                     )
                 except Exception as exc:
                     logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                    pass
         else:
             # Apply colorscale via update_coloraxes for px.imshow compatibility
             _map_cs = opts.get("heatmap_colorscale")
@@ -1218,7 +1516,6 @@ def apply_chart_display_options(
                     f2.update_coloraxes(colorscale=str(_map_cs))
                 except Exception as exc:
                     logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                    pass
 
             # Build colorbar config for correlation/matrix_heatmap
             cb_tick_sz   = int(opts.get("colorbar_tick_size", 10))
@@ -1239,7 +1536,6 @@ def apply_chart_display_options(
                 f2.update_coloraxes(colorbar=cb_kwargs)
             except Exception as exc:
                 logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                pass
 
             for tr in f2.data:
                 ttype_for_cb = str(getattr(tr, "type", "")).lower()
@@ -1260,7 +1556,6 @@ def apply_chart_display_options(
                         tr.textfont = new_tf
                 except Exception as exc:
                     logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                    pass
 
     # ============================================================
     # APPLY VALUE LABEL COLOR LAST - This ensures it always wins
@@ -1284,7 +1579,6 @@ def apply_chart_display_options(
                             setattr(tr, font_attr, new_font)
                 except Exception as exc:
                     logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                    pass
 
             elif ttype in ("scatter", "scattergl"):
                 try:
@@ -1301,7 +1595,6 @@ def apply_chart_display_options(
                             setattr(tr, font_attr, new_font)
                 except Exception as exc:
                     logging.getLogger(__name__).debug("Suppressed error: %s", exc, exc_info=True)
-                    pass
 
     return f2
 
@@ -1401,7 +1694,30 @@ def render_chart_settings_controls(uid: str, title: str, fig, chart_type: str,
 
     # Checkboxes (4 per row)
     _checks = [c for c in _main if _CONTROL_META[c]["t"] == "check"]
+
+    # "Size by value" only makes sense when the chart was generated with a
+    # Value column (the runner embeds the raw values as trace customdata).
+    # Without a Value column the tick renders DISABLED (it would silently do
+    # nothing) and any stale ticked state is cleared.
+    _sbv_disabled = False
+    if stype == "map_plot":
+        _gen_kw = meta.get("_generation_kwargs") or {}
+        if not (_gen_kw.get("value_col") or meta.get("config", {}).get("value_col")):
+            _sbv_disabled = True
+            if "size_by_value" in _checks:
+                _checks.remove("size_by_value")
+            opts["size_by_value"] = False
+
     _render_in_rows(_checks, 4, opts, uid, key_prefix)
+
+    if _sbv_disabled:
+        # Disabled placeholder so the user can see the option exists but is
+        # unavailable until a Value column is selected on the chart.
+        st.checkbox(
+            "Size by value", value=False, disabled=True,
+            key=f"{key_prefix}_sbv_disabled_{uid}",
+            help="Select a Value column on the chart to enable this option.",
+        )
 
     # Selects (2 per row)
     _sels = [c for c in _main if _CONTROL_META[c]["t"] == "select"]
