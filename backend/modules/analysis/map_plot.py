@@ -1146,10 +1146,24 @@ def run_map_plot(
     choropleth_scope: str = "world",
     choropleth_show_borders: bool = True,
     size_by_value: bool = False,
+    hover_dims: Optional[list] = None,
+    hover_values: Optional[list] = None,
     **kwargs,
 ):
-    """Unified map runner."""
+    """Unified map runner.
+
+    ``hover_dims``: optional list of extra categorical columns to show in
+    hover tooltips (most frequent value per location).
+    ``hover_values``: optional list of ``(column, agg)`` tuples aggregated
+    per location and shown in hover tooltips.
+    """
     pal = palette or COLORS
+
+    hover_dims = [d for d in (hover_dims or []) if d and d in df.columns]
+    hover_values = [
+        (c, (a or "sum")) for c, a in (hover_values or [])
+        if c and c in df.columns and c not in (hover_dims or [])
+    ]
 
 
     if geo_col and geo_col in df.columns and not (lat_col and lon_col):
@@ -1162,6 +1176,7 @@ def run_map_plot(
             show_borders=choropleth_show_borders,
             invert=invert_colorscale,
             pal=pal,
+            hover_dims=hover_dims, hover_values=hover_values,
         )
 
 
@@ -1189,6 +1204,7 @@ def run_map_plot(
                 show_borders=choropleth_show_borders,
                 invert=invert_colorscale,
                 pal=pal,
+                hover_dims=hover_dims, hover_values=hover_values,
             )
         return []
 
@@ -1204,6 +1220,7 @@ def run_map_plot(
         marker_size_max=marker_size_max,
         show_borders=show_borders,
         size_by_value=size_by_value,
+        hover_dims=hover_dims, hover_values=hover_values,
     )
 
 
@@ -1216,10 +1233,18 @@ def _run_scatter_map(
     map_style, marker_opacity, marker_size_min, marker_size_max,
     show_borders=True,
     size_by_value=False,
+    hover_dims=None, hover_values=None,
 ):
+    _hover_triples = _hover_agg_extras(
+        df, location_col, hover_dims, hover_values, skip_cols=(value_col,)
+    )
+    _hover_srcs = list(dict.fromkeys(t[0] for t in _hover_triples))
     needed = list({lat, lon})
     for c in (size_col, color_col, location_col, value_col):
         if c and c in df.columns:
+            needed.append(c)
+    for c in _hover_srcs:
+        if c in df.columns:
             needed.append(c)
     clean_df = df[list(set(needed))].dropna(subset=[lat, lon]).copy()
     clean_df = clean_df[~((clean_df[lat] == 0) & (clean_df[lon] == 0))]
@@ -1262,7 +1287,11 @@ def _run_scatter_map(
                 agg_dict[color_col] = "first"
         if size_col and size_col in clean_df.columns and size_col != val_col:
             agg_dict[size_col] = agg
+        _hamap, _hren = _add_hover_temp_cols(clean_df, _hover_triples)
+        agg_dict.update(_hamap)
         plot_df   = clean_df.groupby(loc_col, as_index=False).agg(agg_dict)
+        # Aggregated hover extras get their tooltip display names.
+        plot_df.rename(columns=_hren, inplace=True)
         agg_label = f" · {agg.upper()}({val_col})"
         if val_col in plot_df.columns:
             new_val_name = f"{agg}({val_col})"
@@ -1332,6 +1361,18 @@ def _run_scatter_map(
         return []
 
 
+    # Hover extras that survived into the plotted frame: prefer the aggregated
+    # display name (grouped paths), fall back to the raw source column
+    # (ungrouped points).  Density cells cannot carry raw dim values, so the
+    # extras are naturally absent there.
+    _hover_extra_cols = []
+    for src, _fn, disp in _hover_triples:
+        for cand in (disp, src):
+            if cand in plot_df.columns and cand not in _hover_extra_cols:
+                _hover_extra_cols.append(cand)
+                break
+
+
     size  = size_col  if size_col  and size_col  in plot_df.columns else None
     color = color_col if color_col and color_col in plot_df.columns else None
     hover = loc_col   if loc_col   and loc_col   in plot_df.columns else None
@@ -1397,6 +1438,9 @@ def _run_scatter_map(
         hover_data["_lytrize_size"] = False
     if "_lytrize_val" in plot_df.columns:
         hover_data["_lytrize_val"] = False
+    # Extra hover dimensions / values requested at generate time.
+    for col in _hover_extra_cols:
+        hover_data[col] = True
     # Density cells: only show the point count when the density path itself
     # colours by point count (i.e. NO colour column selected).  When a real
     # colour column drives the colours, "Points" is an internal helper and
@@ -1729,32 +1773,101 @@ def _run_scatter_map(
 
 
 
+_HOVER_AGG_FUNCS = {
+    "sum": "sum", "mean": "mean", "median": "median",
+    "count": "count", "max": "max", "min": "min",
+}
+
+
+def _modal(s):
+    """Most frequent non-null value of a Series (for categorical hover dims)."""
+    m = s.dropna().mode()
+    return m.iloc[0] if not m.empty else None
+
+
+def _hover_agg_extras(df, group_col, hover_dims, hover_values, skip_cols=()):
+    """Return a list of ``(source_col, agg_fn, display_name)`` hover extras.
+
+    Dims → modal value per group; values → the requested aggregation with an
+    ``AGG(col)`` display name.  The same column may appear more than once
+    (e.g. ``amount``/Sum and ``amount``/Mean) — callers aggregate temp copies
+    of the source column so nothing is silently dropped.
+    """
+    triples, seen = [], set()
+    for c in (hover_dims or []):
+        if c in df.columns and c != group_col and c not in skip_cols and c not in seen:
+            seen.add(c)
+            triples.append((c, _modal, c))
+    for c, a in (hover_values or []):
+        if c in df.columns and c != group_col and c not in skip_cols:
+            disp = f"{a.upper()}({c})"
+            if disp in seen:
+                continue
+            seen.add(disp)
+            triples.append((c, _HOVER_AGG_FUNCS.get(a, "sum"), disp))
+    return triples
+
+
+def _add_hover_temp_cols(frame, triples):
+    """Create temp copies of the extras' source columns for aggregation.
+
+    Returns ``(agg_map, rename_map)``: extra entries for a groupby agg
+    mapping and the post-aggregation rename to the tooltip display names.
+    Temp copies allow the same source column to be aggregated several times
+    (pandas dicts cannot repeat keys).
+    """
+    agg_map, rename_map = {}, {}
+    for i, (src, fn, disp) in enumerate(triples):
+        if src not in frame.columns:
+            continue
+        tcol = f"__hx_{i}"
+        frame[tcol] = frame[src]
+        agg_map[tcol] = fn
+        rename_map[tcol] = disp
+    return agg_map, rename_map
+
+
 def _run_choropleth(
     df, geo_col, value_col, color_col, agg_func,
     colorscale, projection, scope, show_borders, invert, pal,
+    hover_dims=None, hover_values=None,
 ):
+    _hover_triples = _hover_agg_extras(
+        df, geo_col, hover_dims, hover_values, skip_cols=(value_col,)
+    )
+    _hover_srcs = list(dict.fromkeys(t[0] for t in _hover_triples))
+
     if not value_col or value_col not in df.columns:
-        plot_df = df[[geo_col]].copy().dropna()
+        needed = [geo_col] + [c for c in _hover_srcs if c in df.columns]
+        plot_df = df[needed].dropna(subset=[geo_col]).copy()
         plot_df["_count"] = 1
-        plot_df = plot_df.groupby(geo_col, as_index=False)["_count"].sum()
+        agg_map = {"_count": "sum"}
+        _hamap, _hren = _add_hover_temp_cols(plot_df, _hover_triples)
+        agg_map.update(_hamap)
+        plot_df = plot_df.groupby(geo_col, as_index=False).agg(agg_map)
+        plot_df.rename(columns=_hren, inplace=True)
         value_col = "_count"
         agg_label = "COUNT"
     else:
-        needed = [geo_col, value_col]
+        needed = [geo_col, value_col] + [c for c in _hover_srcs if c in df.columns]
         plot_df = df[needed].dropna(subset=[geo_col, value_col]).copy()
         agg = agg_func or "sum"
         agg_label = agg.upper()
         if pd.api.types.is_numeric_dtype(plot_df[value_col]):
             agg_funcs = {"sum": "sum", "mean": "mean", "median": "median",
                          "count": "count", "max": "max", "min": "min"}
-            plot_df = plot_df.groupby(geo_col, as_index=False).agg(
-                {value_col: agg_funcs.get(agg, "sum")}
-            )
+            _agg_map = {value_col: agg_funcs.get(agg, "sum")}
         else:
-            plot_df = plot_df.groupby(geo_col, as_index=False).agg(
-                {value_col: "count"}
-            )
+            _agg_map = {value_col: "count"}
             agg_label = "COUNT"
+        _hamap, _hren = _add_hover_temp_cols(plot_df, _hover_triples)
+        _agg_map.update(_hamap)
+        plot_df = plot_df.groupby(geo_col, as_index=False).agg(_agg_map)
+        plot_df.rename(columns=_hren, inplace=True)
+
+    # Tooltip columns contributed by the hover extras (display names).
+    _hover_extra_cols = [disp for _, _, disp in _hover_triples
+                         if disp in plot_df.columns]
 
 
     if plot_df.empty:
@@ -1777,6 +1890,7 @@ def _run_choropleth(
                 name_col="_region_name",
                 colorscale=colorscale, invert=invert,
                 show_borders=show_borders, projection=projection, scope=scope,
+                hover_extra_cols=_hover_extra_cols,
             )
 
 
@@ -1790,6 +1904,7 @@ def _run_choropleth(
                 name_col="_city_name",
                 colorscale=colorscale, invert=invert,
                 show_borders=show_borders, projection=projection, scope=scope,
+                hover_extra_cols=_hover_extra_cols,
             )
 
 
@@ -1847,7 +1962,14 @@ def _run_choropleth(
             locationmode=locationmode,
             color=value_col,
             hover_name=geo_col,
-            hover_data={value_col: True, "_iso_code": False},
+            hover_data={
+                value_col: True,
+                "_iso_code": False,
+                **{c: True for c in _hover_extra_cols if c in plot_df.columns},
+                **{c: False for c in plot_df.columns
+                   if c not in (geo_col, value_col, "_iso_code")
+                   and c not in _hover_extra_cols},
+            },
             color_continuous_scale=_cs,
             projection=projection if geo_type != "us_states" else "albers usa",
             scope=scope,
@@ -1911,11 +2033,18 @@ def _render_scatter_geo(
     plot_df, geo_col, value_col, agg_label,
     lat_col, lon_col, coord_df, name_col,
     colorscale, invert, show_borders, projection, scope,
+    hover_extra_cols=None,
 ):
     """Render a scatter_geo for world regions / cities where Plotly choropleth"""
     merged = pd.concat(
         [plot_df.reset_index(drop=True), coord_df.reset_index(drop=True)], axis=1
     ).dropna(subset=[lat_col, lon_col])
+
+    _geo_hover = {value_col: True, lat_col: False, lon_col: False,
+                  name_col: False}
+    for _c in (hover_extra_cols or []):
+        if _c in merged.columns:
+            _geo_hover[_c] = True
 
 
     if merged.empty:
@@ -1939,8 +2068,7 @@ def _render_scatter_geo(
             size=value_col,
             color=value_col,
             hover_name=geo_col,
-            hover_data={value_col: True, lat_col: False, lon_col: False,
-                        name_col: False},
+            hover_data=_geo_hover,
             color_continuous_scale=_cs,
             projection=projection,
             title=title,

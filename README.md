@@ -250,7 +250,7 @@ Lytrize-Clip does not collect, transmit or store captured page data.
 | **Scatter Plot** | Variable relationships with optional trendlines (OLS or LOWESS) |
 | **Matrix Heatmap** | Cross-tabulation heatmap (pivot table as a heatmap) |
 | **Pivot Table** | Cross-tabulation table (pivot table as a data table) |
-| **Map Plot** | Geographic scatter (lat/lon) or choropleth (country/region names) |
+| **Map Plot** | Geographic scatter (lat/lon) or choropleth — world countries (ISO-3), US states, European & Indian states, or major city names, with extra hover annotations |
 | **Outlier** | IQR-based outlier detection across numeric columns |
 | **Data Quality** | Missing values, duplicate rows and column quality summary |
 
