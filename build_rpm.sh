@@ -100,7 +100,7 @@ echo "[4/7] Installing Python dependencies..."
 # would give a developer.
 "$VENV/bin/pip" install -r requirements.txt --quiet
 # Pin pyarrow to 24.0.0 for Fedora (Python 3.14) — 18.1.0 has no 3.14 wheels
-"$VENV/bin/pip" install "pyarrow==24.0.0" --quiet --only-binary pyarrow
+"$VENV/bin/pip" install "pyarrow>=24.0.0" --quiet --only-binary pyarrow
 
 # ── [5/7] Patch venv shebangs for portability ─────────────────────────────────
 echo "[5/7] Patching venv shebangs for portability..."

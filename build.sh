@@ -56,7 +56,7 @@ echo "[4/7] Installing Python dependencies..."
 # would give a developer.
 "$VENV_BUILD/bin/pip" install -r requirements.txt --quiet
 # Pin pyarrow to 18.1.0 for Debian (Python 3.13) to avoid segfault in 25.x
-"$VENV_BUILD/bin/pip" install "pyarrow==18.1.0" --quiet --only-binary pyarrow
+"$VENV_BUILD/bin/pip" install "pyarrow>=18.1.0" --quiet --only-binary pyarrow
 
 # ── [5/7] Patch venv shebangs for portability ─────────────────────────────────
 echo "[5/7] Patching venv shebangs for portability..."
