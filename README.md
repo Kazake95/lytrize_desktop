@@ -17,7 +17,10 @@ Upload a CSV or Excel file and get interactive charts and dashboards in seconds.
 
 ![Lytrize Logo](backend/assets/lytrize.png)
 
-**[📥 Download Desktop App](https://github.com/Kazake95/lytrize_desktop/releases)**
+**[📥 Download for Windows](https://github.com/Kazake95/lytrize_desktop/releases/download/Lytrize_Desktop_v1.2/LytrizeSetup_1.2.exe)**
+|  **[📥 Download for  Ubuntu/Debian](https://github.com/Kazake95/lytrize_desktop/releases/download/Lytrize_Desktop_v1.2/lytrize_1.2_amd64.deb)**
+|  **[📥 Download for Fedora/Opensuse](https://github.com/Kazake95/lytrize_desktop/releases/download/Lytrize_Desktop_v1.2/lytrize-1.2-1_x86_64.rpm)**
+
 
 </div>
 
