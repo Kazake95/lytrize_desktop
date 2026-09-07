@@ -77,6 +77,81 @@ find "$VENV_BUILD" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete 2>/dev/n
 # Remove broken symlinks so dpkg-deb/tar doesn't fail
 find "$VENV_BUILD" -type l ! -exec test -e {} \; -delete 2>/dev/null || true
 
+# ── [6b/7] Slim unused PySide6 Qt modules ─────────────────────────────────────
+# The launcher only uses QtCore / QtGui / QtWidgets. Everything below is dead
+# weight (WebEngine alone is an embedded Chromium) and removing it shrinks the
+# package by ~150 MB. Mirrors the slimming build_windows.ps1 already does, and
+# is guarded by a PySide6 smoke test so a broken package can never ship.
+echo "[6b/7] Slimming unused PySide6 Qt modules..."
+PYSIDE6_DIR=$(find "$VENV_BUILD" -type d -name "PySide6" -path "*/site-packages/*" 2>/dev/null | head -1)
+if [ -n "$PYSIDE6_DIR" ]; then
+    SIZE_BEFORE=$(du -sh "$PYSIDE6_DIR" 2>/dev/null | cut -f1)
+    # Unused Qt6 shared libraries (C++). Keep Core/Gui/Widgets and the few the
+    # launcher actually links; drop the rest.
+    find "$VENV_BUILD" -type f \( \
+        -name 'libQt6WebEngine*.so*' -o -name 'libQt6Pdf*.so*' -o \
+        -name 'libQt6Qml*.so*' -o -name 'libQt6Quick*.so*' -o \
+        -name 'libQt6Quick3D*.so*' -o -name 'libQt63D*.so*' -o \
+        -name 'libQt6Charts*.so*' -o -name 'libQt6DataVisualization*.so*' -o \
+        -name 'libQt6Designer*.so*' -o -name 'libQt6Graphs*.so*' -o \
+        -name 'libQt6Multimedia*.so*' -o -name 'libQt6Sensors*.so*' -o \
+        -name 'libQt6SerialPort*.so*' -o -name 'libQt6Positioning*.so*' -o \
+        -name 'libQt6Location*.so*' -o -name 'libQt6RemoteObjects*.so*' -o \
+        -name 'libQt6Scxml*.so*' -o -name 'libQt6WebChannel*.so*' -o \
+        -name 'libQt6WebSockets*.so*' -o -name 'libQt6NetworkAuth*.so*' -o \
+        -name 'libQt6HttpServer*.so*' -o -name 'libQt6TextToSpeech*.so*' -o \
+        -name 'libQt6VirtualKeyboard*.so*' -o -name 'libQt6Help*.so*' -o \
+        -name 'libQt6UiTools*.so*' -o -name 'libQt6Test*.so*' -o \
+        -name 'libQt6Bluetooth*.so*' -o -name 'libQt6Nfc*.so*' -o \
+        -name 'libQt6Labs*.so*' -o -name 'libQt6SpatialAudio*.so*' -o \
+        -name 'libQt6WebView*.so*' \
+    \) -delete 2>/dev/null || true
+    # Unused PySide6 Python extension modules.
+    find "$VENV_BUILD" -type f \( \
+        -name 'QtWebEngine*.so' -o -name 'QtPdf*.so' -o \
+        -name 'QtQml*.so' -o -name 'QtQuick*.so' -o \
+        -name 'QtQuick3D*.so' -o -name 'Qt3D*.so' -o \
+        -name 'QtCharts*.so' -o -name 'QtDataVisualization*.so' -o \
+        -name 'QtDesigner*.so' -o -name 'QtGraphs*.so' -o \
+        -name 'QtMultimedia*.so' -o -name 'QtSensors*.so' -o \
+        -name 'QtSerialPort*.so' -o -name 'QtPositioning*.so' -o \
+        -name 'QtLocation*.so' -o -name 'QtRemoteObjects*.so' -o \
+        -name 'QtScxml*.so' -o -name 'QtWebChannel*.so' -o \
+        -name 'QtWebSockets*.so' -o -name 'QtNetworkAuth*.so' -o \
+        -name 'QtHttpServer*.so' -o -name 'QtTextToSpeech*.so' -o \
+        -name 'QtVirtualKeyboard*.so' -o -name 'QtHelp*.so' -o \
+        -name 'QtUiTools*.so' -o -name 'QtTest*.so' -o \
+        -name 'QtBluetooth*.so' -o -name 'QtNfc*.so' -o \
+        -name 'QtLabs*.so' -o -name 'QtSpatialAudio*.so' -o \
+        -name 'QtWebView*.so' \
+    \) -delete 2>/dev/null || true
+    # QtWebEngineProcess helper + webengine resources.
+    find "$VENV_BUILD" -type f -name 'QtWebEngineProcess*' -delete 2>/dev/null || true
+    rm -rf "$PYSIDE6_DIR/resources/qtwebengine"* 2>/dev/null || true
+    rm -rf "$PYSIDE6_DIR/translations/qtwebengine_locales" 2>/dev/null || true
+    # QML tree + dev-only trees.
+    rm -rf "$PYSIDE6_DIR/qml" 2>/dev/null || true
+    for _d in doc glue include lib metatypes scripts; do
+        rm -rf "$PYSIDE6_DIR/$_d" 2>/dev/null || true
+    done
+    # Unused plugin subdirectories.
+    for _p in webview multimedia position sensors sceneparsers geometryloaders \
+             canbus renderers renderplugins geoservices scxmldatamodel \
+             texttospeech qmmlint qmltooling designer assetimporters; do
+        rm -rf "$PYSIDE6_DIR/plugins/$_p" 2>/dev/null || true
+    done
+    rm -f "$PYSIDE6_DIR/plugins/imageformats/qpdf"* 2>/dev/null || true
+    # Clean up now-broken symlinks left by the removals.
+    find "$VENV_BUILD" -type l ! -exec test -e {} \; -delete 2>/dev/null || true
+    SIZE_AFTER=$(du -sh "$PYSIDE6_DIR" 2>/dev/null | cut -f1)
+    echo "      PySide6 slimmed: $SIZE_BEFORE -> $SIZE_AFTER"
+    # Smoke test — abort the build if PySide6 broke, so a broken package never ships.
+    "$VENV_BUILD/bin/python" -c "from PySide6 import QtCore, QtGui, QtWidgets; print('PySide6 smoke test OK')" \
+        || { echo "ERROR: PySide6 smoke test FAILED after slimming — refusing to build."; exit 1; }
+else
+    echo "      PySide6 not found in venv — skipping Qt slimming."
+fi
+
 # ── [7/7] Assemble and build .deb ─────────────────────────────────────────────
 echo "[7/7] Building .deb package..."
 
