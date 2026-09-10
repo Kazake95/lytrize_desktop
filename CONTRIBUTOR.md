@@ -4,20 +4,6 @@ Thanks to everyone who has contributed to Lytrize! This file acknowledges the pe
 
 ---
 
-## Core Team
-
-### Kazake95 — Creator & Lead Developer
-
-- Designed and built the entire application architecture
-- Streamlit backend with 11 chart types and dashboard builder
-- PySide6 desktop launcher with browser isolation and crash recovery
-- SQLite database layer with session management and auto-save
-- Cross-platform packaging (.deb, .rpm, Windows .exe via Inno Setup 7)
-- Offline font bundling and HTML export system
-- Auto-update on re-upload with transform log preservation
-
----
-
 ## How to Contribute
 
 Lytrize is open source and welcomes contributions from everyone. Here is how you can help:
