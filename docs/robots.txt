@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://kazake95.github.io/lytrize_desktop/sitemap.xml
