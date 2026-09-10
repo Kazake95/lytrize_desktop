@@ -30,11 +30,11 @@ Upload a CSV or Excel file and get interactive charts and dashboards in seconds.
 
 | Start Up | Home Screen | Backup/Restore |
 |---|---|---|
-| ![Start Up](backend/assets/screenshots/3.png) | ![Home Screen](backend/assets/screenshots/4.png) | ![Backup/Restore](backend/assets/screenshots/5.png) |
+| ![Start Up](backend/assets/screenshots/launcher_gui.png) | ![Home Screen](backend/assets/screenshots/home_page.png) | ![Backup/Restore](backend/assets/screenshots/backup_restore_page.png) |
 
 | Upload | Analysis | Dashboard building |
 |---|---|---|
-| ![Upload](backend/assets/screenshots/6.png) | ![Analysis page](backend/assets/screenshots/7.png) | ![Dashboard](backend/assets/screenshots/10.png)
+| ![Upload](backend/assets/screenshots/data_upload_page.png) | ![Analysis page](backend/assets/screenshots/analysis_types_page.png) | ![Dashboard](backend/assets/screenshots/dashboard_buil_page.png)
 
 ---
 
