@@ -3,17 +3,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Lytrize Desktop is a privacy-first, local-first BI and data analytics application for Linux and Windows. Analyze CSV and Excel data locally, build interactive dashboards, and export shareable HTML reports.">
-  <meta name="keywords" content="privacy-first BI, offline BI, local analytics, desktop BI, Linux BI, Windows BI, data analysis, CSV analysis, Excel analysis, business intelligence, data visualization, open source BI, Python, PySide6, Qt6">
+  <meta name="description" content="Free open-source offline BI app for Linux & Windows. Analyze CSV/Excel locally, build dashboards — private native desktop analytics, no cloud.">
+  <meta name="keywords" content="linux BI app, offline BI tool, native desktop analytics, cross-platform BI, privacy-first BI, offline BI, local analytics, desktop BI, Linux BI, Windows BI, data analysis, CSV analysis, Excel analysis, business intelligence, data visualization, open source BI, ubuntu data analysis tool, debian analytics app, fedora BI software, windows offline BI, CSV analyzer, Excel dashboard builder, private BI alternative, Python, PySide6, Qt6">
   <meta name="author" content="Ravi Kumar / Lytrize">
   <meta name="theme-color" content="#0b1020" id="theme-color-meta">
   <meta property="og:type" content="website">
-  <meta property="og:title" content="Lytrize Desktop — Privacy-first Offline BI & Data Analytics">
-  <meta property="og:description" content="Local-first business intelligence and data analysis for Linux and Windows. Your analytics workflow stays on your device.">
-  <meta property="og:image" content="assets/welcome-banner.png">
+  <meta property="og:title" content="Lytrize Desktop — Offline Linux BI App | Private Native Analytics">
+  <meta property="og:description" content="Free open-source offline BI app for Linux & Windows. Analyze CSV/Excel locally, build dashboards — no cloud, no account.">
+  <meta property="og:image" content="https://kazake95.github.io/lytrize_desktop/assets/welcome-banner.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Lytrize Desktop analytics dashboard preview">
+  <meta property="og:locale" content="en_US">
   <meta property="og:url" content="https://kazake95.github.io/lytrize_desktop/">
   <meta name="twitter:card" content="summary_large_image">
-  <title>Lytrize Desktop — Privacy-first Offline BI & Data Analytics</title>
+  <meta name="twitter:title" content="Lytrize Desktop — Offline Linux BI App | Private Native Analytics">
+  <meta name="twitter:description" content="Free open-source offline BI app for Linux & Windows. Analyze CSV/Excel locally, build dashboards — no cloud.">
+  <meta name="twitter:image" content="https://kazake95.github.io/lytrize_desktop/assets/welcome-banner.png">
+  <title>Lytrize Desktop — Offline Linux BI App | Private Native Analytics</title>
   <link rel="icon" href="assets/lytrize.png" type="image/png">
   <link rel="canonical" href="https://kazake95.github.io/lytrize_desktop/">
   <link rel="stylesheet" href="styles.css">
@@ -23,14 +30,84 @@
     "@type":"SoftwareApplication",
     "name":"Lytrize Desktop",
     "applicationCategory":"BusinessApplication",
-    "operatingSystem":"Windows 10/11, Linux",
+    "applicationSubCategory":"Business Intelligence",
+    "operatingSystem":["Linux","Windows 10","Windows 11"],
     "softwareVersion":"1.2",
     "license":"https://opensource.org/licenses/MIT",
     "url":"https://github.com/Kazake95/lytrize_desktop",
     "downloadUrl":"https://github.com/Kazake95/lytrize_desktop/releases",
-    "description":"Privacy-first, local-first desktop BI and data analytics application for Linux and Windows.",
+    "image":"https://kazake95.github.io/lytrize_desktop/assets/welcome-banner.png",
+    "screenshot":[
+      "https://kazake95.github.io/lytrize_desktop/assets/screenshots/home.png",
+      "https://kazake95.github.io/lytrize_desktop/assets/screenshots/upload.png",
+      "https://kazake95.github.io/lytrize_desktop/assets/screenshots/analysis-types.png",
+      "https://kazake95.github.io/lytrize_desktop/assets/screenshots/chart.png",
+      "https://kazake95.github.io/lytrize_desktop/assets/screenshots/dashboard.png",
+      "https://kazake95.github.io/lytrize_desktop/assets/screenshots/backup.png"
+    ],
+    "featureList":[
+      "11+ analytical chart types",
+      "Interactive dashboard builder with KPI cards",
+      "Self-contained HTML export",
+      "Offline local data analysis",
+      "Session and dashboard backup/restore"
+    ],
+    "description":"Free, open-source, offline-first desktop BI and data analytics application for Linux and Windows. Analyze CSV/Excel locally, build dashboards, no cloud.",
     "author":{"@type":"Person","name":"Ravi Kumar"},
+    "sameAs":[
+      "https://github.com/Kazake95/lytrize_desktop",
+      "https://youtube.com/playlist?list=PLK3uupY-0js4",
+      "https://linkedin.com/in/vishal-nath-8261611b9"
+    ],
     "offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context":"https://schema.org",
+    "@type":"FAQPage",
+    "mainEntity":[
+      {
+        "@type":"Question",
+        "name":"Is Lytrize really free? Do I need an account?",
+        "acceptedAnswer":{"@type":"Answer","text":"Yes. Lytrize is completely free and open source under the MIT license. There is no account, no signup and no subscription. You download it, install it, and open your files."}
+      },
+      {
+        "@type":"Question",
+        "name":"Does Lytrize work offline and is my data private?",
+        "acceptedAnswer":{"@type":"Answer","text":"Yes. Your CSV and Excel files are analyzed locally on your device; nothing is uploaded to a service. The only exception is the geographic map chart, which may load external map tiles."}
+      },
+      {
+        "@type":"Question",
+        "name":"How do I go from a file to a dashboard?",
+        "acceptedAnswer":{"@type":"Answer","text":"Install Lytrize, open it, click Start New Analysis and pick a CSV or Excel file. On the Analysis page choose a chart type, pick your columns and press Generate. Then click Proceed to Dashboard, arrange your charts, add KPI cards, and download the result as a single HTML file."}
+      },
+      {
+        "@type":"Question",
+        "name":"What files and sizes can Lytrize analyze?",
+        "acceptedAnswer":{"@type":"Answer","text":"Lytrize reads CSV and Excel files up to about 400 MB. Very large datasets use smart sampling and chunked reading for CSVs over 30 MB."}
+      },
+      {
+        "@type":"Question",
+        "name":"What charts and analysis types are included?",
+        "acceptedAnswer":{"@type":"Answer","text":"11+ views: bar, pie/donut, scatter, histogram, time series, correlation, pivot table, matrix heatmap, geographic map, outlier detection and data-quality checks, plus KPI summary cards."}
+      },
+      {
+        "@type":"Question",
+        "name":"Which platforms are supported and how do I install Lytrize?",
+        "acceptedAnswer":{"@type":"Answer","text":"Prebuilt packages are available from GitHub Releases: .deb for Ubuntu/Debian, .rpm for Fedora/RHEL/openSUSE, and a 64-bit .exe for Windows 10/11."}
+      },
+      {
+        "@type":"Question",
+        "name":"How do I share my results with others?",
+        "acceptedAnswer":{"@type":"Answer","text":"Download your dashboard as a self-contained HTML file. To save it as a PNG, use your browser's full-page screenshot tool."}
+      },
+      {
+        "@type":"Question",
+        "name":"Can I save my work and continue later?",
+        "acceptedAnswer":{"@type":"Answer","text":"Yes. Sessions are saved locally in SQLite. Re-upload an updated dataset and charts and KPI cards regenerate automatically. You can also export a JSON backup and restore it on any machine."}
+      }
+    ]
   }
   </script>
 </head>
@@ -47,6 +124,7 @@
         <a href="#features">Features</a>
         <a href="#screenshots">Screenshots</a>
         <a href="#download">Download</a>
+        <a href="#faq">FAQ</a>
         <a href="#architecture">Architecture</a>
         <a href="#about">About</a>
       </nav>
@@ -59,6 +137,7 @@
       <a href="#features">Features</a>
       <a href="#screenshots">Screenshots</a>
       <a href="#download">Download</a>
+      <a href="#faq">FAQ</a>
       <a href="#architecture">Architecture</a>
       <a href="#about">About</a>
     </nav>
@@ -71,21 +150,27 @@
       <div class="container hero-grid">
         <div class="hero-copy">
           <div class="eyebrow"><span class="status-dot"></span> Open-source desktop analytics</div>
-          <h1>Business intelligence that<br><span class="gradient-text">stays with your data.</span></h1>
-          <p class="hero-lead">Lytrize is a privacy-first, local-first BI and data analysis application for Linux and Windows. Analyze CSV and Excel files, create interactive dashboards, and export shareable results without building your workflow around a cloud account.</p>
+          <h1>Offline BI for<br><span class="gradient-text">Linux & Windows.</span></h1>
+          <p class="hero-lead">Lytrize is a free, open-source desktop app that analyzes CSV and Excel files locally. Open a file, explore it with 11+ charts, build a dashboard, and share it as a single HTML file. No account. No cloud. Works offline.</p>
           <div class="hero-actions">
             <a class="btn btn-primary" href="#download">Download Lytrize <span>↓</span></a>
             <a class="btn btn-secondary" href="https://github.com/Kazake95/lytrize_desktop" target="_blank" rel="noopener">View on GitHub <span>↗</span></a>
             <a class="btn btn-ghost" href="https://youtube.com/playlist?list=PLK3uupY-0js4&amp;si=WZTsS_0umwPuhaZM" target="_blank" rel="noopener">Product walkthroughs <span>▶</span></a>
           </div>
+          <ol class="hero-steps" aria-label="How Lytrize works">
+            <li><span>1</span>Open CSV / Excel</li>
+            <li><span>2</span>Explore 11+ charts</li>
+            <li><span>3</span>Build a dashboard</li>
+            <li><span>4</span>Share one HTML file</li>
+          </ol>
           <div class="hero-meta" aria-label="Project highlights">
-            <span>MIT License</span><i></i><span>Linux + Windows</span><i></i><span>v1.2</span>
+            <span>Free · Open source (MIT)</span><i></i><span>Linux + Windows</span><i></i><span>Works offline</span><i></i><span>v1.2</span>
           </div>
         </div>
         <div class="hero-visual">
           <div class="window-card">
             <div class="window-topbar"><span></span><span></span><span></span><div>Lytrize Desktop</div></div>
-            <img src="assets/welcome-banner.png" alt="Lytrize application preview showing the analytics dashboard workflow" loading="eager">
+            <img src="assets/welcome-banner.png" alt="Lytrize application preview showing the analytics dashboard workflow" width="1080" height="462" fetchpriority="high" loading="eager">
             <div class="window-overlay">
               <div><strong>Local-first</strong><small>CSV / XLSX → analysis → dashboard</small></div>
               <span class="privacy-chip">⌁ Data stays local</span>
@@ -105,8 +190,8 @@
       <div class="container">
         <div class="section-heading">
           <span class="section-kicker">Why Lytrize</span>
-          <h2>A full analytical workflow,<br>without handing your data to a service.</h2>
-          <p>Built around practical analytics work: ingest messy files, clean and transform them, explore patterns, build a dashboard, save your session, and share the result.</p>
+          <h2>A complete desktop BI workflow<br>that stays private.</h2>
+          <p>Built around practical analytics work: open CSV or Excel files, clean and transform them locally, explore patterns, build a dashboard, save your session, and share the result — all without your data leaving your device.</p>
         </div>
         <div class="feature-grid">
           <article class="feature-card feature-card-wide">
@@ -123,11 +208,11 @@
             <div class="feature-icon">▤</div><h3>Local persistence</h3><p>Sessions and dashboard state are stored locally with SQLite and local dataset snapshots.</p>
           </article>
           <article class="feature-card">
-            <div class="feature-icon">◫</div><h3>Cross-platform</h3><p>Prebuilt packages are available for Debian/Ubuntu, Fedora/RHEL/openSUSE and Windows 10/11.</p>
+            <div class="feature-icon">◫</div><h3>Native apps for Linux &amp; Windows</h3><p>Prebuilt packages are available for Debian/Ubuntu, Fedora/RHEL/openSUSE and Windows 10/11.</p>
           </article>
           <article class="feature-card feature-card-wide dark-inset">
             <div class="feature-icon">⌁</div>
-            <div><h3>Privacy by architecture</h3><p>No account, no analytics service, no cloud dataset upload. The current map plotting path may load external map tiles; a fully native/offline map workflow is part of the future Qt6 direction.</p></div>
+            <div><h3>Private offline analytics</h3><p>No account, no analytics service, no cloud dataset upload. The current map plotting path may load external map tiles; a fully native/offline map workflow is part of the future Qt6 direction.</p></div>
           </article>
         </div>
       </div>
@@ -136,16 +221,34 @@
     <section class="section section-soft" id="screenshots">
       <div class="container">
         <div class="section-heading split-heading">
-          <div><span class="section-kicker">Inside the app</span><h2>See the workflow, not just the claims.</h2></div>
-          <a class="text-link" href="https://www.youtube.com/watch?v=TVrVrTDbRKQ" target="_blank" rel="noopener">Watch walkthrough playlist ↗</a>
+          <div><span class="section-kicker">Inside the app</span><h2>See the offline BI workflow, step by step.</h2></div>
+          <a class="text-link" href="https://youtube.com/playlist?list=PLK3uupY-0js4&amp;si=WZTsS_0umwPuhaZM" target="_blank" rel="noopener">Watch walkthrough playlist ↗</a>
         </div>
         <div class="gallery">
-          <figure class="gallery-item gallery-large"><img src="assets/screenshots/1.png" alt="Lytrize startup and home interface" loading="lazy"><figcaption><strong>Start locally</strong><span>Begin an analysis without a cloud workspace.</span></figcaption></figure>
-          <figure class="gallery-item"><img src="assets/screenshots/2.png" alt="Lytrize data upload and analysis interface" loading="lazy"><figcaption><strong>Bring your data</strong><span>CSV and Excel workflows with local preprocessing.</span></figcaption></figure>
-          <figure class="gallery-item"><img src="assets/screenshots/4.png" alt="Lytrize analysis view with chart controls" loading="lazy"><figcaption><strong>Explore</strong><span>Generate analytical views from your columns.</span></figcaption></figure>
-          <figure class="gallery-item"><img src="assets/screenshots/7.png" alt="Lytrize dashboard builder" loading="lazy"><figcaption><strong>Build a dashboard</strong><span>Arrange charts and KPI cards into a shareable layout.</span></figcaption></figure>
-          <figure class="gallery-item gallery-tall"><img src="assets/screenshots/8.png" alt="Lytrize map visualization" loading="lazy"><figcaption><strong>Map your data</strong><span>Geographic charts with multiple location paths.</span></figcaption></figure>
-          <figure class="gallery-item"><img src="assets/screenshots/10.png" alt="Lytrize data quality analysis" loading="lazy"><figcaption><strong>Check quality</strong><span>Inspect missing values, duplicates and column health.</span></figcaption></figure>
+          <figure class="gallery-item">
+            <img src="assets/screenshots/home.png" alt="Lytrize welcome and home screen" width="1920" height="1080" loading="lazy" decoding="async">
+            <figcaption><span class="step">01</span><strong>Start on Home</strong><p>Recent work, dataset shortcuts and next steps right up front.</p></figcaption>
+          </figure>
+          <figure class="gallery-item">
+            <img src="assets/screenshots/upload.png" alt="Lytrize data upload and preprocessing interface" width="1918" height="998" loading="lazy" decoding="async">
+            <figcaption><span class="step">02</span><strong>Bring your data</strong><p>CSV / Excel ingestion with local preprocessing and validation.</p></figcaption>
+          </figure>
+          <figure class="gallery-item">
+            <img src="assets/screenshots/analysis-types.png" alt="Lytrize analysis type gallery" width="1920" height="1080" loading="lazy" decoding="async">
+            <figcaption><span class="step">03</span><strong>Pick an analysis</strong><p>11+ views — distributions, correlations, scatter, heatmaps and more.</p></figcaption>
+          </figure>
+          <figure class="gallery-item">
+            <img src="assets/screenshots/chart.png" alt="Lytrize generated charts and histogram view" width="1920" height="1080" loading="lazy" decoding="async">
+            <figcaption><span class="step">04</span><strong>Generate charts</strong><p>One tap turns a column into a shareable analytical view.</p></figcaption>
+          </figure>
+          <figure class="gallery-item">
+            <img src="assets/screenshots/dashboard.png" alt="Lytrize dashboard builder with KPI cards and charts" width="1908" height="1079" loading="lazy" decoding="async">
+            <figcaption><span class="step">05</span><strong>Build a dashboard</strong><p>Arrange charts and KPI cards into a shareable HTML layout.</p></figcaption>
+          </figure>
+          <figure class="gallery-item">
+            <img src="assets/screenshots/backup.png" alt="Lytrize backup and restore settings" width="1920" height="1080" loading="lazy" decoding="async">
+            <figcaption><span class="step">06</span><strong>Save & restore</strong><p>Backup sessions and data so your work is never lost.</p></figcaption>
+          </figure>
         </div>
       </div>
     </section>
@@ -155,8 +258,8 @@
         <div class="download-panel">
           <div class="download-copy">
             <span class="section-kicker">Latest release · v1.2</span>
-            <h2>Choose your platform.</h2>
-            <p>Lytrize Desktop v1.2 is the current public release, with Windows 10/11 support alongside Linux packages.</p>
+            <h2>Download Lytrize for Linux or Windows.</h2>
+            <p>Lytrize Desktop v1.2 is the current public release, with Windows 10/11 support alongside Linux packages. Installs work offline and run analytics entirely on your device.</p>
             <div class="release-links">
               <a href="https://github.com/Kazake95/lytrize_desktop/releases/tag/Lytrize_Desktop_v1.2" target="_blank" rel="noopener">View release notes ↗</a>
               <a href="https://github.com/Kazake95/lytrize_desktop/releases" target="_blank" rel="noopener">All releases ↗</a>
@@ -164,17 +267,62 @@
           </div>
           <div class="download-grid">
             <a class="download-card" href="https://github.com/Kazake95/lytrize_desktop/releases/download/Lytrize_Desktop_v1.2/LytrizeSetup_1.2.exe">
-              <div class="platform-mark">⊞</div><div><strong>Windows</strong><span>LytrizeSetup_1.2.exe · 64-bit</span></div><b>↓</b>
+              <div class="platform-mark">⊞</div><div><strong>Windows</strong><span>LytrizeSetup_1.2.exe · 64-bit</span><b class="offline-chip">✓ Works offline</b></div><b>↓</b>
             </a>
             <a class="download-card" href="https://github.com/Kazake95/lytrize_desktop/releases/download/Lytrize_Desktop_v1.2/lytrize_1.2_amd64.deb">
-              <div class="platform-mark">◈</div><div><strong>Ubuntu / Debian</strong><span>lytrize_1.2_amd64.deb · 64-bit</span></div><b>↓</b>
+              <div class="platform-mark">◈</div><div><strong>Ubuntu / Debian</strong><span>lytrize_1.2_amd64.deb · 64-bit</span><b class="offline-chip">✓ Works offline</b></div><b>↓</b>
             </a>
             <a class="download-card" href="https://github.com/Kazake95/lytrize_desktop/releases/download/Lytrize_Desktop_v1.2/lytrize-1.2-1_x86_64.rpm">
-              <div class="platform-mark">◉</div><div><strong>Fedora / RHEL / openSUSE</strong><span>lytrize-1.2-1_x86_64.rpm · 64-bit</span></div><b>↓</b>
+              <div class="platform-mark">◉</div><div><strong>Fedora / RHEL / openSUSE</strong><span>lytrize-1.2-1_x86_64.rpm · 64-bit</span><b class="offline-chip">✓ Works offline</b></div><b>↓</b>
             </a>
           </div>
         </div>
         <div class="download-note"><strong>Need source?</strong> Build from the repository using the documented contributor workflow. <a href="https://github.com/Kazake95/lytrize_desktop#install" target="_blank" rel="noopener">See installation instructions ↗</a></div>
+      </div>
+    </section>
+
+    <section class="section" id="faq">
+      <div class="container">
+        <div class="section-heading">
+          <span class="section-kicker">Frequently asked</span>
+          <h2>Questions, answered.</h2>
+          <p>Straight answers about cost, privacy, platforms and how the workflow fits into your day.</p>
+        </div>
+        <div class="faq-list">
+          <details class="faq-item" open>
+            <summary>Is Lytrize really free? Do I need an account?</summary>
+            <p>Yes — Lytrize is completely free and open source under the MIT license. There is no account, no signup and no subscription. You download it, install it, and open your files.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Does it work offline? Is my data private?</summary>
+            <p>Yes. Your CSV and Excel files are analyzed locally on your device; nothing is uploaded to a service. The only exception is the geographic map chart, which may load external map tiles. A fully native/offline map workflow is planned.</p>
+          </details>
+          <details class="faq-item">
+            <summary>How do I go from a file to a dashboard?</summary>
+            <p>Install Lytrize, open it, click <strong>Start New Analysis</strong> and pick a CSV or Excel file. On the Analysis page choose a chart type, pick your columns and press <strong>Generate</strong>. Then click <strong>Proceed to Dashboard</strong>, arrange your charts, add KPI cards, and download the result as a single HTML file.</p>
+          </details>
+          <details class="faq-item">
+            <summary>What files can I analyze? Are there size limits?</summary>
+            <p>Lytrize reads CSV and Excel files up to about 400 MB. Very large datasets use smart sampling (8,000 points for scatter plots, 5,000 for maps) and chunked reading for CSVs over 30 MB. For smooth performance beyond 100 MB, 8 GB+ of RAM is recommended.</p>
+          </details>
+          <details class="faq-item">
+            <summary>What charts and analysis types are included?</summary>
+            <p>11+ views out of the box: bar, pie/donut, scatter, histogram, time series, correlation, pivot table, matrix heatmap, geographic map, outlier detection and data-quality checks — plus KPI summary cards on the dashboard.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Which platforms are supported and how do I install?</summary>
+            <p>Prebuilt packages are available from the GitHub Releases page: <code>.deb</code> for Ubuntu/Debian, <code>.rpm</code> for Fedora/RHEL/openSUSE, and a 64-bit <code>.exe</code> for Windows 10/11. On Linux install with <code>dpkg -i</code> or <code>dnf install</code>; on Windows run the installer.</p>
+          </details>
+          <details class="faq-item">
+            <summary>How do I share my results with others?</summary>
+            <p>Download your dashboard as a self-contained HTML file — it opens in any browser without Lytrize installed. To save it as a PNG, open the file and use your browser's full-page screenshot tool (DevTools &gt; Capture full size screenshot, or Firefox <code>Ctrl+Shift+S</code>).</p>
+          </details>
+          <details class="faq-item">
+            <summary>Can I save my work and continue later?</summary>
+            <p>Yes. Sessions are saved locally in SQLite. Re-upload an updated dataset and your charts and KPI cards regenerate automatically, preserving renamed and calculated columns. You can also export a JSON backup from Home → Restore Backup and restore it on any machine.</p>
+          </details>
+        </div>
+        <p class="faq-more">App won't start or need more help? <a href="https://github.com/Kazake95/lytrize_desktop#readme" target="_blank" rel="noopener noreferrer">See the troubleshooting guide on GitHub ↗</a></p>
       </div>
     </section>
 
@@ -207,10 +355,10 @@
       <div class="container about-grid">
         <div class="about-card">
           <span class="section-kicker">Project philosophy</span>
-          <h2>Built from analytics practice, not from a BI feature checklist.</h2>
+          <h2>An open-source, privacy-first alternative to cloud BI.</h2>
           <p>Lytrize started from real-world analytics work: dealing with spreadsheets, exploratory analysis, repeatable transformations, dashboards and the practical need to keep sensitive data under the user's control.</p>
           <p>The project is open source and evolving toward a stronger native Qt6/PySide6 desktop architecture.</p>
-          <a class="btn btn-secondary" href="https://github.com/Kazake95/lytrize_desktop" target="_blank" rel="noopener">Explore the source <span>↗</span></a>
+        
         </div>
         <div class="social-card">
           <span class="section-kicker">Stay close to the project</span>
@@ -218,7 +366,7 @@
           <p>Project updates, releases and technical progress are shared occasionally. The YouTube playlist is focused on product walkthroughs and usage.</p>
           <div class="social-links">
             <a href="https://github.com/Kazake95/lytrize_desktop" target="_blank" rel="noopener"><span class="social-symbol">⌘</span><div><strong>GitHub</strong><small>Source & releases</small></div><b>↗</b></a>
-            <a href="https://in.linkedin.com/in/ravikumar-aiops" target="_blank" rel="noopener"><span class="social-symbol">in</span><div><strong>LinkedIn</strong><small>Project updates</small></div><b>↗</b></a>
+            <a href="https://linkedin.com/in/vishal-nath-8261611b9" target="_blank" rel="noopener"><span class="social-symbol">in</span><div><strong>LinkedIn</strong><small>Project updates</small></div><b>↗</b></a>
             <a href="https://youtube.com/playlist?list=PLK3uupY-0js4&amp;si=WZTsS_0umwPuhaZM" target="_blank" rel="noopener"><span class="social-symbol">▶</span><div><strong>YouTube</strong><small>Product walkthroughs</small></div><b>↗</b></a>
           </div>
         </div>
@@ -227,30 +375,31 @@
 
     <section class="section cta-section">
       <div class="container cta-box">
-        <div><span class="section-kicker">Open source · local-first · evolving</span><h2>Try Lytrize on your own data.</h2><p>Download the current build or inspect the project on GitHub.</p></div>
-        <div class="cta-actions"><a class="btn btn-primary" href="#download">Download</a><a class="btn btn-secondary" href="https://github.com/Kazake95/lytrize_desktop" target="_blank" rel="noopener">GitHub ↗</a></div>
+        <div><span class="section-kicker">Open source · local-first · evolving</span><h2>Try Lytrize on your own data.</h2><br><b><p>Download the current build or inspect the project on GitHub.</p></b></div>
+        <!-- <div class="cta-actions"><a class="btn btn-primary" href="#download">Download</a><a class="btn btn-secondary" href="https://github.com/Kazake95/lytrize_desktop" target="_blank" rel="noopener">GitHub ↗</a></div> -->
       </div>
     </section>
   
 <section class="section walkthroughs" id="walkthroughs">
   <div class="section-heading">
     <span class="eyebrow">Product walkthroughs</span>
-    <h2>See Lytrize in action.</h2>
+    <h2>Watch the Linux BI app in action.</h2>
     <p>Hands-on demos covering the workflow, analytics, dashboards, and desktop experience.</p>
   </div>
 
   <div class="video-frame">
     <iframe
-      src="https://www.youtube.com/watch?v=TVrVrTDbRKQ"
-      title="Lytrize product walkthroughs"
+      src="https://www.youtube.com/embed/videoseries?list=PLK3uupY-0js4"
+      title="Lytrize product walkthrough playlist"
       loading="lazy"
       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+      referrerpolicy="strict-origin-when-cross-origin"
       allowfullscreen>
     </iframe>
   </div>
 
   <div class="video-actions">
-    <a class="button button-primary" href="https://www.youtube.com/playlist?list=PLK3uupY-0js4" target="_blank" rel="noopener noreferrer">
+    <a class="btn btn-primary" href="https://www.youtube.com/playlist?list=PLK3uupY-0js4" target="_blank" rel="noopener noreferrer">
       Open full playlist on YouTube ↗
     </a>
   </div>
@@ -261,7 +410,7 @@
   <footer class="site-footer">
     <div class="container footer-wrap">
       <div class="footer-brand"><img src="assets/lytrize.png" alt="Lytrize"><div><strong>Lytrize Desktop</strong><span>Privacy-first, local-first analytics.</span></div></div>
-      <div class="footer-links"><a href="https://github.com/Kazake95/lytrize_desktop" target="_blank" rel="noopener">GitHub</a><a href="https://github.com/Kazake95/lytrize_desktop/releases" target="_blank" rel="noopener">Releases</a><a href="https://youtube.com/playlist?list=PLK3uupY-0js4&amp;si=WZTsS_0umwPuhaZM" target="_blank" rel="noopener">YouTube</a><a href="https://in.linkedin.com/in/ravikumar-aiops" target="_blank" rel="noopener">LinkedIn</a></div>
+      <div class="footer-links"><a href="https://github.com/Kazake95/lytrize_desktop" target="_blank" rel="noopener">GitHub</a><a href="https://github.com/Kazake95/lytrize_desktop/releases" target="_blank" rel="noopener">Releases</a><a href="https://youtube.com/playlist?list=PLK3uupY-0js4&amp;si=WZTsS_0umwPuhaZM" target="_blank" rel="noopener">YouTube</a><a href="https://linkedin.com/in/vishal-nath-8261611b9" target="_blank" rel="noopener">LinkedIn</a></div>
       <div class="footer-note">© <span id="year"></span> Lytrize · MIT License</div>
     </div>
   </footer>
